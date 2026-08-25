@@ -1,0 +1,20 @@
+{
+  "services": {
+    "frontend": {
+      "root": "frontend",
+      "type": "static",
+      "public": true,
+      "rewrites": [
+        {
+          "source": "/(.*)",
+          "destination": "/index.html"
+        }
+      ]
+    },
+    "backend": {
+      "root": "backend",
+      "type": "nodejs",
+      "public": false
+    }
+  }
+}
