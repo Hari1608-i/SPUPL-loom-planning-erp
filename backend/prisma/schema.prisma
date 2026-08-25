@@ -1,0 +1,716 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model AllocationAuditLog {
+  id        Int      @id @default(autoincrement())
+  user      String   @default("System")
+  timestamp DateTime @default(now())
+  old_plan  String?
+  new_plan  String
+  reason    String?
+  action    String
+  loom_no   Int
+  design_no String
+}
+
+model BeamPreparationRequest {
+  id                      Int       @id @default(autoincrement())
+  loom_no                 Int
+  design_no               String
+  target_date             DateTime
+  status                  String    @default("WAITING FOR WARPING")
+  priority                String    @default("Medium")
+  warping_vendor          String?
+  warping_dc_no           String?
+  warping_batch           String?
+  sizing_vendor           String?
+  sizing_dc_no            String?
+  sizing_machine          String?
+  vendor_name             String?
+  vendor_beam             String?
+  set_no                  String?
+  beam_no                 String?
+  required_meter          Float?
+  actual_meter            Float?
+  warping_remarks         String?
+  sizing_remarks          String?
+  warping_start_date      DateTime?
+  warping_completion_date DateTime?
+  sizing_start_date       DateTime?
+  sizing_completion_date  DateTime?
+  beam_ready_date         DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime
+}
+
+model BeamStockMaster {
+  id                 Int      @id @default(autoincrement())
+  date               DateTime @default(now())
+  design_no          String
+  vendor_name        String?
+  party_beam_no      String?
+  order_no           String?
+  ibpo               String?
+  customer           String?
+  count              String?
+  ends               Int?
+  beam_dia           Int?
+  beam_no            String
+  beam_length        Float?
+  available_meter    Float
+  current_balance_meter Float?
+  reserved_meter     Float?   @default(0)
+  party              String?
+  set_no             String?
+  order_type         String?
+  warp_dc_no         String?
+  status             String   @default("Available")
+  sizing_status      String?  @default("COMPLETED")
+  loom_no_assigned   Int?
+  beam_type          String?
+  beam_width         Float?
+  construction       String?
+  location           String?
+  ready_status       String?
+  reed_count         String?
+  remarks            String?
+  reserved_for       String?
+  reserved_status    String?
+  reserved_date      DateTime?
+  total_warped_meter Float?
+  unit               String?
+  warping_batch_no   String?
+
+  @@index([status])
+}
+
+model CompletedWarpHistory {
+  id                     Int        @id @default(autoincrement())
+  loom_no                Int
+  design_no_sp_no        String
+  start_date             DateTime
+  end_date               DateTime
+  warp_meter             Float
+  total_production_meter Float
+  running_days           Int
+  avg_daily_production   Float
+  efficiency_pct         Float
+  unit                   String
+  LoomMaster             LoomMaster @relation(fields: [loom_no], references: [loom_no])
+}
+
+model Department {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String?
+}
+
+model DesignMaster {
+  design_no_sp_no       String  @id
+  construction          String?
+  weft_colours          Int
+  weft_colour_details   String?
+  frames                Int
+  reed_count            String?
+  pick                  String?
+  greige_width          String?
+  total_ends            Int?
+  reed_space_warp_width String
+  weave_type            String
+  beam_type             String
+  crimp_percent         Float
+  beam_dia              Int?
+  epi                   Int?
+  ppi                   Int?
+  no_of_clr_warp        Int?
+  no_of_clr_weft        Int?
+  orders OrderMaster[]
+  beamStocks BeamStock[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  status String @default("ACTIVE")
+  remarks String?
+}
+
+model LoginHistory {
+  id         Int       @id @default(autoincrement())
+  username   String
+  loginTime  DateTime  @default(now())
+  logoutTime DateTime?
+  ipAddress  String?
+  device     String?
+  browser    String?
+  status     String
+}
+
+model LoomMaster {
+  loom_no              Int                    @id @default(autoincrement())
+  loom_type            String?
+  shed                 Int?
+  shed_name            String?
+  area                 Int?
+  installed_date       String?
+  rpm                  Int?
+  act_rpm              Int?
+  make                 String?
+  model                String?
+  motor_kw_hp          String?
+  drive                String?
+  control_panel        String?
+  weft_colours         Int?
+  beam_type            String?
+  beam_dia             Int?
+  installed_lever      Int?
+  width                String?
+  unit                 String?
+  weave                String?
+  frame_capacity       Int?
+  max_weft_colours     Int?
+  status               String                 @default("Available")
+  remarks              String?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @default(now())
+  createdBy            String                 @default("System")
+  modifiedBy           String?
+  CompletedWarpHistory CompletedWarpHistory[]
+  LoomRunEntry         LoomRunEntry?
+  PlannedAssignment    PlannedAssignment[]
+}
+
+model LoomRunEntry {
+  id                  Int        @id @default(autoincrement())
+  loom_no             Int        @unique
+  design_no_sp_no     String?
+  current_reed_no     String?
+  current_beam_no     String?
+  set_no              String?
+  beam_id             Int?
+  order_no            String?
+  customer_name       String?
+  loom_start_date     DateTime
+  warped_meter        Float
+  daily_production    Float
+  rpm                 Int?
+  efficiency          Float?
+  shift_hours         Float?
+  working_hours       Float?
+  machine_utilization Float?
+  production_override Float?
+  override_reason     String?
+  next_plan_design    String?
+  remarks             String?
+  LoomMaster          LoomMaster @relation(fields: [loom_no], references: [loom_no])
+}
+
+model DailyProductionLog {
+  id             Int      @id @default(autoincrement())
+  date           DateTime @default(now())
+  loom_no        Int
+  design_no      String
+  produced_meter Float
+  rpm            Int?
+  efficiency     Float?
+  remarks        String?
+  createdAt      DateTime @default(now())
+}
+
+model RunoutHistoryLog {
+  id                   Int      @id @default(autoincrement())
+  loom_no              Int
+  design_no            String
+  beam_no              String?
+  calculation_date     DateTime @default(now())
+  net_balance_meter    Float
+  daily_production     Float
+  rpm                  Int?
+  efficiency           Float?
+  effective_production Float
+  expected_runout_date DateTime
+  runout_source        String
+  confidence_level     String
+  user                 String?  @default("System")
+  planner_override     Boolean  @default(false)
+}
+
+model PlannedAssignment {
+  id                           Int        @id @default(autoincrement())
+  loom_no                      Int
+  current_design               String
+  next_design                  String
+  order_id                     Int?
+  order_no                     String?
+  customer_name                String?
+  required_qty                 Float?
+  required_reed_space          String?
+  required_reed_count          String?
+  planned_start_date           DateTime
+  planned_warp_meter           Float
+  planned_avg_daily_production Float
+  status                       String     @default("NOT PLANNED")
+  reserved_reed_id             Int?
+  reserved_reed_no             String?
+  reed_status                  String?    @default("PENDING")
+  reserved_beam_id             Int?
+  reserved_beam_no             String?
+  reserved_set_no              String?
+  beam_status                  String?    @default("PENDING")
+  sizing_status                String?    @default("PENDING")
+  readiness_status             String?    @default("WAITING FOR RESOURCE")
+  planning_score               Float?     @default(0)
+  expected_start_date          DateTime?
+  expected_finish_date         DateTime?
+  delay_days                   Int?       @default(0)
+  delay_status                 String?    @default("ON TIME")
+  blocker_reason               String?
+  recommended_action           String?
+  remarks                      String?
+  planner_name                 String?
+  confirmation_status          String?
+  change_requested_by          String?
+  change_requested_date        DateTime?
+  change_request_remark        String?
+  decline_remark               String?
+  confirmed_by                 String?
+  confirmed_date               DateTime?
+  createdAt                    DateTime   @default(now())
+  updatedAt                    DateTime   @default(now())
+  LoomMaster                   LoomMaster @relation(fields: [loom_no], references: [loom_no])
+}
+
+model RecommendationHistory {
+  id               Int      @id @default(autoincrement())
+  timestamp        DateTime @default(now())
+  recommended_loom Int
+  selected_loom    Int
+  selected_design  String
+  reason           String
+  planner_name     String   @default("System")
+}
+
+model ReedStockMaster {
+  id                 Int      @id @default(autoincrement())
+  reed_no            String?
+  reed_type          String?
+  reed_count         String
+  reed_space         String?
+  reed_width         String?
+  reed_dent          String?
+  dents_per_inch     Int?
+  total_dents        Int?
+  reed_make          String?
+  vendor             String?
+  unit               String?
+  location           String?
+  available_qty      Int      @default(1)
+  reserved_qty       Int      @default(0)
+  running_qty        Int      @default(0)
+  damaged_qty        Int      @default(0)
+  total_qty          Int      @default(1)
+  status             String   @default("Available")
+  remarks            String?
+  reserved_for_loom  Int?
+  reserved_for_order String?
+  reserved_for_design String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @default(now())
+}
+
+model ReedRequirement {
+  id                  Int      @id @default(autoincrement())
+  order_no            String?
+  design_no           String
+  loom_no             Int?
+  required_reed_count String
+  required_reed_space String?
+  required_width      String?
+  qty                 Int      @default(1)
+  required_date       DateTime?
+  priority            String   @default("URGENT")
+  status              String   @default("REQUIRED")
+  remarks             String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @default(now())
+}
+
+model RoleMaster {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String?
+  template    String?
+}
+
+model SystemAuditLog {
+  id        Int      @id @default(autoincrement())
+  username  String
+  screen    String
+  action    String
+  oldValue  String?
+  newValue  String?
+  timestamp DateTime @default(now())
+}
+
+model User {
+  id             Int       @id @default(autoincrement())
+  employeeId     String    @unique
+  employeeName   String
+  username       String    @unique
+  email          String?
+  mobile         String?
+  department     String?
+  designation    String?
+  password_hash  String
+  role           String    @default("VIEWER")
+  status         String    @default("ACTIVE")
+  failedAttempts Int       @default(0)
+  lastLogin      DateTime?
+  permissions    String?
+  remarks        String?
+  createdBy      String    @default("System")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status])
+  @@index([department])
+  @@index([role])
+}
+
+model OrderMaster {
+  id                        Int       @id @default(autoincrement())
+  order_no                  String?
+  ibpo_no                   String?
+  customer_name             String
+  buyer_name                String?
+  order_type                String?   @default("GREY")
+  combo_pattern             String?
+  finish                    String?
+  design_no_sp_no           String
+  designMaster              DesignMaster @relation(fields: [design_no_sp_no], references: [design_no_sp_no])
+  construction              String?
+  reed_count                String?
+  weave_type                String?
+  epi                       Int?
+  ppi                       Int?
+  total_ends                Int?
+  beam_type                 String?
+  frames                    Int?
+  no_of_clr_warp            Int?
+  no_of_clr_weft            Int?
+  uom                       String    @default("Meters")
+  
+  order_qty                 Float
+  grey_qty                  Float?
+  warp_qty                  Float?
+  beam_capacity             Float?
+  required_beams            Int?
+  
+  planned_warp_beams        Int?
+  current_beam_planned      Int       @default(0)
+  beam_prepared             Int       @default(0)
+  
+  planned_loom_count        Int?
+  avg_production_per_loom   Float?
+  estimated_production_days Float?
+  expected_completion_date  DateTime?
+  
+  sizing_planned_date       DateTime?
+  sizing_completed_date     DateTime?
+  weaving_planned_date      DateTime?
+  weaving_start_date        DateTime?
+  weaving_completion_date   DateTime?
+  expected_dispatch_date    DateTime?
+  actual_dispatch_date      DateTime?
+  
+  priority                  String    @default("NORMAL")
+  planning_status           String    @default("Planning Pending")
+  approval_status           String    @default("APPROVED")
+  yarn_status               String?   @default("APPROVED")
+  sizing_status             String?   @default("APPROVED")
+  beam_status               String?   @default("BEAM NOT AVAILABLE")
+  produced_qty              Float     @default(0)
+  short_excess_qty          Float     @default(0)
+  order_completion_status   String    @default("ACTIVE")
+  actual_completion_date    DateTime?
+  completion_remarks        String?
+  completed_by              String?
+  approved_by               String?
+  approval_date             DateTime?
+  warp_confirmed_qty        Float     @default(0)
+  warp_balance_qty          Float     @default(0)
+  delay_status              String?
+  order_received_date       DateTime  @default(now())
+  target_delivery_date      DateTime?
+  
+  status                    String    @default("ORDER RECEIVED")
+  remarks                   String?
+  
+  createdBy                 String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  BeamRequirements BeamRequirement[]
+}
+
+model OrderCompletionHistory {
+  id                        Int       @id @default(autoincrement())
+  order_no                  String    @unique
+  ibpo_no                   String?
+  customer_name             String
+  buyer_name                String?
+  design_no_sp_no           String
+  construction              String?
+  order_qty                 Float
+  grey_qty                  Float?
+  warp_qty                  Float?
+  uom                       String    @default("Meters")
+  order_received_date       DateTime
+  target_delivery_date      DateTime?
+  
+  // Yarn Details
+  required_yarn_qty         Float?
+  confirmed_yarn_qty        Float?
+  balance_yarn_qty          Float?
+  yarn_confirmation_date    DateTime?
+  
+  // Sizing Details
+  sizing_required_qty       Float?
+  sizing_confirmed_qty      Float?
+  sizing_date               DateTime?
+  sizing_completion_date    DateTime?
+  
+  // Beam Details
+  beams_used                String?
+  
+  // Weaving Details
+  looms_used                String?
+  loom_start_date           DateTime?
+  loom_end_date             DateTime?
+  daily_production_avg      Float?
+  total_produced_meter      Float?
+  
+  // Completion Details
+  final_status              String    @default("COMPLETED")
+  produced_qty              Float
+  short_excess_qty          Float?    @default(0)
+  actual_completion_date    DateTime  @default(now())
+  delay_days                Int?      @default(0)
+  delay_reason              String?
+  corrective_action         String?
+  planner_remarks           String?
+  completed_by              String?
+  createdAt                 DateTime  @default(now())
+}
+
+
+model BeamRequirement {
+  id             Int      @id @default(autoincrement())
+  order_id       Int
+  order_no       String
+  design_no      String
+  beam_no        Int
+  beam_type      String?
+  beam_dia       Int?
+  required_meter Float
+  required_ends  Int?
+  beam_width     String?
+  status         String   @default("Pending")
+  beam_stock_id  Int?
+  remarks        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  OrderMaster OrderMaster @relation(fields: [order_id], references: [id])
+}
+
+model BeamStock {
+  id                     Int        @id @default(autoincrement())
+  beamNo                 String     @unique
+  vendorBeamNo           String?    @unique
+  warpingDcNo            String?
+  warpingVendor          String?
+  warpingBatchNo         String?
+  setNo                  String?
+  beamSerialNo           String?
+  beamType               String?
+  beamDiameter           Float?
+  beamWidth              Float?
+  beamLength             Float?
+  beamWeight             Float?
+  beamStatus             BeamStatus @default(NOT_PLANNED)
+  beamLocation           String?
+  unit                   String?
+  remarks                String?
+  designNo               String?
+  design                 DesignMaster? @relation(fields: [designNo], references: [design_no_sp_no])
+  orderNumber            String?
+  ibpoNumber             String?
+  customer               String?
+  orderQuantity          Float?
+  warpQuantity           Float?
+  requiredBeamQuantity   Int?
+  totalEnds              Int?
+  warpMeter              Float?
+  currentBalanceMeter    Float?
+  beamCapacity           Float?
+  reservedMeter          Float?
+  runningMeter           Float?
+  balanceMeter           Float?
+  warpingStatus          WarpingStatus @default(NOT_PLANNED)
+  sizingStatus           SizingStatus  @default(NOT_PLANNED)
+  loomStatus             LoomStatus    @default(NOT_ALLOCATED)
+  beamPlannedDate        DateTime?
+  warpingStartDate       DateTime?
+  warpingCompletionDate  DateTime?
+  sizingStartDate        DateTime?
+  sizingCompletionDate   DateTime?
+  beamReadyDate          DateTime?
+  loomAllocationDate     DateTime?
+  productionStartDate    DateTime?
+  productionCompletionDate DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  histories              BeamHistory[]
+}
+
+enum BeamStatus {
+  NOT_PLANNED
+  PLANNED
+  WARPING_RUNNING
+  WARPING_COMPLETED
+  SIZING_RUNNING
+  SIZING_COMPLETED
+  READY
+  RESERVED
+  RUNNING
+  COMPLETED
+  ARCHIVED
+}
+
+enum WarpingStatus {
+  NOT_PLANNED
+  PLANNED
+  RUNNING
+  COMPLETED
+}
+
+enum SizingStatus {
+  NOT_PLANNED
+  PLANNED
+  RUNNING
+  COMPLETED
+  READY
+}
+
+enum LoomStatus {
+  NOT_ALLOCATED
+  RESERVED
+  RUNNING
+  COMPLETED
+}
+
+model BeamHistory {
+  id          Int      @id @default(autoincrement())
+  beamStockId Int
+  beamStock   BeamStock @relation(fields: [beamStockId], references: [id])
+  status      BeamStatus
+  changedAt   DateTime @default(now())
+  changedBy   String?
+  remarks     String?
+}
+
+model YarnConfirmation {
+  id                    Int       @id @default(autoincrement())
+  order_no              String    @unique
+  ibpo_no               String?
+  design_no             String
+  customer_name         String
+  construction          String?
+  order_qty             Float     @default(0)
+  required_warp_qty     Float     @default(0)
+  confirmed_warp_qty    Float     @default(0)
+  received_warp_qty     Float     @default(0)
+  balance_warp_qty      Float     @default(0)
+  required_weft_qty     Float     @default(0)
+  confirmed_weft_qty    Float     @default(0)
+  received_weft_qty     Float     @default(0)
+  balance_weft_qty      Float     @default(0)
+  yarn_status           String    @default("YARN CONFIRMATION PENDING")
+  confirmation_type     String?   @default("FULL")
+  confirmation_date     DateTime?
+  confirmed_by          String?
+  expected_receipt_date DateTime?
+  remarks               String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model SizingConfirmation {
+  id                      Int       @id @default(autoincrement())
+  order_no                String    @unique
+  ibpo_no                 String?
+  design_no               String
+  customer_name           String
+  construction            String?
+  warp_required_qty       Float     @default(0)
+  warp_confirmed_qty      Float     @default(0)
+  warp_received_qty       Float     @default(0)
+  warp_balance_qty        Float     @default(0)
+  sizing_required_qty     Float     @default(0)
+  sizing_eligible_qty     Float     @default(0)
+  sizing_completed_qty    Float     @default(0)
+  sizing_planned_date     DateTime?
+  actual_receipt_date     DateTime?
+  sizing_completed_date   DateTime?
+  status                  String    @default("PENDING")
+  remarks                 String?
+  confirmed_by            String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+}
+
+model ErpAlert {
+  id                Int       @id @default(autoincrement())
+  alert_code        String?
+  date              DateTime  @default(now())
+  department        String    @default("Planning")
+  order_no          String?
+  design_no         String?
+  loom_no           Int?
+  beam_no           String?
+  priority          String    @default("HIGH PRIORITY")
+  message           String
+  reason            String?
+  suggested_action  String?
+  status            String    @default("OPEN")
+  acknowledged_by   String?
+  acknowledged_date DateTime?
+  remarks           String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model DelayRecord {
+  id               Int       @id @default(autoincrement())
+  order_no         String?
+  design_no        String?
+  loom_no          Int?
+  module_type      String    @default("Sizing")
+  planned_date     DateTime
+  actual_date      DateTime?
+  delay_days       Int       @default(0)
+  delay_reason     String?
+  responsible_dept String?   @default("Sizing")
+  suggested_action String?
+  recovery_date    DateTime?
+  planner_decision String?
+  status           String    @default("OPEN")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+

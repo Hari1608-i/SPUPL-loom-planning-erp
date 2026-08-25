@@ -1,0 +1,393 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Custom scrollbar ───────────────────────────────────────────── */
+.custom-scrollbar::-webkit-scrollbar        { width: 5px; height: 5px; }
+.custom-scrollbar::-webkit-scrollbar-track  { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb  { background: #cbd5e1; border-radius: 9999px; }
+.dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; }
+
+/* ── CSS variables: Light Theme ─────────────────────────────────── */
+:root {
+  --bg-page:        #F5F7FA;
+  --bg-card:        #FFFFFF;
+  --bg-card-hover:  #F8FAFC;
+  --bg-header:      #FFFFFF;
+  --bg-sidebar:     #0F1B33;
+  --bg-row-alt:     #F8FAFC;
+  --bg-input:       #FFFFFF;
+  --bg-badge:       #F1F5F9;
+
+  --text-primary:   #172033;
+  --text-secondary: #475569;
+  --text-muted:     #64748B;
+  --text-heading:   #0F1B33;
+
+  --border-color:   #D7DEE8;
+  --border-subtle:  #E2E8F0;
+
+  --primary-blue:   #2563EB;
+  --secondary-teal: #0F766E;
+  --success-green:  #059669;
+  --warning-orange: #D97706;
+  --danger-red:     #DC2626;
+  --info-cyan:      #0284C7;
+  --purple-special: #7C3AED;
+
+  --shadow-card:    0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.03);
+  --shadow-header:  0 1px 3px rgba(0,0,0,0.05);
+}
+
+/* ── CSS variables: Dark Theme ──────────────────────────────────── */
+.dark {
+  --bg-page:        #0B1220;
+  --bg-card:        #111B2E;
+  --bg-card-hover:  #162238;
+  --bg-header:      #111B2E;
+  --bg-sidebar:     #070D18;
+  --bg-row-alt:     #0F172A;
+  --bg-input:       #111B2E;
+  --bg-badge:       #1E293B;
+
+  --text-primary:   #F1F5F9;
+  --text-secondary: #CBD5E1;
+  --text-muted:     #94A3B8;
+  --text-heading:   #F8FAFC;
+
+  --border-color:   #263449;
+  --border-subtle:  #1E293B;
+
+  --primary-blue:   #3B82F6;
+  --secondary-teal: #14B8A6;
+  --success-green:  #10B981;
+  --warning-orange: #F59E0B;
+  --danger-red:     #EF4444;
+  --info-cyan:      #38BDF8;
+  --purple-special: #8B5CF6;
+
+  --shadow-card:    0 4px 6px rgba(0,0,0,0.3);
+  --shadow-header:  0 1px 3px rgba(0,0,0,0.4);
+}
+
+/* ── Base layer ─────────────────────────────────────────────────── */
+@layer base {
+  html {
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+  body {
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+  }
+}
+
+/* ── Global Theme Overrides (Industrial High Contrast ERP) ──────────── */
+
+/* Sidebar dark & light theme surface locks */
+.bg-spu-sidebar {
+  background-color: #0F1B33 !important;
+}
+.dark .bg-spu-sidebar {
+  background-color: #070D18 !important;
+}
+
+/* High contrast table headers across light & dark mode */
+thead, .dark thead {
+  background-color: #0F1B33 !important;
+  color: #FFFFFF !important;
+}
+thead tr th, .dark thead tr th {
+  color: #FFFFFF !important;
+  font-weight: 800 !important;
+}
+
+.dark thead {
+  background-color: #070D18 !important;
+  color: #F8FAFC !important;
+}
+
+/* Page & Card backgrounds */
+.dark .bg-white               { background-color: var(--bg-card) !important; }
+.dark .bg-slate-50,
+.dark .bg-spu-background      { background-color: var(--bg-page) !important; }
+.dark .bg-slate-100           { background-color: var(--bg-badge) !important; }
+.dark .bg-slate-200           { background-color: #1E293B !important; }
+.dark .bg-gray-50             { background-color: var(--bg-page) !important; }
+.dark .bg-gray-100            { background-color: var(--bg-badge) !important; }
+.dark .bg-slate-900           { background-color: #0B1220 !important; }
+.dark .bg-slate-800           { background-color: #111B2E !important; }
+
+/* Palette dark overrides */
+.dark .bg-industrial-50       { background-color: #162238 !important; }
+.dark .bg-industrial-100      { background-color: var(--bg-badge) !important; }
+.dark .bg-blue-50             { background-color: #1E3A5F !important; }
+.dark .bg-blue-100            { background-color: #1E3A5F !important; }
+.dark .bg-indigo-50           { background-color: #1E274D !important; }
+.dark .bg-teal-50             { background-color: #0F2A28 !important; }
+.dark .bg-green-50            { background-color: #14291E !important; }
+.dark .bg-emerald-50          { background-color: #0F2019 !important; }
+.dark .bg-yellow-50           { background-color: #2A1F0A !important; }
+.dark .bg-orange-50           { background-color: #2A1705 !important; }
+.dark .bg-red-50              { background-color: #2D1214 !important; }
+.dark .bg-purple-50           { background-color: #1F1533 !important; }
+
+/* Text contrast overrides */
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700,
+.dark .text-gray-900,
+.dark .text-gray-800,
+.dark .text-gray-700,
+.dark .text-industrial-900,
+.dark .text-industrial-800,
+.dark .text-industrial-700    { color: var(--text-primary) !important; }
+
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-gray-600,
+.dark .text-gray-500,
+.dark .text-industrial-600,
+.dark .text-industrial-500    { color: var(--text-secondary) !important; }
+
+.dark .text-slate-400,
+.dark .text-gray-400,
+.dark .text-industrial-400    { color: var(--text-muted) !important; }
+
+/* High contrast borders */
+.border-slate-200, .border-slate-100 {
+  border-color: #D7DEE8 !important;
+}
+.dark .border-slate-200,
+.dark .border-slate-100,
+.dark .border-gray-200,
+.dark .border-gray-100,
+.dark .border-industrial-100,
+.dark .border-industrial-200,
+.dark .border-slate-700,
+.dark .border-slate-800       { border-color: var(--border-color) !important; }
+
+.dark .border-slate-300,
+.dark .border-gray-300        { border-color: #334155 !important; }
+
+.dark .border-blue-200        { border-color: #1E40AF !important; }
+.dark .border-teal-200        { border-color: #115E59 !important; }
+.dark .border-emerald-200     { border-color: #065F46 !important; }
+.dark .border-green-200       { border-color: #14532D !important; }
+.dark .border-red-200         { border-color: #7F1D1D !important; }
+
+/* Divide */
+.dark .divide-slate-100>:not([hidden])~:not([hidden]),
+.dark .divide-industrial-100>:not([hidden])~:not([hidden]),
+.dark .divide-slate-700>:not([hidden])~:not([hidden]) {
+  border-color: var(--border-color) !important;
+}
+
+/* Inputs */
+input, select, textarea {
+  border-color: #CBD5E1;
+}
+.dark input,
+.dark textarea,
+.dark select {
+  background-color: var(--bg-input) !important;
+  color: var(--text-primary) !important;
+  border-color: #334155 !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder   { color: var(--text-muted) !important; }
+
+/* Tables */
+.dark tbody tr:hover          { background-color: var(--bg-card-hover) !important; }
+.dark .text-blue-900          { color: #93C5FD !important; }
+.dark .text-blue-800          { color: #60A5FA !important; }
+.dark .text-blue-700          { color: #93C5FD !important; }
+.dark .text-blue-600          { color: #60A5FA !important; }
+.dark .text-blue-500          { color: #93C5FD !important; }
+.dark .bg-blue-50\/30         { background-color: rgba(30,58,95,0.4) !important; }
+.dark .bg-industrial-50\/40   { background-color: rgba(15,23,42,0.6) !important; }
+
+/* Cards / shadows */
+.dark .shadow-sm              { box-shadow: 0 1px 3px rgba(0,0,0,0.5) !important; }
+.dark .shadow-md              { box-shadow: 0 4px 8px rgba(0,0,0,0.5) !important; }
+.dark .shadow-lg              { box-shadow: 0 8px 20px rgba(0,0,0,0.6) !important; }
+
+/* Badges & chips */
+.dark .bg-slate-100.text-slate-700,
+.dark .bg-slate-100.text-slate-600 {
+  background-color: var(--bg-badge) !important;
+  color: var(--text-secondary) !important;
+}
+
+/* Buttons — keep colored buttons as-is, soften ghost variants */
+.dark .bg-white.text-slate-700  { background-color: var(--bg-card) !important; color: var(--text-primary) !important; }
+.dark .hover\:bg-slate-100:hover { background-color: var(--bg-badge) !important; }
+.dark .hover\:bg-slate-50:hover  { background-color: var(--bg-badge) !important; }
+
+/* Dividers */
+.dark .bg-slate-200           { background-color: #334155 !important; }
+.dark hr                      { border-color: var(--border-color) !important; }
+
+/* Glassmorphism cards (used in some dashboards) */
+.dark .backdrop-blur-xl       { backdrop-filter: blur(16px); }
+
+/* Smooth transition for theme switch on ALL elements */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: 200ms;
+  transition-timing-function: ease;
+}
+
+/* ── Print Media Optimizations ──────────────────────────────────── */
+.print-watermark-logo {
+  display: none !important;
+}
+
+@media print {
+  @page {
+    size: auto;
+    margin: 8mm;
+  }
+
+  /* Reset background & text colors for high-contrast print */
+  *, *::before, *::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+    transition: none !important;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Completely disable watermark logo to prevent right-top overlap */
+  .print-watermark-logo {
+    display: none !important;
+  }
+
+  /* Hide screen-only navigation, headers, sidebars, controls, search, action buttons */
+  aside, 
+  header, 
+  nav, 
+  .no-print, 
+  .print\:hidden,
+  button:not(.print-keep), 
+  input[type="search"], 
+  .search-bar, 
+  .action-buttons, 
+  .action-column, 
+  .no-print-area,
+  .pagination-controls {
+    display: none !important;
+  }
+
+  .print\:flex {
+    display: flex !important;
+  }
+
+  .print\:block {
+    display: block !important;
+  }
+
+  /* Ensure containers do not scroll or cut off content */
+  main, 
+  #root, 
+  .flex-1, 
+  .overflow-auto, 
+  .overflow-x-auto, 
+  .overflow-y-auto {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Global Printable Table & Column Auto-Fitting */
+  table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: auto !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+    font-size: 10px !important;
+    margin-bottom: 12px !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tbody {
+    display: table-row-group !important;
+  }
+
+  tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  th, td {
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    white-space: normal !important;
+    padding: 4px 6px !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+
+  th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: 800 !important;
+  }
+
+  /* Flatten form controls in print mode */
+  input, select, textarea {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    appearance: none !important;
+    color: #000000 !important;
+    padding: 0 !important;
+  }
+}
+
+
+
+/* --- Refresh Button Blink Animation ------------------------------- */
+@keyframes refresh-blink {
+  0%   { transform: rotate(0deg);   opacity: 1;    filter: brightness(1);   }
+  20%  { transform: rotate(90deg);  opacity: 0.4;  filter: brightness(2);   }
+  40%  { transform: rotate(180deg); opacity: 1;    filter: brightness(1.5); }
+  60%  { transform: rotate(270deg); opacity: 0.5;  filter: brightness(2);   }
+  80%  { transform: rotate(320deg); opacity: 0.9;  filter: brightness(1.2); }
+  100% { transform: rotate(360deg); opacity: 1;    filter: brightness(1);   }
+}
+
+.animate-refresh-spin {
+  animation: refresh-blink 0.7s ease-in-out 1;
+}
+
+/* Refresh button container pulse */
+@keyframes refresh-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); background-color: transparent; }
+  30%       { box-shadow: 0 0 0 6px rgba(99,102,241,0.25); background-color: rgba(99,102,241,0.12); }
+  70%       { box-shadow: 0 0 0 3px rgba(99,102,241,0.15); background-color: rgba(99,102,241,0.06); }
+}
+
+.animate-refresh-pulse {
+  animation: refresh-pulse 0.7s ease-in-out 1;
+}
