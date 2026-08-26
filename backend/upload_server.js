@@ -5916,12 +5916,9 @@ app.post('/api/sizing/requests/:id/ready', async (req, res) => {
 
 const PORT = process.env.PORT || 3002;
 if (process.env.VERCEL !== '1') {
-  app.listen(3002, () => {
-    console.log('Server running on port 3002');
+  app.listen(PORT, () => {
+    console.log('Server running on port ' + PORT);
   });
 }
-}
-
-module.exports = app;
 
 module.exports = app;
