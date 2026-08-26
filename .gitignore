@@ -34,3 +34,4 @@ Thumbs.db
 backend/prisma/dev.db
 backend/.env
 .vercel
+.env*

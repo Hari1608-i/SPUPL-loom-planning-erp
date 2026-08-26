@@ -1,8 +1,13 @@
 {
   "version": 2,
-  "buildCommand": "npm --prefix frontend run build",
+  "buildCommand": "npm install --prefix backend && npm install --prefix frontend && npm --prefix frontend run build",
   "outputDirectory": "frontend/dist",
-  "installCommand": "npm install --prefix frontend",
+  "installCommand": "npm install --prefix backend && npm install --prefix frontend",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60
+    }
+  },
   "rewrites": [
     {
       "source": "/api/:match*",
