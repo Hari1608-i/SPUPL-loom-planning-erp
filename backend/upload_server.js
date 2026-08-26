@@ -58,25 +58,25 @@ app.use('/api/auth/login', (req, res, next) => {
 });
 
 // Middleware to prevent error information leakage from database and internal libraries
-app.use((req, res, next) => {
-  const originalJson = res.json;
-  res.json = function (obj) {
-    if (res.statusCode === 500 && obj && obj.error) {
-      const msg = String(obj.error);
-      if (
-        msg.includes('Prisma') ||
-        msg.includes('database') ||
-        msg.includes('sqlite') ||
-        msg.includes('SELECT') ||
-        msg.includes('ForeignKeyConstraint')
-      ) {
-        obj.error = 'Internal Server Error';
-      }
-    }
-    return originalJson.call(this, obj);
-  };
-  next();
-});
+// app.use((req, res, next) => {
+//   const originalJson = res.json;
+//   res.json = function (obj) {
+//     if (res.statusCode === 500 && obj && obj.error) {
+//       const msg = String(obj.error);
+//       if (
+//         msg.includes('Prisma') ||
+//         msg.includes('database') ||
+//         msg.includes('sqlite') ||
+//         msg.includes('SELECT') ||
+//         msg.includes('ForeignKeyConstraint')
+//       ) {
+//         obj.error = 'Internal Server Error';
+//       }
+//     }
+//     return originalJson.call(this, obj);
+//   };
+//   next();
+// });
 
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -5915,10 +5915,11 @@ app.post('/api/sizing/requests/:id/ready', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3002;
-if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+if (process.env.VERCEL !== '1') {
+  app.listen(3002, () => {
+    console.log('Server running on port 3002');
   });
+}
 }
 
 module.exports = app;

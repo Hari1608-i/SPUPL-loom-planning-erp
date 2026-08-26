@@ -1,11 +1,12 @@
 {
   "version": 2,
- "buildCommand": "cd backend && npx prisma generate && cd .. && npm install --prefix backend && npm install --prefix frontend && npm --prefix frontend run build",
-  "installCommand": "npm install --prefix backend && npm install --prefix frontend",
+  "buildCommand": "cd backend && npx prisma generate && cd .. && npm install --prefix backend && npm install --prefix frontend && npm --prefix frontend run build",
   "outputDirectory": "frontend/dist",
+  "installCommand": "npm install --prefix backend && npm install --prefix frontend",
   "functions": {
     "api/index.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "backend/prisma/schema.prisma"
     }
   },
   "rewrites": [
