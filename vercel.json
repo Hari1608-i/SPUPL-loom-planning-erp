@@ -3,11 +3,6 @@
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/dist",
   "installCommand": "npm install",
-  "functions": {
-    "api/index.js": {
-      "runtime": "nodejs24.x"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/:match*",
