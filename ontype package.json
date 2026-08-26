@@ -1,0 +1,44 @@
+[1mdiff --git a/vercel.json b/vercel.json[m
+[1mindex 2b10f13..2103ba9 100644[m
+[1m--- a/vercel.json[m
+[1m+++ b/vercel.json[m
+[36m@@ -1,33 +1,12 @@[m
+ {[m
+[31m-  "version": 2,[m
+[31m-  "builds": [[m
+[32m+[m[32m  "rewrites": [[m
+     {[m
+[31m-      "src": "api/index.js",[m
+[31m-      "use": "@vercel/node"[m
+[32m+[m[32m      "source": "/api/:match*",[m
+[32m+[m[32m      "destination": "/api/index.js"[m
+     },[m
+     {[m
+[31m-      "src": "frontend/package.json",[m
+[31m-      "use": "@vercel/static-build",[m
+[31m-      "config": {[m
+[31m-        "distDir": "dist"[m
+[31m-      }[m
+[31m-    }[m
+[31m-  ],[m
+[31m-  "routes": [[m
+[31m-    {[m
+[31m-      "src": "/api/(.*)",[m
+[31m-      "dest": "api/index.js"[m
+[31m-    },[m
+[31m-    {[m
+[31m-      "src": "/assets/(.*)",[m
+[31m-      "dest": "frontend/assets/$1"[m
+[31m-    },[m
+[31m-    {[m
+[31m-      "handle": "filesystem"[m
+[31m-    },[m
+[31m-    {[m
+[31m-      "src": "/(.*)",[m
+[31m-      "dest": "frontend/index.html"[m
+[32m+[m[32m      "source": "/(.*)",[m
+[32m+[m[32m      "destination": "/index.html"[m
+     }[m
+   ][m
+ }[m
+\ No newline at end of file[m
