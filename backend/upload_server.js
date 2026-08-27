@@ -3,7 +3,10 @@ const express = require('express');
 const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
 
-const prisma = new PrismaClient();
+const globalForPrisma = global;
+const prisma = globalForPrisma.prisma || new PrismaClient();
+globalForPrisma.prisma = prisma;
+
 const app = express();
 
 const allowedOrigins = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) : '*';
