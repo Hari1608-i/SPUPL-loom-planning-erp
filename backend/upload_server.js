@@ -4,8 +4,10 @@ const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
 
 const globalForPrisma = global;
-const prisma = globalForPrisma.prisma || new PrismaClient();
-globalForPrisma.prisma = prisma;
+const prisma = globalForPrisma.prisma || new PrismaClient({
+  log: ['error']
+});
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 const app = express();
 
