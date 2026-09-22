@@ -5,7 +5,6 @@ const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-// Reuse Prisma instance for serverless stability
 const globalForPrisma = global;
 const prisma = globalForPrisma.prisma || new PrismaClient({ log: ['error'] });
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
@@ -26,7 +25,6 @@ const JWT_SECRET = process.env.JWT_SECRET || 'spu_loom_erp_super_secret_key_2026
 const DEFAULT_ADMIN_USERNAME = process.env.DEFAULT_ADMIN_USERNAME || 'ADMIN';
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'spupl!@#$%';
 
-// Safe password comparator
 async function safeComparePassword(inputPassword, storedHash) {
   if (!inputPassword || !storedHash) return false;
   if (inputPassword === storedHash) return true;
@@ -86,6 +84,20 @@ app.post('/api/auth/login', async (req, res) => {
         ]
       }
     });
+
+    if (!user && cleanUsername.toUpperCase() === DEFAULT_ADMIN_USERNAME.toUpperCase()) {
+      const hash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
+      user = await prisma.user.create({
+        data: {
+          employeeId: 'ADMIN001',
+          employeeName: 'System Administrator',
+          username: DEFAULT_ADMIN_USERNAME,
+          password_hash: hash,
+          role: 'ADMINISTRATOR',
+          status: 'ACTIVE'
+        }
+      });
+    }
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid Username or Password' });
@@ -207,7 +219,7 @@ app.post('/api/daily-report', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// LOOMS, RUNS & DESIGNS API
+// LOOMS, RUNS, DESIGNS & HISTORY API
 // ----------------------------------------------------
 app.get('/api/looms', async (req, res) => {
   try {
@@ -236,14 +248,22 @@ app.get('/api/active-runs', async (req, res) => {
   }
 });
 
+app.get('/api/completed-runs', async (req, res) => {
+  try {
+    const history = await prisma.completedWarpHistory.findMany({ orderBy: { end_date: 'desc' } });
+    res.json(history);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/reports/design-running', async (req, res) => {
   try {
-    const [activeRuns, loomMasters, designMasters, orderMasters, dailyLogs] = await Promise.all([
+    const [activeRuns, loomMasters, designMasters, orderMasters] = await Promise.all([
       prisma.loomRunEntry.findMany(),
       prisma.loomMaster.findMany(),
       prisma.designMaster.findMany(),
-      prisma.orderMaster.findMany(),
-      prisma.dailyProductionLog.findMany()
+      prisma.orderMaster.findMany()
     ]);
 
     const loomMap = new Map(loomMasters.map(l => [l.loom_no, l]));
@@ -279,7 +299,7 @@ app.get('/api/reports/design-running', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// ORDERS & PLANNING API
+// ORDERS, STOCKS & PLANNING API
 // ----------------------------------------------------
 app.get('/api/orders', async (req, res) => {
   try {
@@ -303,6 +323,15 @@ app.get('/api/reed-stock', async (req, res) => {
   try {
     const reeds = await prisma.reedStockMaster.findMany({ orderBy: { reed_count: 'asc' } });
     res.json(reeds);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/reed-requirements', async (req, res) => {
+  try {
+    const reqs = await prisma.reedRequirement.findMany({ orderBy: { createdAt: 'desc' } });
+    res.json(reqs);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -344,10 +373,22 @@ app.get('/api/production-logs', async (req, res) => {
   }
 });
 
+app.get('/api/users', async (req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: { id: true, employeeId: true, employeeName: true, username: true, role: true, department: true, status: true },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json({ users, total: users.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // CRITICAL FOR VERCEL SERVERLESS EXPORT
 module.exports = app;
 
 if (!process.env.VERCEL) {
   const PORT = process.env.PORT || 3002;
-  app.listen(PORT, () => console.log(`Local API server on ${PORT}`));
+  app.listen(PORT, () => console.log(`Backend server running locally on port ${PORT}`));
 }
