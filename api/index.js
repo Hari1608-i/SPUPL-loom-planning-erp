@@ -1,3 +1,2 @@
-const app = require('../backend/upload_server.js');
-
+const app = require('../backend/upload_server');
 module.exports = app;
