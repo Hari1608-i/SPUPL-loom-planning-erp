@@ -117,7 +117,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// DAILY OPERATIONAL REPORTS API
+// DAILY OPERATIONAL REPORTS API (Including History Dates)
 // ----------------------------------------------------
 function computePerformanceMark(target, actual, pct) {
   if (target === null || target === undefined || target <= 0) return 'N/A';
@@ -150,6 +150,35 @@ app.get('/api/daily-report', async (req, res) => {
     ]);
 
     res.json({ entries, count: entries.length, departmentMasters: masters });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/daily-report/history-dates', async (req, res) => {
+  try {
+    const rawDates = await prisma.dailyReportEntry.groupBy({
+      by: ['report_date', 'department_code'],
+      _count: { id: true }
+    });
+
+    const dateMap = new Map();
+    rawDates.forEach(r => {
+      if (!dateMap.has(r.report_date)) {
+        dateMap.set(r.report_date, new Set());
+      }
+      dateMap.get(r.report_date).add(r.department_code);
+    });
+
+    const dates = Array.from(dateMap.entries())
+      .map(([date, depts]) => ({
+        date,
+        enteredDepartmentsCount: depts.size,
+        departments: Array.from(depts)
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    res.json({ dates, count: dates.length });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
