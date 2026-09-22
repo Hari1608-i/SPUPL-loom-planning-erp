@@ -117,7 +117,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// DAILY OPERATIONAL REPORTS API (Including History Dates)
+// DAILY OPERATIONAL REPORTS API
 // ----------------------------------------------------
 function computePerformanceMark(target, actual, pct) {
   if (target === null || target === undefined || target <= 0) return 'N/A';
@@ -393,12 +393,12 @@ app.get('/api/erp-alerts', async (req, res) => {
   }
 });
 
-app.get('/api/production-logs', async (req, res) => {
+app.get('/api/production-logs', async (logReq, logRes) => {
   try {
     const logs = await prisma.dailyProductionLog.findMany({ orderBy: { date: 'desc' }, take: 2000 });
-    res.json(logs);
+    logRes.json(logs);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    logRes.status(500).json({ error: error.message });
   }
 });
 
