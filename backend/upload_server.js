@@ -5,7 +5,7 @@ const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-// Global Prisma instance for serverless connection reuse
+// Reuse Prisma instance for serverless stability
 const globalForPrisma = global;
 const prisma = globalForPrisma.prisma || new PrismaClient({ log: ['error'] });
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
@@ -18,6 +18,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-role', 'x-user-role', 'x-user']
 }));
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.text({ limit: '50mb' }));
 
@@ -25,81 +26,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'spu_loom_erp_super_secret_key_2026
 const DEFAULT_ADMIN_USERNAME = process.env.DEFAULT_ADMIN_USERNAME || 'ADMIN';
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'spupl!@#$%';
 
-app.get('/', (req, res) => {
-  res.json({
-    status: 'online',
-    system: 'SPU Loom ERP Backend API Server',
-    port: 3002,
-    health: '/api/system-health'
-  });
-});
-
-app.get('/api', (req, res) => {
-  res.json({
-    status: 'online',
-    system: 'SPU Loom ERP API',
-    version: '1.0.0'
-  });
-});
-
-// In-memory Rate Limiting Middleware
-const rateLimitMap = new Map();
-app.use('/api/auth/login', (req, res, next) => {
-  const ip = req.ip || req.socket.remoteAddress;
-  const now = Date.now();
-  const limitWindow = 15 * 60 * 1000;
-  const maxAttempts = 100;
-
-  if (!rateLimitMap.has(ip)) {
-    rateLimitMap.set(ip, []);
-  }
-
-  const timestamps = rateLimitMap.get(ip);
-  const activeTimestamps = timestamps.filter(t => now - t < limitWindow);
-  activeTimestamps.push(now);
-  rateLimitMap.set(ip, activeTimestamps);
-
-  if (activeTimestamps.length > maxAttempts) {
-    return res.status(429).json({ error: 'Too many login attempts. Please try again later.' });
-  }
-  next();
-});
-
-// Response cache
-const responseCache = new Map();
-let lastInvalidationTime = Date.now();
-
-app.use((req, res, next) => {
-  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
-    responseCache.clear();
-    lastInvalidationTime = Date.now();
-    return next();
-  }
-
-  if (req.method === 'GET' && req.path.startsWith('/api/')) {
-    if (req.path.includes('/next-plans') || req.path.includes('/active-runs')) {
-      return next();
-    }
-
-    const key = req.originalUrl || req.url;
-    const cached = responseCache.get(key);
-    const now = Date.now();
-    if (cached && (now - cached.timestamp < 2000) && cached.timestamp >= lastInvalidationTime) {
-      return res.json(cached.data);
-    }
-
-    const originalJson = res.json;
-    res.json = function (body) {
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        responseCache.set(key, { timestamp: Date.now(), data: body });
-      }
-      return originalJson.call(this, body);
-    };
-  }
-  next();
-});
-
-// Helper function to safely compare passwords (bcrypt hash or plain text)
+// Safe password comparator
 async function safeComparePassword(inputPassword, storedHash) {
   if (!inputPassword || !storedHash) return false;
   if (inputPassword === storedHash) return true;
@@ -111,9 +38,35 @@ async function safeComparePassword(inputPassword, storedHash) {
 }
 
 // ----------------------------------------------------
-// AUTHENTICATION & USER MANAGEMENT API
+// SYSTEM HEALTH & ROOT
 // ----------------------------------------------------
+app.get('/', (req, res) => res.json({ status: 'online', system: 'SPU Loom ERP Backend API Server' }));
+app.get('/api', (req, res) => res.json({ status: 'online', version: '1.0.0' }));
 
+app.get('/api/system-health', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    const [looms, designs, runs, orders, beams, reeds] = await Promise.all([
+      prisma.loomMaster.count(),
+      prisma.designMaster.count(),
+      prisma.loomRunEntry.count(),
+      prisma.orderMaster.count(),
+      prisma.beamStockMaster.count(),
+      prisma.reedStockMaster.count()
+    ]);
+    res.json({
+      status: 'Healthy',
+      dbConnected: true,
+      metrics: { totalLooms: looms, totalDesigns: designs, runningLooms: runs, totalOrders: orders, totalBeams: beams, totalReeds: reeds }
+    });
+  } catch (e) {
+    res.status(500).json({ status: 'Critical', error: e.message });
+  }
+});
+
+// ----------------------------------------------------
+// AUTHENTICATION
+// ----------------------------------------------------
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -134,152 +87,128 @@ app.post('/api/auth/login', async (req, res) => {
       }
     });
 
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-
-    // Auto-create default admin if logging in as admin and table is empty
-    if (!user && cleanUsername.toUpperCase() === DEFAULT_ADMIN_USERNAME.toUpperCase()) {
-      const hash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
-      user = await prisma.user.create({
-        data: {
-          employeeId: 'ADMIN001',
-          employeeName: 'System Administrator',
-          username: DEFAULT_ADMIN_USERNAME,
-          password_hash: hash,
-          role: 'ADMINISTRATOR',
-          status: 'ACTIVE'
-        }
-      });
-    }
-
     if (!user) {
       return res.status(401).json({ error: 'Invalid Username or Password' });
     }
 
-    if (user.status === 'LOCKED') {
-      await prisma.loginHistory.create({ data: { username: cleanUsername, status: 'LOCKED', ipAddress: ip } }).catch(() => {});
-      return res.status(403).json({ error: 'Your account has been locked. Please contact Administrator.' });
-    }
-    if (user.status !== 'ACTIVE') {
-      return res.status(403).json({ error: 'Your account is disabled.' });
-    }
-
     const valid = await safeComparePassword(password, user.password_hash);
     if (!valid) {
-      const attempts = (user.failedAttempts || 0) + 1;
-      const status = attempts >= 5 ? 'LOCKED' : 'ACTIVE';
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { failedAttempts: attempts, status }
-      }).catch(() => {});
-      await prisma.loginHistory.create({ data: { username: cleanUsername, status: 'FAILED', ipAddress: ip } }).catch(() => {});
-
-      if (status === 'LOCKED') {
-        return res.status(403).json({ error: 'Account locked due to 5 failed attempts. Please contact Administrator.' });
-      }
       return res.status(401).json({ error: 'Invalid Username or Password' });
     }
 
-    // Success
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { failedAttempts: 0, lastLogin: new Date() }
-    }).catch(() => {});
-
-    await prisma.loginHistory.create({ data: { username: cleanUsername, status: 'SUCCESS', ipAddress: ip } }).catch(() => {});
-
-    const token = jwt.sign(
-      { id: user.id, role: user.role, username: user.username },
-      JWT_SECRET,
-      { expiresIn: '8h' }
-    );
-
+    const token = jwt.sign({ id: user.id, role: user.role, username: user.username }, JWT_SECRET, { expiresIn: '8h' });
     const { password_hash, ...safeUser } = user;
     return res.json({ token, user: safeUser });
   } catch (error) {
-    console.error('Login error:', error);
     return res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 });
 
-function authenticateUser(req) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  const token = authHeader.split(' ')[1];
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch (e) {
-    return null;
-  }
+// ----------------------------------------------------
+// DAILY OPERATIONAL REPORTS API
+// ----------------------------------------------------
+function computePerformanceMark(target, actual, pct) {
+  if (target === null || target === undefined || target <= 0) return 'N/A';
+  if (actual === null || actual === undefined) return 'NOT ENTERED';
+  if (actual === 0 && target > 0) return 'CRITICAL';
+  if (pct >= 100) return 'EXCELLENT';
+  if (pct >= 90) return 'GOOD';
+  if (pct >= 80) return 'ON PLAN';
+  return 'BELOW TARGET';
 }
 
-app.post('/api/auth/verify-admin-password', async (req, res) => {
+app.get('/api/daily-report', async (req, res) => {
   try {
-    const { password, username } = req.body;
-    if (!password) {
-      return res.status(400).json({ success: false, error: 'Password is required' });
+    const { date, department, startDate, endDate } = req.query;
+    let where = {};
+
+    if (startDate && endDate) {
+      where.report_date = startDate === endDate ? String(startDate) : { gte: String(startDate), lte: String(endDate) };
+    } else if (date) {
+      where.report_date = String(date);
     }
 
-    const authUser = authenticateUser(req);
-    let targetUser = null;
-
-    if (authUser) {
-      targetUser = await prisma.user.findUnique({ where: { id: authUser.id } });
-    }
-    if (!targetUser && username) {
-      const cleanUsername = String(username).trim();
-      targetUser = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { username: cleanUsername },
-            { username: cleanUsername.toUpperCase() },
-            { username: cleanUsername.toLowerCase() }
-          ]
-        }
-      });
-    }
-    if (!targetUser) {
-      targetUser = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { role: 'ADMIN' },
-            { role: 'ADMINISTRATOR' },
-            { role: 'System Administrator' },
-            { username: 'admin' },
-            { username: 'ADMIN' }
-          ]
-        }
-      });
+    if (department) {
+      where.department_code = String(department).toUpperCase();
     }
 
-    if (!targetUser) {
-      return res.status(404).json({ success: false, error: 'Administrator user not found' });
-    }
+    const [entries, masters] = await Promise.all([
+      prisma.dailyReportEntry.findMany({ where, orderBy: [{ department_code: 'asc' }, { id: 'asc' }] }),
+      prisma.departmentMasterInfo.findMany()
+    ]);
 
-    const valid = await safeComparePassword(password, targetUser.password_hash);
-    if (!valid) {
-      return res.status(401).json({ success: false, error: 'Incorrect Administrator Password' });
-    }
-
-    return res.json({ success: true, message: 'Administrator password verified' });
-  } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// User Management
-app.get('/api/users', async (req, res) => {
-  try {
-    const users = await prisma.user.findMany({
-      select: { id: true, employeeId: true, employeeName: true, username: true, role: true, department: true, designation: true, email: true, mobile: true, status: true, lastLogin: true, permissions: true, createdAt: true },
-      orderBy: { createdAt: 'desc' }
-    });
-    res.json({ users, total: users.length });
+    res.json({ entries, count: entries.length, departmentMasters: masters });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Looms
+app.post('/api/daily-report', async (req, res) => {
+  try {
+    const { report_date, department_code, department_head, mentor, entries, metrics, remarks, entered_by } = req.body;
+    const items = Array.isArray(entries) ? entries : (Array.isArray(metrics) ? metrics : []);
+    const dateStr = String(report_date).trim();
+    const deptCode = String(department_code).trim().toUpperCase();
+
+    const results = [];
+    for (const item of items) {
+      const metricCode = String(item.metric_code || '').trim();
+      if (!metricCode) continue;
+
+      const numVal = item.actual_value !== undefined && item.actual_value !== null ? Number(item.actual_value) : null;
+      const targetVal = item.target_value !== undefined && item.target_value !== null ? Number(item.target_value) : null;
+      let diffVal = targetVal !== null && numVal !== null ? Number((numVal - targetVal).toFixed(2)) : null;
+      let pctVal = targetVal !== null && targetVal > 0 && numVal !== null ? Number(((numVal / targetVal) * 100).toFixed(2)) : null;
+
+      const upserted = await prisma.dailyReportEntry.upsert({
+        where: {
+          report_date_department_code_metric_code: {
+            report_date: dateStr,
+            department_code: deptCode,
+            metric_code: metricCode
+          }
+        },
+        update: {
+          metric_name: item.metric_name || metricCode,
+          raw_value: item.raw_value ? String(item.raw_value) : null,
+          actual_value: numVal,
+          target_value: targetVal,
+          diff_value: diffVal,
+          pct_value: pctVal,
+          department_head: department_head || null,
+          mentor: mentor || null,
+          performance_mark: computePerformanceMark(targetVal, numVal, pctVal || 0),
+          remarks: item.remarks || remarks || '',
+          entered_by: entered_by || 'ADMIN'
+        },
+        create: {
+          report_date: dateStr,
+          department_code: deptCode,
+          metric_code: metricCode,
+          metric_name: item.metric_name || metricCode,
+          raw_value: item.raw_value ? String(item.raw_value) : null,
+          actual_value: numVal,
+          target_value: targetVal,
+          diff_value: diffVal,
+          pct_value: pctVal,
+          department_head: department_head || null,
+          mentor: mentor || null,
+          performance_mark: computePerformanceMark(targetVal, numVal, pctVal || 0),
+          remarks: item.remarks || remarks || '',
+          entered_by: entered_by || 'ADMIN'
+        }
+      });
+      results.push(upserted);
+    }
+    res.json({ success: true, count: results.length, entries: results });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// LOOMS, RUNS & DESIGNS API
+// ----------------------------------------------------
 app.get('/api/looms', async (req, res) => {
   try {
     const looms = await prisma.loomMaster.findMany({ orderBy: { loom_no: 'asc' } });
@@ -289,7 +218,6 @@ app.get('/api/looms', async (req, res) => {
   }
 });
 
-// Designs
 app.get('/api/designs', async (req, res) => {
   try {
     const designs = await prisma.designMaster.findMany();
@@ -299,40 +227,6 @@ app.get('/api/designs', async (req, res) => {
   }
 });
 
-// Orders
-app.get('/api/orders', async (req, res) => {
-  try {
-    const orders = await prisma.orderMaster.findMany({
-      include: { designMaster: true },
-      orderBy: { id: 'desc' }
-    });
-    res.json(orders);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Beam Stock
-app.get('/api/beam-stock', async (req, res) => {
-  try {
-    const beams = await prisma.beamStockMaster.findMany({ orderBy: { id: 'desc' } });
-    res.json(beams);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Reed Stock
-app.get('/api/reed-stock', async (req, res) => {
-  try {
-    const reeds = await prisma.reedStockMaster.findMany({ orderBy: { reed_count: 'asc' } });
-    res.json(reeds);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Active Runs
 app.get('/api/active-runs', async (req, res) => {
   try {
     const runs = await prisma.loomRunEntry.findMany({ orderBy: { loom_no: 'asc' } });
@@ -342,11 +236,73 @@ app.get('/api/active-runs', async (req, res) => {
   }
 });
 
-// Next Plans
-app.get('/api/planning/next-plans', async (req, res) => {
+app.get('/api/reports/design-running', async (req, res) => {
   try {
-    const plans = await prisma.plannedAssignment.findMany({ orderBy: { id: 'asc' } });
-    res.json(plans);
+    const [activeRuns, loomMasters, designMasters, orderMasters, dailyLogs] = await Promise.all([
+      prisma.loomRunEntry.findMany(),
+      prisma.loomMaster.findMany(),
+      prisma.designMaster.findMany(),
+      prisma.orderMaster.findMany(),
+      prisma.dailyProductionLog.findMany()
+    ]);
+
+    const loomMap = new Map(loomMasters.map(l => [l.loom_no, l]));
+    const designMap = new Map(designMasters.map(d => [d.design_no_sp_no, d]));
+
+    const runningLoomsList = activeRuns.map(run => {
+      const loomInfo = loomMap.get(run.loom_no);
+      const designInfo = designMap.get(run.design_no_sp_no);
+
+      return {
+        loomNo: run.loom_no,
+        designNo: run.design_no_sp_no,
+        loomStartDate: run.loom_start_date,
+        warpedMeter: run.warped_meter || 0,
+        dailyProduction: run.daily_production || 0,
+        producedMeter: 0,
+        rpm: run.rpm || loomInfo?.rpm || 650,
+        efficiency: run.efficiency || 90,
+        currentReedNo: run.current_reed_no || '',
+        currentBeamNo: run.current_beam_no || '',
+        setNo: run.set_no || '',
+        orderNo: run.order_no || '',
+        unit: loomInfo?.unit || 'UNIT 1',
+        loomType: loomInfo?.loom_type || 'AIRJET',
+        status: loomInfo?.status || 'Running'
+      };
+    });
+
+    res.json({ success: true, data: runningLoomsList, orders: orderMasters });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// ORDERS & PLANNING API
+// ----------------------------------------------------
+app.get('/api/orders', async (req, res) => {
+  try {
+    const orders = await prisma.orderMaster.findMany({ include: { designMaster: true }, orderBy: { id: 'desc' } });
+    res.json(orders);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/beam-stock', async (req, res) => {
+  try {
+    const beams = await prisma.beamStockMaster.findMany({ orderBy: { id: 'desc' } });
+    res.json(beams);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/reed-stock', async (req, res) => {
+  try {
+    const reeds = await prisma.reedStockMaster.findMany({ orderBy: { reed_count: 'asc' } });
+    res.json(reeds);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -361,23 +317,37 @@ app.get('/api/next-plans', async (req, res) => {
   }
 });
 
-// System Health
-app.get('/api/system-health', async (req, res) => {
+app.get('/api/planning/next-plans', async (req, res) => {
   try {
-    await prisma.$queryRaw`SELECT 1`;
-    res.json({ status: 'Healthy', dbConnected: true });
-  } catch (e) {
-    res.status(500).json({ status: 'Critical', error: e.message });
+    const plans = await prisma.plannedAssignment.findMany({ orderBy: { id: 'asc' } });
+    res.json(plans);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
-// CRITICAL EXPORT FOR VERCEL SERVERLESS
+app.get('/api/erp-alerts', async (req, res) => {
+  try {
+    const alerts = await prisma.erpAlert.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
+    res.json(alerts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/production-logs', async (req, res) => {
+  try {
+    const logs = await prisma.dailyProductionLog.findMany({ orderBy: { date: 'desc' }, take: 2000 });
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// CRITICAL FOR VERCEL SERVERLESS EXPORT
 module.exports = app;
 
-// Local development server listen
 if (!process.env.VERCEL) {
   const PORT = process.env.PORT || 3002;
-  app.listen(PORT, () => {
-    console.log(`Backend server running locally on port ${PORT}`);
-  });
+  app.listen(PORT, () => console.log(`Local API server on ${PORT}`));
 }
