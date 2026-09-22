@@ -30,15 +30,7 @@ export default function UnitPerformance() {
       const loom = looms.find(l => l.loomNo === run.loomNo);
       if (!loom || !loom.unit) return;
 
-      const design = designs.find(d => d.designNo === run.designNo);
-      const crimpPercent = design ? design.crimpPercent : 0;
-      
-      const calc = calculateLoomRun({
-        loomStartDate: new Date(run.loomStartDate),
-        warpedMeter: run.warpedMeter,
-        dailyProduction: run.dailyProduction,
-        crimpPercent: crimpPercent
-      });
+      const calc = calculateLoomRun(run as any);
 
       stats[loom.unit].runningLooms++;
       if (calc.balanceDays <= 2) {

@@ -2,13 +2,11 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
+const { backupDatabase } = require('./backup_db');
+const fs = require('fs');
+const path = require('path');
 
-const globalForPrisma = global;
-const prisma = globalForPrisma.prisma || new PrismaClient({
-  log: ['error']
-});
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
-
+const prisma = new PrismaClient();
 const app = express();
 
 const allowedOrigins = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) : '*';
@@ -62,33 +60,68 @@ app.use('/api/auth/login', (req, res, next) => {
   next();
 });
 
+// Fast 2-second in-memory response cache for GET endpoints with immediate write invalidation
+const responseCache = new Map();
+let lastInvalidationTime = Date.now();
+
+app.use((req, res, next) => {
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
+    responseCache.clear();
+    lastInvalidationTime = Date.now();
+    return next();
+  }
+
+  if (req.method === 'GET' && req.path.startsWith('/api/')) {
+    // Bypass cache for real-time planning and active run endpoints
+    if (req.path.includes('/next-plans') || req.path.includes('/active-runs')) {
+      return next();
+    }
+
+    const key = req.originalUrl || req.url;
+    const cached = responseCache.get(key);
+    const now = Date.now();
+    if (cached && (now - cached.timestamp < 2000) && cached.timestamp >= lastInvalidationTime) {
+      return res.json(cached.data);
+    }
+
+    const originalJson = res.json;
+    res.json = function (body) {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        responseCache.set(key, { timestamp: Date.now(), data: body });
+      }
+      return originalJson.call(this, body);
+    };
+  }
+  next();
+});
+
 // Middleware to prevent error information leakage from database and internal libraries
-// app.use((req, res, next) => {
-//   const originalJson = res.json;
-//   res.json = function (obj) {
-//     if (res.statusCode === 500 && obj && obj.error) {
-//       const msg = String(obj.error);
-//       if (
-//         msg.includes('Prisma') ||
-//         msg.includes('database') ||
-//         msg.includes('sqlite') ||
-//         msg.includes('SELECT') ||
-//         msg.includes('ForeignKeyConstraint')
-//       ) {
-//         obj.error = 'Internal Server Error';
-//       }
-//     }
-//     return originalJson.call(this, obj);
-//   };
-//   next();
-// });
+app.use((req, res, next) => {
+  const originalJson = res.json;
+  res.json = function (obj) {
+    if (res.statusCode === 500 && obj && obj.error) {
+      const msg = String(obj.error);
+      if (
+        msg.includes('Prisma') ||
+        msg.includes('database') ||
+        msg.includes('sqlite') ||
+        msg.includes('SELECT') ||
+        msg.includes('ForeignKeyConstraint')
+      ) {
+        obj.error = 'Internal Server Error';
+      }
+    }
+    return originalJson.call(this, obj);
+  };
+  next();
+});
 
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET || 'spu_loom_erp_super_secret_key_2026';
 
 const DEFAULT_ADMIN_USERNAME = process.env.DEFAULT_ADMIN_USERNAME || 'ADMIN';
-const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || '!@#$%open';
+const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'spupl!@#$%';
 
 // Initialize Default Admin User & Sample Reed Stock
 async function initSeedData() {
@@ -147,6 +180,37 @@ async function initSeedData() {
     }
     console.log('Sample Reed Stock inventory initialized.');
   }
+
+  // Create safety backup on server startup
+  try {
+    backupDatabase();
+  } catch (err) {
+    console.error('Startup backup warning:', err.message);
+  }
+
+  // Auto-sync LoomMaster status with active LoomRunEntry records on startup
+  try {
+    const activeRuns = await prisma.loomRunEntry.findMany({
+      select: { loom_no: true }
+    });
+    const activeLoomNos = activeRuns.map(r => r.loom_no);
+    if (activeLoomNos.length > 0) {
+      await prisma.loomMaster.updateMany({
+        where: { loom_no: { in: activeLoomNos } },
+        data: { status: 'Running' }
+      });
+    }
+    await prisma.loomMaster.updateMany({
+      where: {
+        status: 'Running',
+        loom_no: { notIn: activeLoomNos }
+      },
+      data: { status: 'Available' }
+    });
+    console.log(`LoomMaster statuses synchronized with LoomRunEntry on server startup (${activeLoomNos.length} running looms).`);
+  } catch (err) {
+    console.error('Error synchronizing loom statuses on startup:', err.message);
+  }
 }
 initSeedData().catch(console.error);
 
@@ -159,16 +223,17 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     const cleanUsername = username ? username.trim() : '';
-    const capitalizedUsername = cleanUsername ? cleanUsername.charAt(0).toUpperCase() + cleanUsername.slice(1).toLowerCase() : '';
+    if (!cleanUsername) {
+      return res.status(401).json({ error: 'Invalid Username or Password' });
+    }
+    const capitalizedUsername = cleanUsername.charAt(0).toUpperCase() + cleanUsername.slice(1).toLowerCase();
     const user = await prisma.user.findFirst({
       where: {
         OR: [
           { username: cleanUsername },
           { username: cleanUsername.toUpperCase() },
           { username: cleanUsername.toLowerCase() },
-          { username: capitalizedUsername },
-          { username: 'ADMIN' },
-          { username: 'Admin' }
+          { username: capitalizedUsername }
         ]
       }
     });
@@ -236,6 +301,73 @@ function authenticateUser(req) {
   }
 }
 
+// Verify Administrator Password Endpoint
+app.post('/api/auth/verify-admin-password', async (req, res) => {
+  try {
+    const { password, username } = req.body;
+    if (!password) {
+      return res.status(400).json({ success: false, error: 'Password is required' });
+    }
+
+    const authUser = authenticateUser(req);
+    let targetUser = null;
+
+    // 1. If token provided and user is admin, use authUser
+    if (authUser) {
+      targetUser = await prisma.user.findUnique({ where: { id: authUser.id } });
+    }
+
+    // 2. If username provided, find user by username
+    if (!targetUser && username) {
+      const cleanUsername = String(username).trim();
+      targetUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { username: cleanUsername },
+            { username: cleanUsername.toUpperCase() },
+            { username: cleanUsername.toLowerCase() }
+          ]
+        }
+      });
+    }
+
+    // 3. Fallback: find primary administrator user if no specific target
+    if (!targetUser) {
+      targetUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { role: 'ADMIN' },
+            { role: 'ADMINISTRATOR' },
+            { role: 'System Administrator' },
+            { username: 'admin' },
+            { username: 'Admin' }
+          ]
+        }
+      });
+    }
+
+    if (!targetUser) {
+      return res.status(404).json({ success: false, error: 'Administrator user not found' });
+    }
+
+    const roleUpper = (targetUser.role || '').toUpperCase();
+    const isAdminRole = ['ADMIN', 'ADMINISTRATOR', 'SYSTEM ADMINISTRATOR'].includes(roleUpper) || targetUser.username.toLowerCase() === 'admin';
+    if (!isAdminRole) {
+      return res.status(403).json({ success: false, error: 'User does not have Administrator privileges' });
+    }
+
+    const valid = await bcrypt.compare(password, targetUser.password_hash);
+    if (!valid) {
+      return res.status(401).json({ success: false, error: 'Incorrect Administrator Password' });
+    }
+
+    return res.json({ success: true, message: 'Administrator password verified' });
+  } catch (error) {
+    console.error('Error verifying admin password:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Admin ONLY: Get Users (Paginated & Filtered)
 app.get('/api/users', async (req, res) => {
   try {
@@ -250,7 +382,7 @@ app.get('/api/users', async (req, res) => {
           try {
             const p = JSON.parse(fullUser.permissions);
             if (p['User Management']?.view) allowed = true;
-          } catch (e) {}
+          } catch (e) { }
         }
         if (!allowed) {
           return res.status(403).json({ error: 'You do not have permission to view User Management.' });
@@ -311,7 +443,7 @@ app.post('/api/users', async (req, res) => {
             const p = JSON.parse(fullUser.permissions);
             const actionKey = req.body.id ? 'edit' : 'create';
             if (p['User Management']?.[actionKey]) allowed = true;
-          } catch (e) {}
+          } catch (e) { }
         }
         if (!allowed) {
           return res.status(403).json({ error: 'You do not have permission to modify User Management profiles.' });
@@ -382,7 +514,7 @@ app.delete('/api/users/:id', async (req, res) => {
           try {
             const p = JSON.parse(fullUser.permissions);
             if (p['User Management']?.delete) allowed = true;
-          } catch (e) {}
+          } catch (e) { }
         }
         if (!allowed) {
           return res.status(403).json({ error: 'You do not have permission to delete users.' });
@@ -497,6 +629,40 @@ app.delete('/api/looms/clear-all', async (req, res) => {
     res.json({ success: true, count: result.count });
   } catch (error) {
     console.error('Error clearing all looms:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE only planned looms, running looms, next planned looms, and completed warp entries (preserves LoomMaster and all other data)
+app.delete('/api/looms/clear-running-planned', async (req, res) => {
+  try {
+    const deletedRunning = await prisma.loomRunEntry.deleteMany({});
+    const deletedPlanned = await prisma.plannedAssignment.deleteMany({});
+    const deletedWarp = await prisma.completedWarpHistory.deleteMany({});
+
+    await prisma.loomMaster.updateMany({
+      data: { status: 'Available' }
+    });
+
+    await prisma.systemAuditLog.create({
+      data: {
+        username: req.headers['x-user'] || 'System',
+        screen: 'Loom Management',
+        action: 'CLEAR_RUNNING_PLANNED_LOOMS',
+        newValue: `Cleared ${deletedRunning.count} running entries, ${deletedPlanned.count} planned assignments, ${deletedWarp.count} warp histories`
+      }
+    });
+
+    res.json({
+      success: true,
+      cleared: {
+        runningLooms: deletedRunning.count,
+        plannedLooms: deletedPlanned.count,
+        warpCompleted: deletedWarp.count
+      }
+    });
+  } catch (error) {
+    console.error('Error clearing running & planned loom entries:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -943,7 +1109,21 @@ app.post('/api/orders', async (req, res) => {
         planned_loom_count: Number(body.planned_loom_count) || null,
         avg_production_per_loom: Number(body.avg_production_per_loom) || null,
         estimated_production_days: Number(body.estimated_production_days) || null,
-        expected_completion_date: body.expected_completion_date ? new Date(body.expected_completion_date) : null,
+        expected_completion_date: (() => {
+          if (body.expected_completion_date) return new Date(body.expected_completion_date);
+          if (body.weaving_completion_date) return new Date(body.weaving_completion_date);
+          const looms = Number(body.planned_loom_count) || 0;
+          const avgProd = Number(body.avg_production_per_loom) || 0;
+          const qty = Number(body.order_qty) || 0;
+          const wvDate = body.weaving_planned_date || body.weaving_start_date;
+          if (looms > 0 && avgProd > 0 && qty > 0 && wvDate) {
+            const days = Math.ceil(qty / (looms * avgProd));
+            const d = new Date(wvDate);
+            d.setDate(d.getDate() + days - 1);
+            return d;
+          }
+          return null;
+        })(),
         sizing_planned_date: body.sizing_planned_date ? new Date(body.sizing_planned_date) : null,
         weaving_planned_date: body.weaving_planned_date ? new Date(body.weaving_planned_date) : null,
         weaving_completion_date: body.weaving_completion_date ? new Date(body.weaving_completion_date) : null,
@@ -1059,7 +1239,7 @@ app.post('/api/orders/bulk', async (req, res) => {
       });
 
 
-      const orderNo = body.order_no || `ORD-${Date.now().toString().slice(-6)}-${i+1}`;
+      const orderNo = body.order_no || `ORD-${Date.now().toString().slice(-6)}-${i + 1}`;
       const newOrder = await prisma.orderMaster.create({
         data: {
           order_no: orderNo,
@@ -1079,8 +1259,7 @@ app.post('/api/orders/bulk', async (req, res) => {
           beam_type: body.beam_type || null,
           frames: body.frames ? Number(body.frames) : null,
           no_of_clr_warp: body.no_of_clr_warp ? Number(body.no_of_clr_warp) : null,
-          greige_width: resolvedWidth || null,
-          reed_space: resolvedReedSpace || null,
+          no_of_clr_weft: body.no_of_clr_weft || body.weft_colours ? Number(body.no_of_clr_weft || body.weft_colours) : null,
           uom: body.uom || 'Meters',
           order_qty: Number(body.order_qty),
           grey_qty: Number(body.grey_qty) || Number(body.order_qty) || null,
@@ -1088,7 +1267,21 @@ app.post('/api/orders/bulk', async (req, res) => {
           planned_loom_count: Number(body.planned_loom_count) || null,
           avg_production_per_loom: Number(body.avg_production_per_loom) || null,
           estimated_production_days: Number(body.estimated_production_days) || null,
-          expected_completion_date: body.expected_completion_date ? new Date(body.expected_completion_date) : null,
+          expected_completion_date: (() => {
+            if (body.expected_completion_date) return new Date(body.expected_completion_date);
+            if (body.weaving_completion_date) return new Date(body.weaving_completion_date);
+            const looms = Number(body.planned_loom_count) || 0;
+            const avgProd = Number(body.avg_production_per_loom) || 0;
+            const qty = Number(body.order_qty) || 0;
+            const wvDate = body.weaving_planned_date || body.weaving_start_date;
+            if (looms > 0 && avgProd > 0 && qty > 0 && wvDate) {
+              const days = Math.ceil(qty / (looms * avgProd));
+              const d = new Date(wvDate);
+              d.setDate(d.getDate() + days - 1);
+              return d;
+            }
+            return null;
+          })(),
           sizing_planned_date: body.sizing_planned_date ? new Date(body.sizing_planned_date) : null,
           sizing_completed_date: body.sizing_completion_date || body.sizing_completed_date ? new Date(body.sizing_completion_date || body.sizing_completed_date) : null,
           weaving_planned_date: body.weaving_planned_date || body.weaving_start_date ? new Date(body.weaving_planned_date || body.weaving_start_date) : null,
@@ -1406,6 +1599,7 @@ app.post('/api/beam-stock', async (req, res) => {
         where: { beam_no: beamNoStr }
       });
 
+      const isStatusAvailable = (b.beam_status || b.status || 'Available').toUpperCase() === 'AVAILABLE' || (b.beam_status || b.status || '').toUpperCase() === 'READY';
       const payloadData = {
         date: dateVal,
         design_no: b.design_no || '',
@@ -1421,7 +1615,11 @@ app.post('/api/beam-stock', async (req, res) => {
         available_meter: Number(b.balance_meter) || Number(b.warp_meter) || Number(b.available_meter) || 0,
         location: b.location || '',
         status: b.beam_status || b.status || 'Available',
-        remarks: b.remarks || ''
+        remarks: b.remarks || '',
+        order_no: b.order_no || b.party_beam_no || null,
+        ibpo: b.ibpo || b.party_beam_no || null,
+        loom_no_assigned: isStatusAvailable && !b.loom_no_assigned ? null : (b.loom_no_assigned || null),
+        reserved_for: isStatusAvailable && !b.reserved_for ? null : (b.reserved_for || null)
       };
 
       if (existing) {
@@ -1480,57 +1678,590 @@ app.delete('/api/beam-stock/clean-empty', async (req, res) => {
   }
 });
 
-app.get('/api/active-runs', async (req, res) => {
+// ----------------------------------------------------
+// CENTRALIZED DAILY REPORT MODULE API
+// ----------------------------------------------------
+
+function computePerformanceMark(target, actual, pct) {
+  if (target === null || target === undefined || target <= 0) return 'N/A';
+  if (actual === null || actual === undefined) return 'NOT ENTERED';
+  if (actual === 0 && target > 0) return 'CRITICAL';
+  if (pct >= 100) return 'EXCELLENT';
+  if (pct >= 90) return 'GOOD';
+  if (pct >= 80) return 'ON PLAN';
+  return 'BELOW TARGET';
+}
+
+app.get('/api/daily-report', async (req, res) => {
   try {
-    const [runs, beamStocks, completedOrders] = await Promise.all([
-      prisma.loomRunEntry.findMany(),
-      prisma.beamStockMaster.findMany(),
-      prisma.orderMaster.findMany({
-        where: {
-          OR: [
-            { status: 'ORDER COMPLETED' },
-            { status: 'Completed' },
-            { order_completion_status: 'COMPLETED' }
-          ]
-        }
-      })
+    const { date, department, startDate, endDate } = req.query;
+    let where = {};
+    if (startDate && endDate) {
+      if (startDate === endDate) {
+        where.report_date = String(startDate);
+      } else {
+        where.report_date = { gte: String(startDate), lte: String(endDate) };
+      }
+    } else if (date) {
+      where.report_date = String(date);
+    } else {
+      return res.status(400).json({ error: 'Date or startDate/endDate query parameter (YYYY-MM-DD) is required' });
+    }
+    if (department) {
+      const deptUpper = String(department).toUpperCase();
+      if (deptUpper === 'FINISHED_INSPECTION') {
+        where.OR = [
+          { department_code: 'FINISHED_INSPECTION' },
+          {
+            metric_code: {
+              in: [
+                'SALES_RETURN_MTRS',
+                'SALES_RETURNS_MTRS',
+                'REPRODUCTION_MTRS',
+                'REJECTION_MTRS',
+                'TOTAL_REJECTION_MTRS',
+                'REWASH_MTRS',
+                'TOTAL_REWASH_MTRS',
+                'DYEING_PRINTING_MTRS'
+              ]
+            }
+          }
+        ];
+      } else if (deptUpper === 'HRD') {
+        where.OR = [
+          { department_code: 'HRD' },
+          {
+            department_code: 'HRD_TRANSPORT',
+            metric_code: {
+              in: [
+                'APPROVED_STRENGTH',
+                'ENGAGED_STRENGTH',
+                'NO_OF_NEW_JOINERS',
+                'OTHERS_MANPOWER'
+              ]
+            }
+          }
+        ];
+      } else if (deptUpper === 'TRANSPORT') {
+        where.OR = [
+          { department_code: 'TRANSPORT' },
+          { department_code: 'HRD_TRANSPORT', metric_code: { in: ['TRANSPORT_TRIPS'] } }
+        ];
+      } else if (deptUpper === 'GREY_WAREHOUSE') {
+        where.department_code = { in: ['GREY_WAREHOUSE', 'WAREHOUSE'] };
+      } else if (deptUpper === 'PROCESSING_DYEING') {
+        where.department_code = { in: ['PROCESSING_DYEING', 'PROCESSING'] };
+      } else {
+        where.department_code = deptUpper;
+      }
+    }
+    const [entries, masters] = await Promise.all([
+      prisma.dailyReportEntry.findMany({
+        where,
+        orderBy: [{ department_code: 'asc' }, { id: 'asc' }]
+      }),
+      prisma.departmentMasterInfo.findMany()
     ]);
 
-    const completedDesignNos = new Set();
-    const completedOrderNos = new Set();
+    let finalEntries = entries;
+    if (startDate && endDate && startDate !== endDate) {
+      const aggMap = new Map();
+      entries.forEach(e => {
+        const key = `${e.department_code}___${e.metric_code}`;
+        if (!aggMap.has(key)) {
+          aggMap.set(key, { ...e });
+        } else {
+          const prev = aggMap.get(key);
+          if (e.actual_value !== null && e.actual_value !== undefined) {
+            prev.actual_value = Number(((prev.actual_value || 0) + Number(e.actual_value)).toFixed(2));
+          }
+          if (e.raw_value) {
+            prev.raw_value = e.raw_value;
+          }
+        }
+      });
+      finalEntries = Array.from(aggMap.values());
+    }
 
-    completedOrders.forEach(o => {
-      if (o.design_no_sp_no) completedDesignNos.add(o.design_no_sp_no.trim().toLowerCase());
-      if (o.ibpo_no) completedOrderNos.add(o.ibpo_no.trim().toLowerCase());
-      if (o.order_no) completedOrderNos.add(o.order_no.trim().toLowerCase());
+    res.json({ entries: finalEntries, count: finalEntries.length, departmentMasters: masters });
+  } catch (error) {
+    console.error('Error fetching daily report:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/daily-report', async (req, res) => {
+  try {
+    const { report_date, department_code, department_head, mentor, entries, metrics, remarks, entered_by } = req.body;
+    const items = Array.isArray(entries) ? entries : (Array.isArray(metrics) ? metrics : null);
+    if (!report_date || !department_code || !items) {
+      return res.status(400).json({ error: 'report_date, department_code and entries/metrics array are required' });
+    }
+
+    const dateStr = String(report_date).trim();
+    const deptCode = String(department_code).trim().toUpperCase();
+    const userStr = entered_by || 'ADMIN';
+    const deptRemarks = remarks || '';
+    const deptHead = department_head !== undefined ? String(department_head).trim() : null;
+    const deptMentor = mentor !== undefined ? String(mentor).trim() : null;
+
+    // If head or mentor provided, update DepartmentMasterInfo
+    if (deptHead || deptMentor) {
+      try {
+        await prisma.departmentMasterInfo.upsert({
+          where: { department_code: deptCode },
+          update: {
+            ...(deptHead ? { department_head: deptHead } : {}),
+            ...(deptMentor ? { mentor: deptMentor } : {})
+          },
+          create: {
+            department_code: deptCode,
+            department_name: deptCode,
+            department_head: deptHead || '',
+            mentor: deptMentor || ''
+          }
+        });
+      } catch (e) {
+        console.warn('Could not update department master:', e.message);
+      }
+    }
+
+    const results = [];
+    for (const item of items) {
+      const metricCode = String(item.metric_code || '').trim();
+      if (!metricCode) continue;
+
+      const metricName = item.metric_name || metricCode;
+
+      // Numeric validation (Rule 50: Do not save NaN or Infinity)
+      if (item.actual_value !== undefined && item.actual_value !== null && item.actual_value !== '') {
+        const n = Number(item.actual_value);
+        if (isNaN(n) || !isFinite(n)) {
+          return res.status(400).json({ error: `Invalid numeric actual value for "${metricName}". Cannot save NaN or Infinity.` });
+        }
+      }
+      if (item.target_value !== undefined && item.target_value !== null && item.target_value !== '') {
+        const n = Number(item.target_value);
+        if (isNaN(n) || !isFinite(n)) {
+          return res.status(400).json({ error: `Invalid numeric target value for "${metricName}". Cannot save NaN or Infinity.` });
+        }
+      }
+
+      const rawVal = item.raw_value !== undefined && item.raw_value !== null ? String(item.raw_value) : null;
+      const numVal = item.actual_value !== undefined && item.actual_value !== null
+        ? Number(item.actual_value)
+        : (rawVal !== null && rawVal !== '' && !isNaN(Number(rawVal)) ? Number(rawVal) : null);
+      const targetVal = item.target_value !== undefined && item.target_value !== null && item.target_value !== '' ? Number(item.target_value) : null;
+
+      let diffVal = item.diff_value !== undefined && item.diff_value !== null ? Number(item.diff_value) : null;
+      let pctVal = item.pct_value !== undefined && item.pct_value !== null ? Number(item.pct_value) : null;
+
+      if (targetVal !== null && targetVal > 0 && numVal !== null) {
+        if (diffVal === null) diffVal = Number((numVal - targetVal).toFixed(2));
+        if (pctVal === null) pctVal = Number(((numVal / targetVal) * 100).toFixed(2));
+      } else if (targetVal === null || targetVal <= 0) {
+        // No division by zero or fake diff
+        pctVal = null;
+      }
+
+      const itemRemarks = item.remarks || deptRemarks;
+      const perfMark = item.performance_mark || computePerformanceMark(targetVal, numVal, pctVal || 0);
+
+      const upserted = await prisma.dailyReportEntry.upsert({
+        where: {
+          report_date_department_code_metric_code: {
+            report_date: dateStr,
+            department_code: deptCode,
+            metric_code: metricCode
+          }
+        },
+        update: {
+          metric_name: metricName,
+          raw_value: rawVal,
+          actual_value: numVal,
+          target_value: targetVal,
+          diff_value: diffVal,
+          pct_value: pctVal,
+          department_head: deptHead,
+          mentor: deptMentor,
+          performance_mark: perfMark,
+          remarks: itemRemarks,
+          entered_by: userStr
+        },
+        create: {
+          report_date: dateStr,
+          department_code: deptCode,
+          metric_code: metricCode,
+          metric_name: metricName,
+          raw_value: rawVal,
+          actual_value: numVal,
+          target_value: targetVal,
+          diff_value: diffVal,
+          pct_value: pctVal,
+          department_head: deptHead,
+          mentor: deptMentor,
+          performance_mark: perfMark,
+          remarks: itemRemarks,
+          entered_by: userStr
+        }
+      });
+      results.push(upserted);
+
+      if (deptCode === 'FINISHED_INSPECTION' && metricCode === 'DYEING_PRINTING_MTRS') {
+        try {
+          await prisma.dailyReportEntry.upsert({
+            where: {
+              report_date_department_code_metric_code: {
+                report_date: dateStr,
+                department_code: 'PROCESSING_DYEING',
+                metric_code: 'DYEING_PRINTING_MTRS'
+              }
+            },
+            update: {
+              metric_name: metricName,
+              raw_value: rawVal,
+              actual_value: numVal,
+              target_value: targetVal,
+              diff_value: diffVal,
+              pct_value: pctVal,
+              entered_by: userStr
+            },
+            create: {
+              report_date: dateStr,
+              department_code: 'PROCESSING_DYEING',
+              metric_code: 'DYEING_PRINTING_MTRS',
+              metric_name: metricName,
+              raw_value: rawVal,
+              actual_value: numVal,
+              target_value: targetVal,
+              diff_value: diffVal,
+              pct_value: pctVal,
+              entered_by: userStr
+            }
+          });
+        } catch (e) {
+          console.warn('Sync to PROCESSING_DYEING warning:', e.message);
+        }
+      }
+    }
+
+    res.json({ success: true, count: results.length, entries: results });
+  } catch (error) {
+    console.error('Error saving daily report entry:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE endpoint for deleting ONLY the selected date + department entry
+app.delete('/api/daily-report', async (req, res) => {
+  try {
+    const date = req.query.date || req.body.date || req.body.report_date;
+    const department = req.query.department || req.body.department || req.body.department_code;
+
+    if (!date || !department) {
+      return res.status(400).json({ error: 'date (YYYY-MM-DD) and department are required' });
+    }
+
+    const dateStr = String(date).trim();
+    const deptCode = String(department).trim().toUpperCase();
+
+    let deleteWhere = {
+      report_date: dateStr,
+      department_code: deptCode
+    };
+
+    if (deptCode === 'HRD') {
+      deleteWhere = {
+        report_date: dateStr,
+        OR: [
+          { department_code: 'HRD' },
+          {
+            department_code: 'HRD_TRANSPORT',
+            metric_code: {
+              in: [
+                'APPROVED_STRENGTH',
+                'ENGAGED_STRENGTH',
+                'NO_OF_NEW_JOINERS',
+                'OTHERS_MANPOWER'
+              ]
+            }
+          }
+        ]
+      };
+    } else if (deptCode === 'TRANSPORT') {
+      deleteWhere = {
+        report_date: dateStr,
+        OR: [
+          { department_code: 'TRANSPORT' },
+          { department_code: 'HRD_TRANSPORT', metric_code: { in: ['TRANSPORT_TRIPS'] } }
+        ]
+      };
+    }
+
+    const deleted = await prisma.dailyReportEntry.deleteMany({
+      where: deleteWhere
     });
 
-    const staleIds = [];
-    const validRuns = [];
+    res.json({
+      success: true,
+      message: `Deleted daily report entry for ${deptCode} on ${dateStr}`,
+      deletedCount: deleted.count
+    });
+  } catch (error) {
+    console.error('Error deleting daily report entry:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    runs.forEach(r => {
-      const runDesign = (r.design_no_sp_no || '').trim().toLowerCase();
-      const runOrder = (r.order_no || '').trim().toLowerCase();
+app.get('/api/daily-report/department-masters', async (req, res) => {
+  try {
+    const masters = await prisma.departmentMasterInfo.findMany();
+    res.json(masters);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-      if (completedDesignNos.has(runDesign) || (runOrder && completedOrderNos.has(runOrder))) {
-        staleIds.push(r.id);
-      } else {
-        validRuns.push(r);
+app.get('/api/daily-report/history-dates', async (req, res) => {
+  try {
+    const rawDates = await prisma.dailyReportEntry.groupBy({
+      by: ['report_date', 'department_code'],
+      _count: { id: true }
+    });
+
+    const dateMap = new Map();
+    rawDates.forEach(r => {
+      if (!dateMap.has(r.report_date)) {
+        dateMap.set(r.report_date, new Set());
+      }
+      dateMap.get(r.report_date).add(r.department_code);
+    });
+
+    const dates = Array.from(dateMap.entries())
+      .map(([date, depts]) => ({
+        date,
+        enteredDepartmentsCount: depts.size,
+        departments: Array.from(depts)
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    res.json({ dates, count: dates.length });
+  } catch (error) {
+    console.error('Error fetching daily report history dates:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/daily-report/weekly', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'startDate and endDate (YYYY-MM-DD) are required' });
+    }
+
+    const entries = await prisma.dailyReportEntry.findMany({
+      where: {
+        report_date: {
+          gte: String(startDate),
+          lte: String(endDate)
+        }
+      },
+      orderBy: [{ report_date: 'asc' }, { department_code: 'asc' }, { id: 'asc' }]
+    });
+
+    // Group by department_code and metric_code
+    const metricsMap = new Map();
+    entries.forEach(e => {
+      const key = `${e.department_code}___${e.metric_code}`;
+      if (!metricsMap.has(key)) {
+        metricsMap.set(key, {
+          department_code: e.department_code,
+          metric_code: e.metric_code,
+          metric_name: e.metric_name,
+          target_value: e.target_value,
+          dailyEntries: {},
+          values: []
+        });
+      }
+      const item = metricsMap.get(key);
+      const numVal = e.actual_value !== null ? e.actual_value : (!isNaN(Number(e.raw_value)) ? Number(e.raw_value) : null);
+      item.dailyEntries[e.report_date] = {
+        raw: e.raw_value,
+        actual: numVal,
+        calc: e.calculated_value,
+        diff: e.diff_value,
+        pct: e.pct_value
+      };
+      if (numVal !== null) {
+        item.values.push({ date: e.report_date, val: numVal });
       }
     });
 
-    if (staleIds.length > 0) {
-      prisma.loomRunEntry.deleteMany({
-        where: { id: { in: staleIds } }
-      }).catch(e => console.error('Error cleaning up stale run entries:', e));
+    const summary = Array.from(metricsMap.values()).map(m => {
+      const total = m.values.reduce((sum, v) => sum + v.val, 0);
+      const avg = m.values.length > 0 ? Number((total / m.values.length).toFixed(1)) : 0;
+      let bestDay = null;
+      let lowestDay = null;
+      if (m.values.length > 0) {
+        bestDay = m.values.reduce((max, v) => v.val > max.val ? v : max, m.values[0]);
+        lowestDay = m.values.reduce((min, v) => v.val < min.val ? v : min, m.values[0]);
+      }
+      const target = m.target_value !== undefined && m.target_value !== null ? m.target_value : null;
+      const weeklyTarget = target !== null && target > 0 ? target * (m.values.length || 7) : null;
+      const diff = weeklyTarget !== null ? Number((total - weeklyTarget).toFixed(1)) : null;
+      const achievementPct = weeklyTarget !== null && weeklyTarget > 0 ? Number(((total / weeklyTarget) * 100).toFixed(1)) : null;
+
+      return {
+        department_code: m.department_code,
+        metric_code: m.metric_code,
+        metric_name: m.metric_name,
+        target_value: m.target_value,
+        dailyEntries: m.dailyEntries,
+        weeklyTotal: Number(total.toFixed(1)),
+        weeklyAverage: avg,
+        weeklyTarget,
+        diff: diff !== null ? Number(diff.toFixed(1)) : null,
+        achievementPct,
+        bestDay,
+        lowestDay,
+        daysEntered: m.values.length
+      };
+    });
+
+    // Generate array of date strings between startDate and endDate
+    const dates = [];
+    let cur = new Date(startDate);
+    const endD = new Date(endDate);
+    while (cur <= endD) {
+      dates.push(cur.toISOString().split('T')[0]);
+      cur.setDate(cur.getDate() + 1);
     }
+
+    const matrix = summary.map(m => ({
+      department_code: m.department_code,
+      metric_code: m.metric_code,
+      metric_name: m.metric_name,
+      dailyTarget: m.target_value,
+      dailyValues: m.dailyEntries,
+      total: m.weeklyTotal,
+      average: m.weeklyAverage,
+      weeklyTarget: m.weeklyTarget,
+      diff: m.diff,
+      achievementPct: m.achievementPct,
+      bestDay: m.bestDay,
+      lowestDay: m.lowestDay
+    }));
+
+    res.json({ startDate, endDate, dates, matrix, summary });
+  } catch (error) {
+    console.error('Error calculating weekly report:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/daily-report/monthly', async (req, res) => {
+  try {
+    const { month, endDate, upToDate } = req.query; // YYYY-MM
+    if (!month) {
+      return res.status(400).json({ error: 'month (YYYY-MM) is required' });
+    }
+
+    const monthStr = String(month).trim();
+    const targetEnd = endDate || upToDate;
+    const where = {};
+    if (targetEnd) {
+      where.report_date = {
+        gte: `${monthStr}-01`,
+        lte: String(targetEnd).trim()
+      };
+    } else {
+      where.report_date = {
+        startsWith: monthStr
+      };
+    }
+
+    const entries = await prisma.dailyReportEntry.findMany({
+      where,
+      orderBy: [{ report_date: 'asc' }, { department_code: 'asc' }, { id: 'asc' }]
+    });
+
+    const metricsMap = new Map();
+    entries.forEach(e => {
+      const key = `${e.department_code}___${e.metric_code}`;
+      if (!metricsMap.has(key)) {
+        metricsMap.set(key, {
+          department_code: e.department_code,
+          metric_code: e.metric_code,
+          metric_name: e.metric_name,
+          target_value: e.target_value,
+          dailyEntries: {},
+          values: []
+        });
+      }
+      const item = metricsMap.get(key);
+      const numVal = e.actual_value !== null ? e.actual_value : (!isNaN(Number(e.raw_value)) ? Number(e.raw_value) : null);
+      item.dailyEntries[e.report_date] = {
+        raw: e.raw_value,
+        actual: numVal,
+        calc: e.calculated_value,
+        diff: e.diff_value,
+        pct: e.pct_value
+      };
+      if (numVal !== null) {
+        item.values.push({ date: e.report_date, val: numVal });
+      }
+    });
+
+    const summary = Array.from(metricsMap.values()).map(m => {
+      const total = m.values.reduce((sum, v) => sum + v.val, 0);
+      const avg = m.values.length > 0 ? Number((total / m.values.length).toFixed(1)) : 0;
+      let bestDay = null;
+      let lowestDay = null;
+      if (m.values.length > 0) {
+        bestDay = m.values.reduce((max, v) => v.val > max.val ? v : max, m.values[0]);
+        lowestDay = m.values.reduce((min, v) => v.val < min.val ? v : min, m.values[0]);
+      }
+      const target = m.target_value !== undefined && m.target_value !== null ? m.target_value : null;
+      const monthlyTarget = target !== null && target > 0 ? target * (m.values.length || 31) : null;
+      const diff = monthlyTarget !== null ? Number((total - monthlyTarget).toFixed(1)) : null;
+      const achievementPct = monthlyTarget !== null && monthlyTarget > 0 ? Number(((total / monthlyTarget) * 100).toFixed(1)) : null;
+
+      return {
+        department_code: m.department_code,
+        metric_code: m.metric_code,
+        metric_name: m.metric_name,
+        target_value: m.target_value,
+        monthlyTotal: Number(total.toFixed(1)),
+        monthlyAverage: avg,
+        monthlyTarget,
+        diff: diff !== null ? Number(diff.toFixed(1)) : null,
+        achievementPct,
+        bestDay,
+        lowestDay,
+        daysEntered: m.values.length
+      };
+    });
+
+    res.json({ month: monthStr, summary });
+  } catch (error) {
+    console.error('Error calculating monthly report:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/active-runs', async (req, res) => {
+  try {
+    const [runs, beamStocks] = await Promise.all([
+      prisma.loomRunEntry.findMany({ orderBy: { loom_no: 'asc' } }),
+      prisma.beamStockMaster.findMany()
+    ]);
 
     const beamMap = new Map();
     beamStocks.forEach(b => {
       if (b.beam_no) beamMap.set(b.beam_no.toString().toLowerCase(), b);
     });
 
-    const enrichedRuns = validRuns.map(r => {
+    const enrichedRuns = runs.map(r => {
       let setNo = r.set_no;
       let beamId = r.beam_id;
 
@@ -1560,11 +2291,12 @@ app.get('/api/active-runs', async (req, res) => {
 // ----------------------------------------------------
 app.get('/api/reports/design-running', async (req, res) => {
   try {
-    const [activeRuns, loomMasters, designMasters, orderMasters] = await Promise.all([
+    const [activeRuns, loomMasters, designMasters, orderMasters, dailyLogs] = await Promise.all([
       prisma.loomRunEntry.findMany(),
       prisma.loomMaster.findMany(),
       prisma.designMaster.findMany(),
-      prisma.orderMaster.findMany()
+      prisma.orderMaster.findMany(),
+      prisma.dailyProductionLog.findMany()
     ]);
 
     const loomMap = new Map();
@@ -1599,12 +2331,27 @@ app.get('/api/reports/design-running', async (req, res) => {
         formattedUnit = `UNIT ${formattedUnit}`;
       }
 
+      const loomLogs = dailyLogs.filter(dl =>
+        Number(dl.loom_no) === Number(run.loom_no) &&
+        (dl.design_no || '').trim().toLowerCase() === (run.design_no_sp_no || '').trim().toLowerCase()
+      );
+      const cumulativeProduced = loomLogs.reduce((acc, l) => acc + (Number(l.produced_meter) || 0), 0);
+      let avgDailyProd = Number(run.daily_production) || 0;
+      if (loomLogs.length > 0) {
+        const validLogs = loomLogs.filter(l => Number(l.produced_meter) > 0);
+        if (validLogs.length > 0) {
+          avgDailyProd = Math.round(cumulativeProduced / validLogs.length);
+        }
+      }
+      if (avgDailyProd <= 0) avgDailyProd = Number(run.daily_production) || 150;
+
       runningLoomsList.push({
         loomNo: run.loom_no,
         designNo: run.design_no_sp_no,
         loomStartDate: run.loom_start_date,
         warpedMeter: run.warped_meter || 0,
-        dailyProduction: run.daily_production || 0,
+        dailyProduction: avgDailyProd,
+        producedMeter: cumulativeProduced,
         rpm: run.rpm !== undefined ? run.rpm : (loomInfo?.rpm || null),
         efficiency: run.efficiency || null,
         shiftHours: run.shift_hours || null,
@@ -1614,6 +2361,9 @@ app.get('/api/reports/design-running', async (req, res) => {
         overrideReason: run.override_reason || '',
         currentReedNo: run.current_reed_no || '',
         currentBeamNo: run.current_beam_no || '',
+        setNo: run.set_no || '',
+        orderNo: run.order_no || '',
+        customerName: run.customer_name || '',
         unit: formattedUnit,
         loomType: loomInfo?.loom_type || 'AIRJET',
         make: loomInfo?.make || '',
@@ -1650,63 +2400,89 @@ app.get('/api/reports/design-running', async (req, res) => {
 app.post('/api/active-runs', async (req, res) => {
   try {
     const runs = Array.isArray(req.body) ? req.body : [req.body];
+    if (runs.length === 0) return res.json({ success: true });
 
-    for (const run of runs) {
-      const updateData = {
-        design_no_sp_no: run.designNo,
-        loom_start_date: new Date(run.loomStartDate),
-        warped_meter: parseFloat(run.warpedMeter) || 0,
-        daily_production: parseFloat(run.dailyProduction) || 0,
-        remarks: run.remarks || ''
-      };
+    // High-speed batch optimization: pre-fetch existing runs, beams, and looms in parallel
+    const [existingRuns, allBeams, allLooms] = await Promise.all([
+      prisma.loomRunEntry.findMany(),
+      prisma.beamStockMaster.findMany(),
+      prisma.loomMaster.findMany({ select: { loom_no: true, status: true } })
+    ]);
 
-      if (run.rpm !== undefined && run.rpm !== null && run.rpm !== '') {
-        updateData.rpm = parseInt(run.rpm, 10);
-      }
-      if (run.efficiency !== undefined && run.efficiency !== null && run.efficiency !== '') {
-        updateData.efficiency = parseFloat(run.efficiency);
-      }
-      if (run.shiftHours !== undefined) updateData.shift_hours = parseFloat(run.shiftHours) || null;
-      if (run.workingHours !== undefined) updateData.working_hours = parseFloat(run.workingHours) || null;
-      if (run.machineUtilization !== undefined) updateData.machine_utilization = parseFloat(run.machineUtilization) || null;
-      if (run.productionOverride !== undefined) updateData.production_override = parseFloat(run.productionOverride) || null;
-      if (run.currentBeamNo !== undefined) updateData.current_beam_no = run.currentBeamNo;
-      if (run.setNo !== undefined || run.currentSetNo !== undefined) updateData.set_no = run.setNo || run.currentSetNo;
-      if (run.beamId !== undefined) updateData.beam_id = run.beamId ? parseInt(run.beamId, 10) : null;
+    const existingRunsMap = new Map(existingRuns.map(r => [r.loom_no, r]));
+    const beamById = new Map(allBeams.map(b => [b.id, b]));
+    const beamByNo = new Map(allBeams.filter(b => b.beam_no).map(b => [b.beam_no.trim().toLowerCase(), b]));
+    const loomStatusMap = new Map(allLooms.map(l => [l.loom_no, l.status]));
 
-      await prisma.loomRunEntry.upsert({
-        where: { loom_no: parseInt(run.loomNo, 10) },
-        update: updateData,
-        create: {
-          loom_no: parseInt(run.loomNo, 10),
-          ...updateData
+    await prisma.$transaction(async (tx) => {
+      for (const run of runs) {
+        const loomNoNum = parseInt(run.loomNo, 10);
+        if (isNaN(loomNoNum)) continue;
+
+        const existingRun = existingRunsMap.get(loomNoNum);
+
+        const updateData = {
+          design_no_sp_no: run.designNo,
+          loom_start_date: run.loomStartDate
+            ? new Date(run.loomStartDate)
+            : ((existingRun && existingRun.loom_start_date) ? existingRun.loom_start_date : new Date()),
+          warped_meter: parseFloat(run.warpedMeter) || 0,
+          daily_production: parseFloat(run.dailyProduction) || 0,
+          remarks: run.remarks || ''
+        };
+
+        if (run.rpm !== undefined && run.rpm !== null && run.rpm !== '') {
+          updateData.rpm = parseInt(run.rpm, 10);
         }
-      });
+        if (run.efficiency !== undefined && run.efficiency !== null && run.efficiency !== '') {
+          updateData.efficiency = parseFloat(run.efficiency);
+        }
+        if (run.shiftHours !== undefined) updateData.shift_hours = parseFloat(run.shiftHours) || null;
+        if (run.workingHours !== undefined) updateData.working_hours = parseFloat(run.workingHours) || null;
+        if (run.machineUtilization !== undefined) updateData.machine_utilization = parseFloat(run.machineUtilization) || null;
+        if (run.productionOverride !== undefined) updateData.production_override = parseFloat(run.productionOverride) || null;
+        if (run.currentBeamNo !== undefined) updateData.current_beam_no = run.currentBeamNo;
+        if (run.setNo !== undefined || run.currentSetNo !== undefined) updateData.set_no = run.setNo || run.currentSetNo;
+        if (run.beamId !== undefined) updateData.beam_id = run.beamId ? parseInt(run.beamId, 10) : null;
 
-      // Update matching beam in BeamStockMaster to Running only if beam_no or beamId is explicitly given
-      const loomNoNum = parseInt(run.loomNo, 10);
-      let beam = null;
-      if (run.beamId) {
-        beam = await prisma.beamStockMaster.findUnique({
-          where: { id: parseInt(run.beamId, 10) }
-        });
-      } else if (run.currentBeamNo && run.currentBeamNo.trim()) {
-        beam = await prisma.beamStockMaster.findFirst({
-          where: { beam_no: run.currentBeamNo.trim() }
-        });
-      }
-
-      if (beam) {
-        await prisma.beamStockMaster.update({
-          where: { id: beam.id },
-          data: {
-            status: 'Running',
-            loom_no_assigned: loomNoNum,
-            reserved_for: `Loom ${loomNoNum}`
+        await tx.loomRunEntry.upsert({
+          where: { loom_no: loomNoNum },
+          update: updateData,
+          create: {
+            loom_no: loomNoNum,
+            ...updateData
           }
         });
+
+        // Fast in-memory beam lookup
+        let beam = null;
+        if (run.beamId) {
+          beam = beamById.get(parseInt(run.beamId, 10));
+        } else if (run.currentBeamNo && run.currentBeamNo.trim()) {
+          beam = beamByNo.get(run.currentBeamNo.trim().toLowerCase());
+        }
+
+        if (beam && beam.status !== 'Running') {
+          await tx.beamStockMaster.update({
+            where: { id: beam.id },
+            data: {
+              status: 'Running',
+              loom_no_assigned: loomNoNum,
+              reserved_for: `Loom ${loomNoNum}`
+            }
+          });
+        }
+
+        // Sync LoomMaster status to Running only if not already Running
+        if (loomStatusMap.get(loomNoNum) !== 'Running') {
+          await tx.loomMaster.update({
+            where: { loom_no: loomNoNum },
+            data: { status: 'Running' }
+          }).catch(e => console.error(`Failed to update loom ${loomNoNum} status to Running:`, e.message));
+        }
       }
-    }
+    }, { timeout: 30000 });
+
     res.json({ success: true });
   } catch (error) {
     console.error(error);
@@ -1718,8 +2494,8 @@ app.post('/api/active-runs', async (req, res) => {
 app.get('/api/production-logs', async (req, res) => {
   try {
     const logs = await prisma.dailyProductionLog.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 500
+      orderBy: { date: 'desc' },
+      take: 10000
     });
     res.json(logs);
   } catch (error) {
@@ -1729,107 +2505,185 @@ app.get('/api/production-logs', async (req, res) => {
 
 app.post('/api/production-logs', async (req, res) => {
   try {
-    const logData = req.body;
-    const loomNo = parseInt(logData.loomNo, 10);
-    const prodMeter = parseFloat(logData.producedMeter) || 0;
-    const logDate = logData.date ? new Date(logData.date) : new Date();
+    const isBatch = Array.isArray(req.body);
+    const logsData = isBatch ? req.body : [req.body];
+    if (logsData.length === 0) return res.json({ success: true, data: [] });
 
-    const startOfDay = new Date(logDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(logDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    // Determine min and max date window for batch
+    let minDate = new Date();
+    let maxDate = new Date();
+    for (const ld of logsData) {
+      const d = ld.date ? new Date(ld.date) : new Date();
+      if (!minDate || d < minDate) minDate = d;
+      if (!maxDate || d > maxDate) maxDate = d;
+    }
+    const startOfWindow = new Date(minDate);
+    startOfWindow.setHours(0, 0, 0, 0);
+    const endOfWindow = new Date(maxDate);
+    endOfWindow.setHours(23, 59, 59, 999);
 
-    const existingLog = await prisma.dailyProductionLog.findFirst({
-      where: {
-        loom_no: loomNo,
-        date: {
-          gte: startOfDay,
-          lte: endOfDay
+    // High-speed parallel pre-fetching of all related entities in single queries
+    const [allRunEntries, existingLogsInWindow, allBeams, allOrders, allHistoryLogs] = await Promise.all([
+      prisma.loomRunEntry.findMany(),
+      prisma.dailyProductionLog.findMany({
+        where: {
+          date: { gte: startOfWindow, lte: endOfWindow }
         }
-      }
-    });
+      }),
+      prisma.beamStockMaster.findMany(),
+      prisma.orderMaster.findMany(),
+      prisma.dailyProductionLog.findMany({
+        select: { id: true, loom_no: true, design_no: true, produced_meter: true, date: true }
+      })
+    ]);
 
-    let newLog;
-    if (existingLog) {
-      newLog = await prisma.dailyProductionLog.update({
-        where: { id: existingLog.id },
-        data: {
-          produced_meter: prodMeter,
-          rpm: logData.rpm ? parseInt(logData.rpm, 10) : null,
-          efficiency: logData.efficiency ? parseFloat(logData.efficiency) : null,
-          remarks: logData.remarks || ''
-        }
-      });
-    } else {
-      newLog = await prisma.dailyProductionLog.create({
-        data: {
-          loom_no: loomNo,
-          design_no: logData.designNo,
-          produced_meter: prodMeter,
-          rpm: logData.rpm ? parseInt(logData.rpm, 10) : null,
-          efficiency: logData.efficiency ? parseFloat(logData.efficiency) : null,
-          remarks: logData.remarks || '',
-          date: logDate
-        }
-      });
+    const runEntryMap = new Map(allRunEntries.map(r => [r.loom_no, r]));
+    const beamByNo = new Map(allBeams.filter(b => b.beam_no).map(b => [b.beam_no.trim().toLowerCase(), b]));
+    const beamByLoom = new Map(allBeams.filter(b => b.loom_no_assigned).map(b => [b.loom_no_assigned, b]));
+
+    const orderByNo = new Map(allOrders.filter(o => o.order_no).map(o => [o.order_no.trim().toLowerCase(), o]));
+    const orderByIbpo = new Map(allOrders.filter(o => o.ibpo_no).map(o => [o.ibpo_no.trim().toLowerCase(), o]));
+
+    // Map existing logs by "loomNo_YYYY-MM-DD"
+    const existingLogMap = new Map();
+    for (const el of existingLogsInWindow) {
+      const elDateStr = new Date(el.date).toISOString().slice(0, 10);
+      existingLogMap.set(`${el.loom_no}_${elDateStr}`, el);
     }
 
-    // Update active LoomRunEntry, BeamStockMaster balance and OrderMaster
-    const runEntry = await prisma.loomRunEntry.findUnique({ where: { loom_no: loomNo } });
-    if (runEntry) {
-      // Sum total production for this loom
-      const allLogs = await prisma.dailyProductionLog.findMany({ where: { loom_no: loomNo } });
-      const totalLoomProd = allLogs.reduce((sum, l) => sum + (l.produced_meter || 0), 0);
+    // Group history logs by loom_no
+    const historyByLoom = new Map();
+    for (const hl of allHistoryLogs) {
+      let list = historyByLoom.get(hl.loom_no);
+      if (!list) {
+        list = [];
+        historyByLoom.set(hl.loom_no, list);
+      }
+      list.push(hl);
+    }
 
-      // 1. Sync BeamStockMaster balance if beam assigned
-      if (runEntry.current_beam_no) {
-        const beam = await prisma.beamStockMaster.findFirst({
-          where: {
-            OR: [
-              { beam_no: runEntry.current_beam_no },
-              { loom_no_assigned: loomNo }
-            ]
-          }
-        });
-        if (beam) {
-          const initialLen = beam.beam_length || beam.available_meter || 5000;
-          const newBal = Math.max(0, initialLen - totalLoomProd);
-          const isFinished = newBal <= 0 || totalLoomProd >= (runEntry.warped_meter || initialLen);
-          await prisma.beamStockMaster.update({
-            where: { id: beam.id },
+    const results = [];
+
+    await prisma.$transaction(async (tx) => {
+      for (const logData of logsData) {
+        const loomNo = parseInt(logData.loomNo, 10);
+        if (isNaN(loomNo)) continue;
+        const prodMeter = parseFloat(logData.producedMeter) || 0;
+        const logDate = logData.date ? new Date(logData.date) : new Date();
+        const dateKey = logDate.toISOString().slice(0, 10);
+
+        const runEntry = runEntryMap.get(loomNo);
+        const existingLog = existingLogMap.get(`${loomNo}_${dateKey}`);
+        const resolvedDesign = logData.designNo || runEntry?.design_no_sp_no || '';
+
+        let savedLog;
+        if (existingLog) {
+          savedLog = await tx.dailyProductionLog.update({
+            where: { id: existingLog.id },
             data: {
-              current_balance_meter: newBal,
-              available_meter: newBal,
-              status: isFinished ? 'Completed' : 'Running'
+              produced_meter: prodMeter,
+              design_no: resolvedDesign || existingLog.design_no,
+              rpm: (logData.rpm !== undefined && logData.rpm !== null && logData.rpm !== '') ? parseInt(logData.rpm, 10) : null,
+              efficiency: (logData.efficiency !== undefined && logData.efficiency !== null && logData.efficiency !== '') ? parseFloat(logData.efficiency) : null,
+              remarks: logData.remarks || ''
+            }
+          });
+        } else {
+          savedLog = await tx.dailyProductionLog.create({
+            data: {
+              loom_no: loomNo,
+              design_no: resolvedDesign,
+              produced_meter: prodMeter,
+              rpm: (logData.rpm !== undefined && logData.rpm !== null && logData.rpm !== '') ? parseInt(logData.rpm, 10) : null,
+              efficiency: (logData.efficiency !== undefined && logData.efficiency !== null && logData.efficiency !== '') ? parseFloat(logData.efficiency) : null,
+              remarks: logData.remarks || '',
+              date: logDate
             }
           });
         }
-      }
+        results.push(savedLog);
 
-      // 2. Sync OrderMaster status and produced_qty
-      if (runEntry.order_no) {
-        const order = await prisma.orderMaster.findFirst({
-          where: {
-            OR: [
-              { order_no: runEntry.order_no },
-              { ibpo_no: runEntry.order_no }
-            ]
+        // Update active LoomRunEntry, BeamStockMaster balance and OrderMaster
+        if (runEntry) {
+          const startDate = runEntry.loom_start_date ? new Date(runEntry.loom_start_date) : null;
+          let sDate = null;
+          if (startDate) {
+            sDate = new Date(startDate);
+            sDate.setHours(0, 0, 0, 0);
           }
-        });
-        if (order) {
-          const isOrderDone = totalLoomProd >= order.order_qty;
-          await prisma.orderMaster.update({
-            where: { id: order.id },
-            data: {
-              produced_qty: totalLoomProd,
-              status: isOrderDone ? 'Weaving Completed' : 'Weaving Running'
+
+          const startOfDay = new Date(logDate);
+          startOfDay.setHours(0, 0, 0, 0);
+          const endOfDay = new Date(logDate);
+          endOfDay.setHours(23, 59, 59, 999);
+
+          const loomHistory = historyByLoom.get(loomNo) || [];
+          let totalLoomProd = 0;
+          let foundTodayInHistory = false;
+
+          for (const l of loomHistory) {
+            if (runEntry.design_no_sp_no && l.design_no && l.design_no.trim().toLowerCase() !== runEntry.design_no_sp_no.trim().toLowerCase()) continue;
+            if (sDate && l.date < sDate) continue;
+
+            if (l.date >= startOfDay && l.date <= endOfDay) {
+              totalLoomProd += prodMeter; // update with today's newly saved production
+              foundTodayInHistory = true;
+            } else {
+              totalLoomProd += (l.produced_meter || 0);
             }
-          });
+          }
+          if (!foundTodayInHistory && (!sDate || logDate >= sDate)) {
+            totalLoomProd += prodMeter;
+          }
+
+          // Update daily_production in LoomRunEntry with latest entered rate
+          await tx.loomRunEntry.update({
+            where: { loom_no: loomNo },
+            data: {
+              daily_production: prodMeter > 0 ? prodMeter : runEntry.daily_production,
+              ...(logData.rpm ? { rpm: parseInt(logData.rpm, 10) } : {}),
+              ...(logData.efficiency ? { efficiency: parseFloat(logData.efficiency) } : {})
+            }
+          }).catch(() => { });
+
+          // 1. Sync BeamStockMaster balance if beam assigned
+          if (runEntry.current_beam_no) {
+            const beam = beamByNo.get(runEntry.current_beam_no.trim().toLowerCase()) || beamByLoom.get(loomNo);
+            if (beam) {
+              const initialLen = beam.beam_length || beam.available_meter || 5000;
+              const newBal = Math.max(0, initialLen - totalLoomProd);
+              const isFinished = newBal <= 0 || totalLoomProd >= (runEntry.warped_meter || initialLen);
+              await tx.beamStockMaster.update({
+                where: { id: beam.id },
+                data: {
+                  current_balance_meter: newBal,
+                  available_meter: newBal,
+                  status: isFinished ? 'Completed' : 'Running'
+                }
+              });
+            }
+          }
+
+          // 2. Sync OrderMaster status and produced_qty
+          if (runEntry.order_no) {
+            const orderKey = runEntry.order_no.trim().toLowerCase();
+            const order = orderByNo.get(orderKey) || orderByIbpo.get(orderKey);
+            if (order) {
+              const isOrderDone = totalLoomProd >= order.order_qty;
+              await tx.orderMaster.update({
+                where: { id: order.id },
+                data: {
+                  produced_qty: totalLoomProd,
+                  status: isOrderDone ? 'Weaving Completed' : 'Weaving Running'
+                }
+              });
+            }
+          }
         }
       }
-    }
+    }, { timeout: 30000 });
 
-    res.json({ success: true, data: newLog });
+    res.json({ success: true, data: isBatch ? results : results[0] });
   } catch (error) {
     console.error('Production log error:', error);
     res.status(500).json({ error: error.message });
@@ -1840,21 +2694,92 @@ app.put('/api/production-logs/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { produced_meter, rpm, efficiency, remarks, date } = req.body;
+    const newProducedMeter = parseFloat(produced_meter) || 0;
+
+    // 1. Update the log record itself
     const updated = await prisma.dailyProductionLog.update({
       where: { id },
       data: {
-        produced_meter: parseFloat(produced_meter) || 0,
+        produced_meter: newProducedMeter,
         rpm: rpm ? parseInt(rpm, 10) : null,
         efficiency: efficiency ? parseFloat(efficiency) : null,
         remarks: remarks || '',
         ...(date ? { date: new Date(date) } : {})
       }
     });
+
+    // 2. Cascade: recalculate cumulative total and sync LoomRunEntry + OrderMaster
+    // Fetch the updated log to know loom_no and design_no
+    const logRecord = await prisma.dailyProductionLog.findUnique({ where: { id } });
+    if (logRecord) {
+      const loomNo = logRecord.loom_no;
+      const designNo = (logRecord.design_no || '').trim().toLowerCase();
+
+      // Fetch the active run for this loom
+      const runEntry = await prisma.loomRunEntry.findFirst({ where: { loom_no: loomNo } });
+      if (runEntry) {
+        const runDesign = (runEntry.design_no_sp_no || '').trim().toLowerCase();
+        const startDate = runEntry.loom_start_date ? new Date(runEntry.loom_start_date) : null;
+        if (startDate) startDate.setHours(0, 0, 0, 0);
+
+        // Only cascade if the edited log belongs to the currently running design
+        if (designNo === runDesign || !designNo) {
+          // Sum all logs for this loom + current design on or after loom start date
+          const allLoomLogs = await prisma.dailyProductionLog.findMany({
+            where: { loom_no: loomNo },
+            select: { produced_meter: true, design_no: true, date: true }
+          });
+
+          let cumulativeTotal = 0;
+          for (const l of allLoomLogs) {
+            const lDesign = (l.design_no || '').trim().toLowerCase();
+            if (lDesign && runDesign && lDesign !== runDesign) continue;
+            const lDate = l.date ? new Date(l.date) : null;
+            if (startDate && lDate && lDate < startDate) continue;
+            cumulativeTotal += (l.produced_meter || 0);
+          }
+
+          // Update LoomRunEntry.daily_production with the latest single-day value (consistent with POST)
+          await prisma.loomRunEntry.update({
+            where: { loom_no: loomNo },
+            data: {
+              daily_production: newProducedMeter > 0 ? newProducedMeter : runEntry.daily_production,
+              ...(rpm ? { rpm: parseInt(rpm, 10) } : {}),
+              ...(efficiency ? { efficiency: parseFloat(efficiency) } : {})
+            }
+          }).catch(() => { });
+
+          // Sync OrderMaster.produced_qty if order is linked
+          if (runEntry.order_no) {
+            const order = await prisma.orderMaster.findFirst({
+              where: {
+                OR: [
+                  { order_no: { equals: runEntry.order_no, mode: 'insensitive' } },
+                  { ibpo_no: { equals: runEntry.order_no, mode: 'insensitive' } }
+                ]
+              }
+            });
+            if (order) {
+              const isOrderDone = cumulativeTotal >= order.order_qty;
+              await prisma.orderMaster.update({
+                where: { id: order.id },
+                data: {
+                  produced_qty: cumulativeTotal,
+                  status: isOrderDone ? 'Weaving Completed' : 'Weaving Running'
+                }
+              }).catch(() => { });
+            }
+          }
+        }
+      }
+    }
+
     res.json({ success: true, data: updated });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.delete('/api/production-logs/:id', async (req, res) => {
   try {
@@ -1877,7 +2802,16 @@ app.get('/api/next-plans', async (req, res) => {
       prisma.designMaster.findMany({ select: { design_no_sp_no: true } })
     ]);
     const validDesignSet = new Set(validDesigns.map(d => (d.design_no_sp_no || '').trim().toLowerCase()));
-    const filteredPlans = plans.filter(p => p.next_design && p.next_design.trim() && validDesignSet.has(p.next_design.trim().toLowerCase()));
+    const filteredPlans = plans.filter(p =>
+      p.next_design &&
+      p.next_design.trim() &&
+      validDesignSet.has(p.next_design.trim().toLowerCase()) &&
+      p.status !== 'CANCELLED' &&
+      p.status !== 'COMPLETED' &&
+      p.confirmation_status !== 'CANCELLED' &&
+      p.confirmation_status !== 'COMPLETED' &&
+      p.readiness_status !== 'RUNNING IN MAIN ENTRY'
+    );
     res.json(filteredPlans);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1952,7 +2886,8 @@ app.post('/api/next-plans', async (req, res) => {
             loom_no: plan.loomNo,
             design_no: plan.designNo,
             target_date: new Date(plan.startDate || new Date()),
-            required_meter: Number(plan.warpMeter) || 0
+            required_meter: Number(plan.warpMeter) || 0,
+            updatedAt: new Date()
           }
         });
       }
@@ -2072,8 +3007,12 @@ app.post('/api/confirm-plan', async (req, res) => {
     });
 
     // 2. Archive to CompletedWarpHistory if a current run exists
-    if (currentRun && currentRun.design_no_sp_no) {
-      const start = new Date(currentRun.loom_start_date);
+    const designToArchive = (currentRun && currentRun.design_no_sp_no && currentRun.design_no_sp_no !== '—')
+      ? currentRun.design_no_sp_no
+      : (req.body.currentDesign && req.body.currentDesign !== '—' ? req.body.currentDesign : null);
+
+    if (designToArchive) {
+      const start = (currentRun && currentRun.loom_start_date) ? new Date(currentRun.loom_start_date) : new Date();
       const end = new Date(startDate || new Date());
 
       const diffTime = Math.abs(end.getTime() - start.getTime());
@@ -2084,25 +3023,33 @@ app.post('/api/confirm-plan', async (req, res) => {
       const logs = await prisma.dailyProductionLog.findMany({
         where: {
           loom_no: loomNo,
-          design_no: currentRun.design_no_sp_no
+          design_no: designToArchive
         }
       });
       const totalProductionFromLogs = logs.reduce((sum, l) => sum + (l.produced_meter || 0), 0);
-      const totalProduction = totalProductionFromLogs > 0 ? totalProductionFromLogs : (runningDays * (currentRun.daily_production || 0));
+      const totalProduction = totalProductionFromLogs > 0
+        ? totalProductionFromLogs
+        : (req.body.producedMeter !== undefined && Number(req.body.producedMeter) > 0
+          ? Number(req.body.producedMeter)
+          : (runningDays * ((currentRun && currentRun.daily_production) || 200)));
 
-      const avgDailyProd = runningDays > 0 ? totalProduction / runningDays : (currentRun.daily_production || 300);
-      const efficiency = currentRun.daily_production > 0
+      const avgDailyProd = runningDays > 0 ? totalProduction / runningDays : ((currentRun && currentRun.daily_production) || 300);
+      const efficiency = (currentRun && currentRun.daily_production > 0)
         ? (avgDailyProd / currentRun.daily_production) * 100
         : 100.0;
+
+      const warpedMtr = (currentRun && currentRun.warped_meter)
+        ? currentRun.warped_meter
+        : (req.body.warpedMeter ? Number(req.body.warpedMeter) : totalProduction);
 
       await prisma.completedWarpHistory.create({
         data: {
           loom_no: loomNo,
-          design_no_sp_no: currentRun.design_no_sp_no,
+          design_no_sp_no: designToArchive,
           start_date: start,
           end_date: end,
-          warp_meter: currentRun.warped_meter,
-          total_production_meter: totalProduction,
+          warp_meter: warpedMtr,
+          total_production_meter: Math.round(totalProduction),
           running_days: runningDays,
           avg_daily_production: Math.round(avgDailyProd),
           efficiency_pct: Math.min(100, Math.round(efficiency)),
@@ -2111,48 +3058,70 @@ app.post('/api/confirm-plan', async (req, res) => {
       });
     }
 
-    const finalNextDesign = (nextDesign && nextDesign !== '—') ? nextDesign : '';
+    const isClearOnly = req.body.clearOnly === true || req.body.action === 'CLEAR_RUNOUT' || req.body.action === 'DELETE_RUNOUT' || req.body.promoteNext === false;
+    const finalNextDesign = (!isClearOnly && req.body.promoteNext === true && nextDesign && nextDesign !== '—' && nextDesign.trim() !== '') ? nextDesign.trim() : '';
     const finalBeamNo = finalNextDesign ? (beamNo || planEntry?.reserved_beam_no || null) : null;
     const finalSetNo = finalNextDesign ? (setNo || planEntry?.reserved_set_no || null) : null;
     const finalBeamId = finalNextDesign ? (beamId ? parseInt(beamId, 10) : (planEntry?.reserved_beam_id || null)) : null;
     const finalWarpMeter = finalNextDesign ? (Number(warpMeter) || Number(planEntry?.planned_warp_meter) || 1800) : 0;
 
-    // 3. Promote new run to Active or clear design if no next design exists
-    await prisma.loomRunEntry.upsert({
-      where: { loom_no: loomNo },
-      update: {
-        design_no_sp_no: finalNextDesign,
-        loom_start_date: new Date(startDate || new Date()),
-        warped_meter: finalWarpMeter,
-        daily_production: 0,
-        current_beam_no: finalBeamNo,
-        set_no: finalSetNo,
-        beam_id: finalBeamId,
-        remarks: finalNextDesign ? 'Promoted from Next Plan' : 'Runout completed - Awaiting Next Plan'
-      },
-      create: {
-        loom_no: loomNo,
-        design_no_sp_no: finalNextDesign,
-        loom_start_date: new Date(startDate || new Date()),
-        warped_meter: finalWarpMeter,
-        daily_production: 0,
-        current_beam_no: finalBeamNo,
-        set_no: finalSetNo,
-        beam_id: finalBeamId,
-        remarks: finalNextDesign ? 'Promoted from Next Plan' : 'Runout completed - Awaiting Next Plan'
-      }
-    });
-
-    // Update Beam Stock status to Running if reserved_beam_id exists
-    if (finalBeamId) {
-      await prisma.beamStockMaster.update({
-        where: { id: finalBeamId },
-        data: {
-          status: 'Running',
-          loom_no_assigned: loomNo,
-          reserved_for: `Loom ${loomNo} - Running`
+    // 3. Promote new run to Active OR completely remove active run if no next design
+    if (finalNextDesign) {
+      await prisma.loomRunEntry.upsert({
+        where: { loom_no: loomNo },
+        update: {
+          design_no_sp_no: finalNextDesign,
+          loom_start_date: new Date(startDate || new Date()),
+          warped_meter: finalWarpMeter,
+          daily_production: 0,
+          current_beam_no: finalBeamNo,
+          set_no: finalSetNo,
+          beam_id: finalBeamId,
+          remarks: 'Promoted from Next Plan'
+        },
+        create: {
+          loom_no: loomNo,
+          design_no_sp_no: finalNextDesign,
+          loom_start_date: new Date(startDate || new Date()),
+          warped_meter: finalWarpMeter,
+          daily_production: 0,
+          current_beam_no: finalBeamNo,
+          set_no: finalSetNo,
+          beam_id: finalBeamId,
+          remarks: 'Promoted from Next Plan'
         }
       });
+
+      await prisma.loomMaster.update({
+        where: { loom_no: loomNo },
+        data: { status: 'Running' }
+      }).catch(() => { });
+
+      if (finalBeamId) {
+        await prisma.beamStockMaster.update({
+          where: { id: finalBeamId },
+          data: {
+            status: 'Running',
+            loom_no_assigned: loomNo,
+            reserved_for: `Loom ${loomNo} - Running`
+          }
+        }).catch(() => { });
+      }
+    } else {
+      // Runout confirmed with no next design: delete active run and free loom
+      await prisma.loomRunEntry.deleteMany({
+        where: { loom_no: loomNo }
+      });
+
+      await prisma.loomMaster.update({
+        where: { loom_no: loomNo },
+        data: { status: 'Available' }
+      }).catch(() => { });
+
+      await prisma.beamStockMaster.updateMany({
+        where: { loom_no_assigned: loomNo },
+        data: { loom_no_assigned: null, status: 'Completed', reserved_for: null }
+      }).catch(() => { });
     }
 
     // 4. Delete the planned assignment
@@ -2269,18 +3238,16 @@ async function getCalculatedReedStock() {
 
   return reeds.map(r => {
     const countKey = r.reed_count || '';
-    const availableQty = Number(r.available_qty !== undefined ? r.available_qty : (r.total_qty || 1)); // Available Qty = Total Physical Stock
+    const availableQty = Math.max(Number(r.available_qty !== undefined ? r.available_qty : (r.total_qty || 1)), 1);
     const runningQty = runningCountMap[countKey] || r.running_qty || 0;
     const reservedQty = reservedCountMap[countKey] || r.reserved_qty || 0;
     const balanceQty = availableQty - reservedQty - runningQty;
 
     let status = 'AVAILABLE';
-    if (balanceQty < 0) {
-      status = 'DATA MISMATCH';
-    } else if (balanceQty === 0 && runningQty === 0 && reservedQty === 0) {
+    if (availableQty <= 0) {
       status = 'OUT OF STOCK';
-    } else if (balanceQty === 0) {
-      status = runningQty > 0 ? 'RUNNING' : 'RESERVED';
+    } else if (balanceQty <= 0) {
+      status = runningQty > 0 ? 'RUNNING' : (reservedQty > 0 ? 'RESERVED' : 'OUT OF STOCK');
     } else if (balanceQty <= 2) {
       status = 'LOW STOCK';
     } else if (runningQty > 0) {
@@ -2296,11 +3263,11 @@ async function getCalculatedReedStock() {
       make_vendor: r.reed_make || r.vendor || 'In-House',
       vendor: r.vendor || r.reed_make || 'In-House',
       location: r.location || 'Rack A-01',
-      available_qty: availableQty, // Total Physical Stock
+      available_qty: availableQty,
       total_qty: availableQty,
       reserved_qty: reservedQty,
       running_qty: runningQty,
-      balance_qty: balanceQty, // Balance = Available Qty - Reserved Qty - Running Qty
+      balance_qty: balanceQty,
       status
     };
   });
@@ -2683,7 +3650,7 @@ function checkLoomCompatibilityBackend(design, loom) {
     normalizedLoomCapabilities,
     loomCapability: loomCap,
     orderRequirement: orderReq,
-    maxFramesSupported,
+    maxFramesSupported: maxSupportedFrames,
     requiredFrames: orderReq.requiredFrames,
     matchedCapability
   };
@@ -2703,18 +3670,22 @@ async function evaluateSuitability(designNo, orderNo) {
 
   if (!design) return { error: 'Design specification not found' };
 
-  const looms = await prisma.loomMaster.findMany({ orderBy: { loom_no: 'asc' } });
-  const activeRuns = await prisma.loomRunEntry.findMany();
+  const [looms, activeRuns, plans, beams, reeds, prepRequests, dailyLogs, allDesigns] = await Promise.all([
+    prisma.loomMaster.findMany({ orderBy: { loom_no: 'asc' } }),
+    prisma.loomRunEntry.findMany(),
+    prisma.plannedAssignment.findMany(),
+    prisma.beamStockMaster.findMany(),
+    prisma.reedStockMaster.findMany(),
+    prisma.beamPreparationRequest.findMany(),
+    prisma.dailyProductionLog.findMany(),
+    prisma.designMaster.findMany()
+  ]);
+
   const runMap = {};
   activeRuns.forEach(r => { runMap[r.loom_no] = r; });
 
-  const plans = await prisma.plannedAssignment.findMany();
   const planMap = {};
   plans.forEach(p => { planMap[p.loom_no] = p; });
-
-  const beams = await prisma.beamStockMaster.findMany();
-  const reeds = await prisma.reedStockMaster.findMany();
-  const prepRequests = await prisma.beamPreparationRequest.findMany();
 
   const recommendations = [];
 
@@ -2767,19 +3738,49 @@ async function evaluateSuitability(designNo, orderNo) {
     }
     const sizingScore = (sizingStatus === 'COMPLETED' || sizingStatus === 'READY') ? 5 : 2;
 
-    // Runout calculation
+    // Runout calculation aligned with Main Entry SSOT
     const run = runMap[loom.loom_no];
     let balanceDays = 0;
     let runoutDate = new Date();
     let dailyProd = loom.act_rpm ? Math.round(loom.act_rpm * 0.4) : 200;
 
     if (run) {
-      const startDate = new Date(run.loom_start_date);
-      dailyProd = run.daily_production || dailyProd;
-      const totalRunDays = (run.warped_meter || 10000) / (dailyProd || 200);
-      runoutDate = new Date(startDate.getTime() + totalRunDays * 24 * 60 * 60 * 1000);
+      const runDesignNo = run.design_no_sp_no;
+      const loomLogs = dailyLogs.filter(l =>
+        Number(l.loom_no) === Number(loom.loom_no) &&
+        (!runDesignNo || !l.design_no || l.design_no.trim().toLowerCase() === runDesignNo.trim().toLowerCase())
+      );
+      const totalProd = loomLogs.reduce((sum, l) => sum + (Number(l.produced_meter) || 0), 0);
+      const warpedMeter = Number(run.warped_meter) || 10000;
+
+      const designRec = allDesigns.find(d =>
+        (d.design_no && runDesignNo && d.design_no.trim().toLowerCase() === runDesignNo.trim().toLowerCase()) ||
+        (d.design_no_sp_no && runDesignNo && d.design_no_sp_no.trim().toLowerCase() === runDesignNo.trim().toLowerCase())
+      );
+      let crimpRate = 0.05;
+      if (designRec && designRec.crimp_percentage != null && !isNaN(Number(designRec.crimp_percentage))) {
+        const val = Number(designRec.crimp_percentage);
+        if (val > 0 && val <= 30) crimpRate = val / 100;
+      } else if (run.crimp_percentage != null && !isNaN(Number(run.crimp_percentage))) {
+        const val = Number(run.crimp_percentage);
+        if (val > 0 && val <= 30) crimpRate = val / 100;
+      }
+
+      const crimpLoss = Math.round(totalProd * crimpRate);
+      const grossBal = Math.max(0, warpedMeter - totalProd);
+      const netBal = Math.max(0, grossBal - crimpLoss);
+
+      let avgProd = Number(run.daily_production) || dailyProd;
+      if (loomLogs.length > 0) {
+        const validLogs = loomLogs.filter(l => Number(l.produced_meter) > 0);
+        if (validLogs.length > 0) {
+          avgProd = Math.round(totalProd / validLogs.length);
+        }
+      }
+      dailyProd = avgProd > 0 ? avgProd : 200;
+      balanceDays = dailyProd > 0 ? Math.ceil(netBal / dailyProd) : 0;
       const today = new Date();
-      balanceDays = Math.max(0, Math.ceil((runoutDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+      runoutDate = new Date(today.getTime() + balanceDays * 24 * 60 * 60 * 1000);
     } else {
       balanceDays = 0;
     }
@@ -2930,25 +3931,18 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
     });
     const isLoomRunning = currentRun && currentRun.design_no_sp_no && currentRun.design_no_sp_no.trim() !== '';
 
-    // Check existing plan conflict
-    const existingOtherPlan = await prisma.plannedAssignment.findFirst({
+    // Check existing plans for this loom
+    const existingPlans = await prisma.plannedAssignment.findMany({
       where: {
         loom_no: loomNum,
-        status: { in: ['PLANNED', 'CONFIRMED', 'ACTIVE', 'BEAM ALLOCATED'] },
-        NOT: {
-          AND: [
-            { next_design: cleanDesign },
-            { order_no: cleanIbpo }
-          ]
-        }
+        status: { in: ['PLANNED', 'NOT PLANNED', 'PENDING', 'BEAM ALLOCATED', 'CONFIRMED'] }
       }
     });
 
-    if (existingOtherPlan && !allowOverplan) {
-      return res.status(400).json({
-        error: `Loom ${loomNum} is already assigned/planned for Order/Design "${existingOtherPlan.order_no || existingOtherPlan.next_design}".`
-      });
-    }
+    const matchingPlan = existingPlans.find(
+      p => (p.next_design || '').trim().toLowerCase() === cleanDesign.toLowerCase() ||
+        (p.order_no || '').trim().toLowerCase() === cleanIbpo.toLowerCase()
+    );
 
     // Check beam stock availability (for informative status)
     const beam = await prisma.beamStockMaster.findFirst({
@@ -2979,13 +3973,13 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
       sizing_status: beam ? 'COMPLETED' : 'RUNNING',
       readiness_status: 'BEAM PENDING',
       planning_score: 75,
-      remarks: remarks || 'Saved as Loom Plan',
+      remarks: remarks || 'Saved as Loom Plan (Beam Allocation Pending)',
       confirmation_status: 'PLAN CREATED'
     };
 
-    let assignment = await prisma.plannedAssignment.findFirst({ where: { loom_no: loomNum } });
-    if (assignment) {
-      assignment = await prisma.plannedAssignment.update({ where: { id: assignment.id }, data: assignmentData });
+    let assignment;
+    if (matchingPlan) {
+      assignment = await prisma.plannedAssignment.update({ where: { id: matchingPlan.id }, data: assignmentData });
     } else {
       assignment = await prisma.plannedAssignment.create({ data: assignmentData });
     }
@@ -3035,7 +4029,28 @@ app.post('/api/planning/next-plan/allocate-beam', async (req, res) => {
 
     const targetDesign = (plan.next_design || '').trim().toLowerCase();
     const beamDesign = (beam.design_no || '').trim().toLowerCase();
-    if (targetDesign && beamDesign && beamDesign !== targetDesign && !beamDesign.includes(targetDesign) && !targetDesign.includes(beamDesign)) {
+
+    // Also fetch the order's current design as a fallback reference
+    let orderDesign = '';
+    if (plan.order_no) {
+      const orderRecord = await prisma.orderMaster.findFirst({
+        where: { ibpo_no: plan.order_no }
+      }).catch(() => null);
+      if (orderRecord) {
+        orderDesign = (orderRecord.design_no_sp_no || '').trim().toLowerCase();
+      }
+    }
+
+    // Normalize SP026 ↔ SP26 variants for comparison
+    const norm = (s) => s.replace(/sp026\//gi, 'sp26/').replace(/sp026/gi, 'sp26');
+    const normBeam = norm(beamDesign);
+    const normTarget = norm(targetDesign);
+    const normOrder = norm(orderDesign);
+
+    const beamMatchesPlan = !normTarget || !normBeam || normBeam === normTarget || normBeam.includes(normTarget) || normTarget.includes(normBeam);
+    const beamMatchesOrder = !normOrder || !normBeam || normBeam === normOrder || normBeam.includes(normOrder) || normOrder.includes(normBeam);
+
+    if (!beamMatchesPlan && !beamMatchesOrder) {
       return res.status(400).json({
         error: `Incompatible Beam: Selected Beam (${beam.beam_no}) belongs to Design "${beam.design_no}" which does not match planned Design "${plan.next_design}".`
       });
@@ -3059,7 +4074,7 @@ app.post('/api/planning/next-plan/allocate-beam', async (req, res) => {
       await prisma.beamStockMaster.update({
         where: { id: plan.reserved_beam_id },
         data: { status: 'Available', reserved_for: null, loom_no_assigned: null }
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     await prisma.beamStockMaster.update({
@@ -3113,7 +4128,7 @@ app.post('/api/planning/next-plan/change-beam', async (req, res) => {
       await prisma.beamStockMaster.update({
         where: { id: plan.reserved_beam_id },
         data: { status: 'Available', reserved_for: null, loom_no_assigned: null }
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     const updatedPlan = await prisma.plannedAssignment.update({
@@ -3138,9 +4153,140 @@ app.post('/api/planning/next-plan/change-beam', async (req, res) => {
   }
 });
 
+// ALLOCATE REED to Planned Assignment
+app.post('/api/planning/next-plan/allocate-reed', async (req, res) => {
+  try {
+    const { planId, loomNo, reedId } = req.body;
+    let plan = null;
+    if (planId) {
+      plan = await prisma.plannedAssignment.findUnique({ where: { id: Number(planId) } });
+    } else if (loomNo) {
+      plan = await prisma.plannedAssignment.findFirst({ where: { loom_no: Number(loomNo) } });
+    }
+
+    if (!plan) {
+      return res.status(404).json({ error: 'Plan not found.' });
+    }
+
+    const reed = await prisma.reedStockMaster.findUnique({ where: { id: Number(reedId) } });
+    if (!reed) {
+      return res.status(404).json({ error: 'Selected Reed not found in Reed Stock.' });
+    }
+
+    if (reed.available_qty <= 0 && reed.status !== 'Available') {
+      return res.status(400).json({ error: `Reed #${reed.reed_no} is currently not available in stock.` });
+    }
+
+    // Release previously reserved reed if different
+    if (plan.reserved_reed_id && plan.reserved_reed_id !== reed.id) {
+      const prevReed = await prisma.reedStockMaster.findUnique({ where: { id: plan.reserved_reed_id } });
+      if (prevReed) {
+        const newResQty = Math.max(0, prevReed.reserved_qty - 1);
+        await prisma.reedStockMaster.update({
+          where: { id: prevReed.id },
+          data: {
+            reserved_qty: newResQty,
+            available_qty: prevReed.available_qty + 1,
+            status: newResQty === 0 && prevReed.running_qty === 0 ? 'Available' : prevReed.status,
+            reserved_for_loom: null,
+            reserved_for_order: null,
+            reserved_for_design: null
+          }
+        });
+      }
+    }
+
+    // Update newly selected Reed stock (-1 available, +1 reserved)
+    await prisma.reedStockMaster.update({
+      where: { id: reed.id },
+      data: {
+        status: 'Reserved',
+        available_qty: Math.max(0, reed.available_qty - 1),
+        reserved_qty: reed.reserved_qty + 1,
+        reserved_for_loom: plan.loom_no,
+        reserved_for_order: plan.order_no || '',
+        reserved_for_design: plan.next_design
+      }
+    });
+
+    const updatedPlan = await prisma.plannedAssignment.update({
+      where: { id: plan.id },
+      data: {
+        reserved_reed_id: reed.id,
+        reserved_reed_no: reed.reed_no,
+        reed_status: 'REED ALLOCATED',
+        readiness_status: plan.reserved_beam_id ? 'CONFIRMED' : 'REED ALLOCATED'
+      }
+    });
+
+    res.json({
+      success: true,
+      plan: updatedPlan,
+      message: `Reed #${reed.reed_no} allocated & reserved for Loom ${plan.loom_no}.`
+    });
+  } catch (error) {
+    console.error('Error allocating reed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// RELEASE REED from Planned Assignment
+app.post('/api/planning/next-plan/release-reed', async (req, res) => {
+  try {
+    const { planId, loomNo } = req.body;
+    let plan = null;
+    if (planId) {
+      plan = await prisma.plannedAssignment.findUnique({ where: { id: Number(planId) } });
+    } else if (loomNo) {
+      plan = await prisma.plannedAssignment.findFirst({ where: { loom_no: Number(loomNo) } });
+    }
+
+    if (!plan) {
+      return res.status(404).json({ error: 'Plan not found.' });
+    }
+
+    if (plan.reserved_reed_id) {
+      const reed = await prisma.reedStockMaster.findUnique({ where: { id: plan.reserved_reed_id } });
+      if (reed) {
+        const newResQty = Math.max(0, reed.reserved_qty - 1);
+        await prisma.reedStockMaster.update({
+          where: { id: reed.id },
+          data: {
+            reserved_qty: newResQty,
+            available_qty: reed.available_qty + 1,
+            status: newResQty === 0 && reed.running_qty === 0 ? 'Available' : reed.status,
+            reserved_for_loom: null,
+            reserved_for_order: null,
+            reserved_for_design: null
+          }
+        }).catch(() => { });
+      }
+    }
+
+    const updatedPlan = await prisma.plannedAssignment.update({
+      where: { id: plan.id },
+      data: {
+        reserved_reed_id: null,
+        reserved_reed_no: null,
+        reed_status: 'REED REQUIRED',
+        readiness_status: 'CONFIRMATION PENDING'
+      }
+    });
+
+    res.json({
+      success: true,
+      plan: updatedPlan,
+      message: `Reed allocation released for Loom ${plan.loom_no}.`
+    });
+  } catch (error) {
+    console.error('Error releasing reed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/planning/next-plan/confirm', async (req, res) => {
   try {
-    const { loomNo, nextDesign, orderNo, reedId, beamId, startDate, remarks, plannerName } = req.body;
+    const { loomNo, nextDesign: reqDesign, orderNo, reedId, beamId, startDate, remarks, plannerName } = req.body;
     const loomNum = Number(loomNo);
 
     // Strict validation: Must have a Beam allocated before confirming Loom!
@@ -3148,7 +4294,23 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
       where: { loom_no: loomNum, status: { in: ['PLANNED', 'NOT PLANNED', 'PENDING', 'BEAM ALLOCATED'] } }
     });
 
-    const activeBeamId = beamId ? Number(beamId) : (existingPlan ? existingPlan.reserved_beam_id : null);
+    const nextDesign = reqDesign || existingPlan?.next_design;
+
+    let activeBeamId = beamId ? Number(beamId) : (existingPlan ? existingPlan.reserved_beam_id : null);
+
+    if (!activeBeamId && nextDesign) {
+      const autoBeam = await prisma.beamStockMaster.findFirst({
+        where: {
+          design_no: nextDesign,
+          status: { in: ['Available', 'READY', 'CUT BEAM'] },
+          loom_no_assigned: null,
+          available_meter: { gt: 0 }
+        }
+      });
+      if (autoBeam) {
+        activeBeamId = autoBeam.id;
+      }
+    }
 
     if (!activeBeamId && (!existingPlan || !existingPlan.reserved_beam_no)) {
       return res.status(400).json({
@@ -3157,53 +4319,94 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
     }
 
     if (reedId) {
-      const activeReedConflict = await prisma.plannedAssignment.findFirst({
-        where: {
-          reserved_reed_id: Number(reedId),
-          loom_no: { not: loomNum },
-          status: { in: ['CONFIRMED', 'RUNNING', 'ACTIVE'] }
-        }
-      });
-      if (activeReedConflict) {
-        return res.status(400).json({
-          error: 'RESOURCE ALREADY ALLOCATED',
-          conflict: {
-            resourceType: 'Reed',
-            resourceId: reedId,
-            currentLoom: activeReedConflict.loom_no,
-            currentDesign: activeReedConflict.next_design,
-            planningNo: activeReedConflict.id
+      const reedRec = await prisma.reedStockMaster.findUnique({ where: { id: Number(reedId) } });
+      const isSingleUnitConflict = reedRec && (reedRec.total_qty === 1 || !reedRec.total_qty) && (reedRec.available_qty <= 0 && reedRec.status !== 'Available');
+
+      if (isSingleUnitConflict) {
+        const activeReedConflict = await prisma.plannedAssignment.findFirst({
+          where: {
+            reserved_reed_id: Number(reedId),
+            loom_no: { not: loomNum },
+            status: { in: ['RUNNING', 'ACTIVE'] }
           }
         });
+        if (activeReedConflict) {
+          return res.status(400).json({
+            error: 'RESOURCE ALREADY ALLOCATED',
+            conflict: {
+              resourceType: 'Reed',
+              resourceId: reedId,
+              currentLoom: activeReedConflict.loom_no,
+              currentDesign: activeReedConflict.next_design,
+              planningNo: activeReedConflict.id
+            }
+          });
+        }
       }
     }
 
     if (beamId) {
       const beamRec = await prisma.beamStockMaster.findUnique({ where: { id: Number(beamId) } });
-      if (beamRec && beamRec.design_no && beamRec.design_no.trim().toLowerCase() !== nextDesign.trim().toLowerCase()) {
-        return res.status(400).json({
-          error: `Selected Beam (${beamRec.beam_no}) belongs to Design "${beamRec.design_no}" which does not match planned Design "${nextDesign}".`
-        });
+      if (beamRec && beamRec.design_no) {
+        const beamDesign = (beamRec.design_no || '').trim().toLowerCase();
+        const targetDesign = (nextDesign || '').trim().toLowerCase();
+
+        let orderDesign = '';
+        const orderKey = orderNo || existingPlan?.order_no;
+        if (orderKey) {
+          const orderRecord = await prisma.orderMaster.findFirst({
+            where: { OR: [{ ibpo_no: String(orderKey) }, { order_no: String(orderKey) }] }
+          }).catch(() => null);
+          if (orderRecord) {
+            orderDesign = (orderRecord.design_no_sp_no || '').trim().toLowerCase();
+          }
+        }
+
+        const norm = (s) => (s || '').replace(/sp026\//gi, 'sp26/').replace(/sp026/gi, 'sp26');
+        const normBeam = norm(beamDesign);
+        const normTarget = norm(targetDesign);
+        const normOrder = norm(orderDesign);
+
+        const beamMatchesPlan = !normTarget || !normBeam || normBeam === normTarget || normBeam.includes(normTarget) || normTarget.includes(normBeam);
+        const beamMatchesOrder = !normOrder || !normBeam || normBeam === normOrder || normBeam.includes(normOrder) || normOrder.includes(normBeam);
+        const beamMatchesOrderNo = orderKey && (beamDesign.includes(String(orderKey).toLowerCase()) || (beamRec.party_beam_no && String(beamRec.party_beam_no).toLowerCase().includes(String(orderKey).toLowerCase())));
+
+        if (!beamMatchesPlan && !beamMatchesOrder && !beamMatchesOrderNo) {
+          return res.status(400).json({
+            error: `Selected Beam (${beamRec.beam_no}) belongs to Design "${beamRec.design_no}" which does not match planned Design "${nextDesign}".`
+          });
+        }
       }
 
-      const activeBeamConflict = await prisma.plannedAssignment.findFirst({
-        where: {
-          reserved_beam_id: Number(beamId),
-          loom_no: { not: loomNum },
-          status: { in: ['CONFIRMED', 'RUNNING', 'ACTIVE'] }
+      if (beamRec) {
+        const st = (beamRec.status || '').trim().toUpperCase();
+        if ((st === 'RUNNING' || st === 'IN USE') && beamRec.loom_no_assigned !== loomNum) {
+          return res.status(400).json({
+            error: `Beam #${beamRec.beam_no} is currently RUNNING on Loom ${beamRec.loom_no_assigned || ''} and cannot be allocated.`
+          });
         }
-      });
-      if (activeBeamConflict) {
-        return res.status(400).json({
-          error: 'RESOURCE ALREADY ALLOCATED',
-          conflict: {
-            resourceType: 'Beam',
-            resourceId: beamId,
-            currentLoom: activeBeamConflict.loom_no,
-            currentDesign: activeBeamConflict.next_design,
-            planningNo: activeBeamConflict.id
+      }
+
+      if (beamRec && beamRec.status !== 'Available' && beamRec.status !== 'READY' && beamRec.status !== 'CUT BEAM' && beamRec.loom_no_assigned !== loomNum) {
+        const activeBeamConflict = await prisma.plannedAssignment.findFirst({
+          where: {
+            reserved_beam_id: Number(beamId),
+            loom_no: { not: loomNum },
+            status: { in: ['RUNNING', 'ACTIVE'] }
           }
         });
+        if (activeBeamConflict) {
+          return res.status(400).json({
+            error: 'RESOURCE ALREADY ALLOCATED',
+            conflict: {
+              resourceType: 'Beam',
+              resourceId: beamId,
+              currentLoom: activeBeamConflict.loom_no,
+              currentDesign: activeBeamConflict.next_design,
+              planningNo: activeBeamConflict.id
+            }
+          });
+        }
       }
     }
 
@@ -3341,11 +4544,14 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
         planner_name: plannerName || 'Planner'
       };
 
-      if (assignment) {
-        assignment = await prisma.plannedAssignment.update({ where: { id: assignment.id }, data: payload });
-      } else {
-        assignment = await prisma.plannedAssignment.create({ data: payload });
-      }
+      await prisma.plannedAssignment.updateMany({
+        where: { loom_no: loomNum },
+        data: {
+          status: 'COMPLETED',
+          confirmation_status: 'COMPLETED',
+          readiness_status: 'RUNNING IN MAIN ENTRY'
+        }
+      });
 
       await prisma.systemAuditLog.create({
         data: {
@@ -3682,10 +4888,13 @@ app.delete('/api/planning/next-plan/:id', async (req, res) => {
 
       // Release Beam if reserved
       if (assignment.reserved_beam_id) {
-        await prisma.beamStockMaster.update({
-          where: { id: assignment.reserved_beam_id },
-          data: { status: 'Available', reserved_for: null, loom_no_assigned: null }
-        });
+        const beam = await prisma.beamStockMaster.findUnique({ where: { id: assignment.reserved_beam_id } });
+        if (beam) {
+          await prisma.beamStockMaster.update({
+            where: { id: beam.id },
+            data: { status: 'Available', reserved_for: null, loom_no_assigned: null }
+          });
+        }
       }
 
       await prisma.plannedAssignment.update({
@@ -3702,28 +4911,16 @@ app.delete('/api/planning/next-plan/:id', async (req, res) => {
 
 app.get('/api/planning/next-plans', async (req, res) => {
   try {
-    const [assignments, validDesigns, activeOrders] = await Promise.all([
-      prisma.plannedAssignment.findMany({
-        where: { status: { in: ['PLANNED', 'CONFIRMED', 'ACTIVE'] } }
-      }),
-      prisma.designMaster.findMany({ select: { design_no_sp_no: true } }),
-      prisma.orderMaster.findMany({ select: { order_no: true, ibpo_no: true } })
-    ]);
-
-    const validDesignSet = new Set(validDesigns.map(d => (d.design_no_sp_no || '').trim().toLowerCase()));
-    const validOrderSet = new Set(
-      activeOrders.flatMap(o => [o.order_no, o.ibpo_no]).filter(Boolean).map(s => s.trim().toLowerCase())
-    );
-
-    const validAssignments = assignments.filter(a => {
-      if (!a.next_design || !a.next_design.trim()) return false;
-      const dNo = a.next_design.trim().toLowerCase();
-      const hasValidDesign = validDesignSet.has(dNo);
-      const hasValidOrder = !a.order_no || validOrderSet.has(a.order_no.trim().toLowerCase());
-      return hasValidDesign || hasValidOrder;
+    const assignments = await prisma.plannedAssignment.findMany({
+      where: {
+        status: { notIn: ['CANCELLED', 'COMPLETED'] },
+        confirmation_status: { notIn: ['CANCELLED', 'COMPLETED'] },
+        readiness_status: { not: 'RUNNING IN MAIN ENTRY' }
+      },
+      orderBy: { id: 'asc' }
     });
 
-    res.json(validAssignments);
+    res.json(assignments);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3734,7 +4931,13 @@ app.get('/api/dashboard/planning-kpis', async (req, res) => {
     const beams = await prisma.beamStockMaster.findMany();
     const reeds = await prisma.reedStockMaster.findMany();
     const preparation = await prisma.beamPreparationRequest.findMany();
-    const assignments = await prisma.plannedAssignment.findMany();
+    const assignments = await prisma.plannedAssignment.findMany({
+      where: {
+        status: { notIn: ['CANCELLED', 'COMPLETED'] },
+        confirmation_status: { notIn: ['CANCELLED', 'COMPLETED'] },
+        readiness_status: { not: 'RUNNING IN MAIN ENTRY' }
+      }
+    });
     const activeRuns = await prisma.loomRunEntry.findMany();
 
     const kpis = {
@@ -3857,8 +5060,8 @@ app.post('/api/order-completion/complete', async (req, res) => {
     if (targetDateStr) {
       const compD = actual_completion_date ? new Date(actual_completion_date) : new Date();
       const targetD = new Date(targetDateStr);
-      compD.setHours(0,0,0,0);
-      targetD.setHours(0,0,0,0);
+      compD.setHours(0, 0, 0, 0);
+      targetD.setHours(0, 0, 0, 0);
       const diffMs = compD.getTime() - targetD.getTime();
       delayDays = Math.ceil(diffMs / (1000 * 3600 * 24));
     }
@@ -4059,7 +5262,7 @@ async function evaluateErpAlerts() {
       const uniqueKey = `${code}_${orderNo || 'NOORD'}_${designNo || 'NODES'}_${loomNo || 0}_${beamNo || 'NOBM'}`;
       activeGeneratedKeys.add(uniqueKey);
 
-      const existing = existingAlerts.find(a => 
+      const existing = existingAlerts.find(a =>
         a.alert_code === code &&
         (a.order_no || '') === (orderNo || '') &&
         (a.design_no || '') === (designNo || '') &&
@@ -4156,12 +5359,12 @@ async function evaluateErpAlerts() {
       if (o.planned_loom_count && o.design_no_sp_no) {
         const designObj = designs.find(d => d.design_no_sp_no === o.design_no_sp_no);
         if (designObj) {
-          const suitableLoomsCount = looms.filter(l => 
+          const suitableLoomsCount = looms.filter(l =>
             (l.installed_lever || 0) >= (designObj.frames || 0) &&
             (l.weft_colours || 1) >= (designObj.weft_colours || 0) &&
             l.status === 'Available'
           ).length;
-          
+
           if (o.planned_loom_count > suitableLoomsCount) {
             registerAlert(
               'PLN-008', 'PLANNING', 'HIGH PRIORITY', oNo, o.design_no_sp_no, null, null,
@@ -4175,15 +5378,15 @@ async function evaluateErpAlerts() {
 
       // BMS-005: BEAM AVAILABILITY SHORTAGE
       if (o.design_no_sp_no) {
-        const designBeams = beams.filter(b => 
+        const designBeams = beams.filter(b =>
           (b.design_no || '').trim().toLowerCase() === o.design_no_sp_no.trim().toLowerCase() &&
           (b.status === 'Available' || b.status === 'AVAILABLE')
         );
         if (designBeams.length === 0) {
           registerAlert(
-            'BMS-005', 'BEAM STOCK', 'CRITICAL', oNo, o.design_no_sp_no, null, null,
+            'BMS-005', 'SIZING', 'CRITICAL', oNo, o.design_no_sp_no, null, null,
             'BEAM AVAILABILITY SHORTAGE',
-            `No available beam found in Beam Stock for design ${o.design_no_sp_no}. This will block loom startup.`,
+            `No available beam found in Beam Stock for design ${o.design_no_sp_no}. Sizing preparation is required before loom startup.`,
             'Prepare and size beams in Beam Stock.'
           );
         }
@@ -4193,8 +5396,8 @@ async function evaluateErpAlerts() {
       if (o.design_no_sp_no) {
         const designObj = designs.find(d => d.design_no_sp_no === o.design_no_sp_no);
         if (designObj && designObj.reed_count) {
-          const matchingReeds = reeds.filter(r => 
-            r.reed_count === designObj.reed_count && 
+          const matchingReeds = reeds.filter(r =>
+            r.reed_count === designObj.reed_count &&
             (r.available_qty > 0 || r.status === 'Available')
           );
           if (matchingReeds.length === 0) {
@@ -4234,21 +5437,21 @@ async function evaluateErpAlerts() {
         );
       }
 
-      // BMS-001 / BMS-003: Beam Stock Check
+      // BMS-001: Sizing Check / BMS-003: Beam Allocation Check
       const availBeam = beams.find(b => (b.design_no || b.designNo || '').trim().toLowerCase() === (p.next_design || '').trim().toLowerCase() && (b.status === 'Available' || b.status === 'AVAILABLE'));
       if (!p.reserved_beam_id && !availBeam) {
         registerAlert(
-          'BMS-001', 'BEAM STOCK', 'CRITICAL', p.order_no, p.next_design, p.loom_no, null,
+          'BMS-001', 'SIZING', 'CRITICAL', p.order_no, p.next_design, p.loom_no, null,
           'No available beam found for the planned design.',
-          `Design ${p.next_design} requires beam but zero matching beams are in Available status in Beam Stock.`,
-          'Check Central Beam Stock.'
+          `Design ${p.next_design} requires beam but zero matching beams are in Available status in Beam Stock. Sizing requirement pending.`,
+          'Expedite sizing process and check Central Beam Stock.'
         );
       } else if (!p.reserved_beam_id && availBeam) {
         registerAlert(
-          'BMS-003', 'BEAM STOCK', 'HIGH PRIORITY', p.order_no, p.next_design, p.loom_no, availBeam.beam_no,
+          'BMS-003', 'PLANNING', 'HIGH PRIORITY', p.order_no, p.next_design, p.loom_no, availBeam.beam_no,
           'Loom plan exists but beam allocation is pending.',
           `Available Beam ${availBeam.beam_no} found for Design ${p.next_design} but not allocated yet.`,
-          'Select an available beam.'
+          'Select an available beam in Loom Planning Setup.'
         );
       }
 
@@ -4277,11 +5480,37 @@ async function evaluateErpAlerts() {
 
       if (orderNo && completedOrderNos.has(orderNo.trim().toLowerCase())) continue;
 
-      const loomLogs = logs.filter(l => l.loom_no === loomNo);
-      const totalProd = loomLogs.reduce((sum, l) => sum + (l.produced_meter || 0), 0);
-      const warpedMeter = run.warped_meter || 10000;
-      const netBal = Math.max(0, warpedMeter - totalProd);
-      const avgProd = run.daily_production || 200;
+      const loomLogs = logs.filter(l =>
+        Number(l.loom_no) === Number(loomNo) &&
+        (!designNo || !l.design_no || l.design_no.trim().toLowerCase() === designNo.trim().toLowerCase())
+      );
+      const totalProd = loomLogs.reduce((sum, l) => sum + (Number(l.produced_meter) || 0), 0);
+      const warpedMeter = Number(run.warped_meter) || 10000;
+
+      const designRec = designs.find(d =>
+        (d.design_no && designNo && d.design_no.trim().toLowerCase() === designNo.trim().toLowerCase()) ||
+        (d.design_no_sp_no && designNo && d.design_no_sp_no.trim().toLowerCase() === designNo.trim().toLowerCase())
+      );
+      let crimpRate = 0.05;
+      if (designRec && designRec.crimp_percentage != null && !isNaN(Number(designRec.crimp_percentage))) {
+        const val = Number(designRec.crimp_percentage);
+        if (val > 0 && val <= 30) crimpRate = val / 100;
+      } else if (run.crimp_percentage != null && !isNaN(Number(run.crimp_percentage))) {
+        const val = Number(run.crimp_percentage);
+        if (val > 0 && val <= 30) crimpRate = val / 100;
+      }
+
+      const crimpLoss = Math.round(totalProd * crimpRate);
+      const grossBal = Math.max(0, warpedMeter - totalProd);
+      const netBal = Math.max(0, grossBal - crimpLoss);
+
+      let avgProd = Number(run.daily_production) || 200;
+      if (loomLogs.length > 0) {
+        const validLogs = loomLogs.filter(l => Number(l.produced_meter) > 0);
+        if (validLogs.length > 0) {
+          avgProd = Math.round(totalProd / validLogs.length);
+        }
+      }
       const balanceDays = avgProd > 0 ? Math.ceil(netBal / avgProd) : 99;
 
       // WVG-001 / RUN-001: Runout <= 2 Days
@@ -4361,7 +5590,7 @@ async function evaluateErpAlerts() {
     }).length;
     if (beams.length === 0) {
       registerAlert(
-        'BMS-004', 'BEAM STOCK', 'CRITICAL', null, null, null, null,
+        'BMS-004', 'SIZING', 'CRITICAL', null, null, null, null,
         'No beams found in the Beam Stock register.',
         'Central Beam Stock is empty. No beams have been entered into the system. Looms cannot be planned without beam data.',
         'Add beam records in Beam Stock. Enter beam numbers, set numbers, design, and sizing details.',
@@ -4369,7 +5598,7 @@ async function evaluateErpAlerts() {
       );
     } else if (availableBeamsCount === 0 && beams.length > 0) {
       registerAlert(
-        'BMS-004', 'BEAM STOCK', 'CRITICAL', null, null, null, null,
+        'BMS-004', 'SIZING', 'CRITICAL', null, null, null, null,
         'No available beams in stock. All beams are either reserved or consumed.',
         `${beams.length} beam(s) exist in the register but none have Available status. Cannot allocate beam for new loom plans.`,
         'Check beam sizing status. Mark sized beams as READY/Available in Beam Stock.',
@@ -4449,8 +5678,13 @@ app.get('/api/erp-alerts', async (req, res) => {
     // 1. Run dynamic real-time evaluation
     await evaluateErpAlerts();
 
-    // 2. Query alerts
+    // 2. Query alerts for the 5 allowed departments only (Delivery is excluded from Common Alert Center)
     const alerts = await prisma.erpAlert.findMany({
+      where: {
+        department: {
+          in: ['PLANNING', 'SIZING', 'REED', 'WEAVING', 'RUNOUT']
+        }
+      },
       orderBy: { createdAt: 'desc' },
       take: 500
     });
@@ -4686,6 +5920,8 @@ app.get('/api/orders/check-ibpo', async (req, res) => {
 
 app.get('/api/orders', async (req, res) => {
   try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const [orders, activeRuns, completedHistory, dailyLogs, orderCompletions] = await Promise.all([
       prisma.orderMaster.findMany({
         include: { designMaster: true },
@@ -4728,40 +5964,26 @@ app.get('/api/orders', async (req, res) => {
         }
       });
 
-      // 2. Sum daily production logs matching Design / IBPO
-      let dailyLogMeters = 0;
-      dailyLogs.forEach(dl => {
-        const dlDesign = (dl.design_no || '').trim().toLowerCase();
-        const dlOrder = (dl.order_no || dl.ibpo_no || '').trim().toUpperCase();
-        if ((ibpoNo && dlOrder === ibpoNo) || (!dlOrder && dlDesign === designNo)) {
-          dailyLogMeters += (Number(dl.produced_meter) || 0);
-        }
-      });
-
-      // 3. Sum active running looms production meters matching Design / IBPO / Order No
-      let activeMeters = 0;
-      const today = new Date();
+      // 2. Sum actual daily production logs from active running looms matching Design / IBPO
+      let activeProducedMeters = 0;
+      const loomProdMap = new Map();
 
       orderActiveRuns.forEach(run => {
-        if (run.production_override && Number(run.production_override) > 0) {
-          activeMeters += Number(run.production_override);
-        } else {
-          const dailyProd = Number(run.daily_production) || 0;
-          let daysRunning = 0;
-          if (run.loom_start_date) {
-            const startDate = new Date(run.loom_start_date);
-            const diffMs = Math.max(0, today.getTime() - startDate.getTime());
-            daysRunning = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-          }
-          const calculatedMeters = dailyProd * daysRunning;
-          const warpedMeter = Number(run.warped_meter) || 0;
-          const loomMeters = warpedMeter > 0 ? Math.min(calculatedMeters, warpedMeter) : calculatedMeters;
-          activeMeters += loomMeters;
-        }
+        const loomLogs = dailyLogs.filter(dl =>
+          Number(dl.loom_no) === Number(run.loom_no) &&
+          (dl.design_no || '').trim().toLowerCase() === (run.design_no_sp_no || '').trim().toLowerCase()
+        );
+        const loomProduced = loomLogs.reduce((acc, l) => acc + (Number(l.produced_meter) || 0), 0);
+        const finalLoomProduced = run.production_override && Number(run.production_override) > 0
+          ? Number(run.production_override)
+          : (loomProduced > 0 ? loomProduced : (Number(run.daily_production) || 0));
+
+        loomProdMap.set(run.loom_no, { loomProduced: finalLoomProduced, logs: loomLogs });
+        activeProducedMeters += finalLoomProduced;
       });
 
       // Total Scanned Production Quantity from all looms
-      const scannedProducedQty = Math.round(historyMeters + dailyLogMeters + activeMeters);
+      const scannedProducedQty = Math.round(historyMeters + activeProducedMeters);
       const finalProducedQty = Math.max(Number(order.produced_qty || 0), scannedProducedQty);
 
       // Calculate operational actuals
@@ -4777,8 +5999,22 @@ app.get('/api/orders', async (req, res) => {
 
       let actualAvgProduction = null;
       if (orderActiveRuns.length > 0) {
-        const prods = orderActiveRuns.map(r => Number(r.daily_production) || 0);
-        const sum = prods.reduce((a, b) => a + b, 0);
+        const avgList = orderActiveRuns.map(run => {
+          const info = loomProdMap.get(run.loom_no);
+          const nonZero = (info?.logs || []).filter(l => Number(l.produced_meter) > 0).map(l => Number(l.produced_meter));
+          if (nonZero.length > 0) {
+            const sig = nonZero.filter(p => p >= 25);
+            const use = sig.length > 0 ? sig : nonZero;
+            return use.reduce((a, b) => a + b, 0) / use.length;
+          }
+          const design = order.designMaster;
+          const pick = design ? parseFloat(design.pick) || 50 : 50;
+          const rpm = run.rpm && Number(run.rpm) > 100 ? Number(run.rpm) : 600;
+          const eff = run.efficiency && Number(run.efficiency) >= 30 ? Number(run.efficiency) : 60;
+          const calcRate = (rpm * 60 * 24 * (eff / 100)) / (pick * 39.3701);
+          return calcRate >= 40 ? calcRate : 200;
+        });
+        const sum = avgList.reduce((a, b) => a + b, 0);
         actualAvgProduction = Math.round(sum / orderActiveRuns.length);
       }
 
@@ -4787,23 +6023,32 @@ app.get('/api/orders', async (req, res) => {
         const runoutDates = orderActiveRuns.map(run => {
           const design = order.designMaster;
           const crimp = design ? Number(design.crimp_percent) || 0 : 0;
-          const dailyProd = Number(run.daily_production) || 0;
-          if (dailyProd <= 0) return null;
-          
-          let runningDays = Math.ceil(Math.max(0, today.getTime() - new Date(run.loom_start_date).getTime()) / 86400000);
-          if (runningDays <= 0) runningDays = 1;
-          const produced = run.production_override && Number(run.production_override) > 0
-            ? Number(run.production_override)
-            : dailyProd * runningDays;
-          const warpBal = Math.max(0, (Number(run.warped_meter) || 0) - produced);
-          const netBal = warpBal * (1 - crimp);
-          const daysLeft = dailyProd > 0 ? netBal / dailyProd : 0;
-          
+          const info = loomProdMap.get(run.loom_no);
+          const loomProduced = info?.loomProduced || 0;
+          const nonZero = (info?.logs || []).filter(l => Number(l.produced_meter) > 0).map(l => Number(l.produced_meter));
+          let avgProd = 0;
+          if (nonZero.length > 0) {
+            const sig = nonZero.filter(p => p >= 25);
+            const use = sig.length > 0 ? sig : nonZero;
+            avgProd = use.reduce((a, b) => a + b, 0) / use.length;
+          }
+          if (avgProd < 40) {
+            const pick = design ? parseFloat(design.pick) || 50 : 50;
+            const rpm = run.rpm && Number(run.rpm) > 100 ? Number(run.rpm) : 600;
+            const eff = run.efficiency && Number(run.efficiency) >= 30 ? Number(run.efficiency) : 60;
+            avgProd = (rpm * 60 * 24 * (eff / 100)) / (pick * 39.3701);
+            if (avgProd < 40) avgProd = 200;
+          }
+
+          const warpBal = Math.max(0, (Number(run.warped_meter) || 0) - loomProduced);
+          const netBal = warpBal * (1 - (crimp > 1 ? crimp / 100 : crimp));
+          const balDays = avgProd > 0 ? Math.min(180, netBal / avgProd) : 0;
+
           const rDate = new Date();
-          rDate.setDate(rDate.getDate() + Math.ceil(daysLeft));
+          rDate.setDate(rDate.getDate() + Math.ceil(balDays));
           return rDate;
         }).filter(Boolean);
-        
+
         if (runoutDates.length > 0) {
           actualRunoutDate = new Date(Math.max(...runoutDates.map(d => d.getTime())));
         }
@@ -4821,7 +6066,7 @@ app.get('/api/orders', async (req, res) => {
         }
       }
 
-      const orderCompletionRecord = orderCompletions.find(c => 
+      const orderCompletionRecord = orderCompletions.find(c =>
         (c.order_no && c.order_no.trim().toLowerCase() === orderNo) ||
         (c.ibpo_no && c.ibpo_no.trim().toUpperCase() === ibpoNo)
       );
@@ -4831,6 +6076,8 @@ app.get('/api/orders', async (req, res) => {
       const loomWiseProduction = orderActiveRuns.map(run => {
         const design = order.designMaster;
         const loom = run.LoomMaster;
+        const info = loomProdMap.get(run.loom_no);
+        const loomProduced = info ? info.loomProduced : (Number(run.daily_production) || 0);
         return {
           loom_no: run.loom_no,
           unit: loom ? loom.unit : '—',
@@ -4843,7 +6090,8 @@ app.get('/api/orders', async (req, res) => {
           beam_no: run.current_beam_no || '—',
           loom_start_date: run.loom_start_date,
           warp_meter: run.warped_meter,
-          daily_production: run.daily_production,
+          daily_production: loomProduced,
+          produced_meter: loomProduced,
           crimp_percent: design?.crimp_percent || 0,
           rpm: run.rpm || loom?.rpm || '—',
           efficiency: run.efficiency || '—'
@@ -5024,20 +6272,36 @@ app.put('/api/orders/:id', async (req, res) => {
     // Format number fields
     ['epi', 'ppi', 'total_ends', 'frames', 'no_of_clr_warp', 'no_of_clr_weft',
       'order_qty', 'grey_qty', 'warp_qty', 'planned_loom_count', 'avg_production_per_loom', 'estimated_production_days'].forEach(numField => {
-      if (updatePayload[numField] !== undefined && updatePayload[numField] !== null && updatePayload[numField] !== '') {
-        updatePayload[numField] = Number(updatePayload[numField]);
-      } else if (updatePayload[numField] === '') {
-        updatePayload[numField] = null;
-      }
-    });
+        if (updatePayload[numField] !== undefined && updatePayload[numField] !== null && updatePayload[numField] !== '') {
+          updatePayload[numField] = Number(updatePayload[numField]);
+        } else if (updatePayload[numField] === '') {
+          updatePayload[numField] = null;
+        }
+      });
 
     // Convert date strings
     const dateFields = ['sizing_planned_date', 'sizing_completed_date',
-      'weaving_planned_date', 'weaving_start_date', 'weaving_completion_date', 'expected_completion_date', 'order_received_date', 'actual_dispatch_date'];
+      'weaving_planned_date', 'weaving_start_date', 'weaving_completion_date',
+      'expected_completion_date', 'order_received_date', 'actual_dispatch_date',
+      'target_delivery_date'];
     dateFields.forEach(f => {
       if (updatePayload[f]) updatePayload[f] = new Date(updatePayload[f]);
       else if (updatePayload[f] === '') updatePayload[f] = null;
     });
+
+    // Also auto-calculate expected_completion_date if missing but calculable
+    if (!updatePayload.expected_completion_date) {
+      const looms = Number(updatePayload.planned_loom_count || data.planned_loom_count) || 0;
+      const avgProd = Number(updatePayload.avg_production_per_loom || data.avg_production_per_loom) || 0;
+      const qty = Number(updatePayload.order_qty || data.order_qty) || 0;
+      const wvDate = updatePayload.weaving_planned_date || (data.weaving_planned_date ? new Date(data.weaving_planned_date) : null);
+      if (looms > 0 && avgProd > 0 && qty > 0 && wvDate) {
+        const days = Math.ceil(qty / (looms * avgProd));
+        const d = new Date(wvDate);
+        d.setDate(d.getDate() + days - 1);
+        updatePayload.expected_completion_date = d;
+      }
+    }
 
     // Handle designMaster relation foreign key
     if (updatePayload.design_no_sp_no) {
@@ -5268,7 +6532,7 @@ app.post('/api/order-completion/complete', async (req, res) => {
       }
     });
     if (!order) return res.status(404).json({ error: 'Order not found' });
-    
+
     const completionDate = actual_completion_date ? new Date(actual_completion_date) : new Date();
     const completedByUser = completed_by || 'Planning Manager';
 
@@ -5422,7 +6686,7 @@ function computeOrderAI(order) {
   const weavingStart = order.weaving_start_date ? new Date(order.weaving_start_date) : null;
   const weavingPlanned = order.weaving_planned_date ? new Date(order.weaving_planned_date) : null;
   const baseDate = weavingStart || weavingPlanned;
-  
+
   const deliveryDate = order.target_delivery_date ? new Date(order.target_delivery_date) : null;
   const weavingDate = weavingPlanned;
   const sizingDate = order.sizing_planned_date ? new Date(order.sizing_planned_date) : null;
@@ -5753,6 +7017,149 @@ app.get('/api/capacity/planning', async (req, res) => {
   }
 });
 
+// CUT BEAM ENDPOINT: Remove running beam from loom, update Beam No & Set No with /CUT, /CUT-2, /CUT-3 suffix, return to Beam Stock as CUT BEAM with remaining meter
+app.post('/api/production/cut-beam', async (req, res) => {
+  try {
+    const { loomNo, beamId, beamNo, producedMeter, cutReason } = req.body;
+    const loomNum = parseInt(loomNo, 10);
+    if (!loomNum) return res.status(400).json({ error: 'Valid Loom Number required' });
+
+    // 1. Fetch current active run for loom
+    const activeRun = await prisma.loomRunEntry.findFirst({ where: { loom_no: loomNum } });
+    if (!activeRun) {
+      return res.status(404).json({ error: `No active run found on Loom ${loomNum}` });
+    }
+
+    const warpedMeter = Number(activeRun.warped_meter || 0);
+    const wovenMeter = Number(producedMeter !== undefined ? producedMeter : (activeRun.daily_production || 0));
+    const remainingMeter = Math.max(0, warpedMeter - wovenMeter);
+
+    // Helper for /CUT, /CUT-2, /CUT-3 suffix naming
+    const getCutName = (orig) => {
+      if (!orig) return 'BEAM/CUT';
+      let name = String(orig).trim();
+      const cutMatch = name.match(/\/CUT(?:-(\d+))?$/i);
+      if (!cutMatch) {
+        return `${name}/CUT`;
+      }
+      const count = cutMatch[1] ? parseInt(cutMatch[1], 10) + 1 : 2;
+      return name.replace(/\/CUT(?:-\d+)?$/i, `/CUT-${count}`);
+    };
+
+    // 2. Find target Beam Stock record
+    const targetBeamId = beamId ? parseInt(beamId, 10) : activeRun.beam_id;
+    let targetBeam = null;
+    if (targetBeamId) {
+      targetBeam = await prisma.beamStockMaster.findUnique({ where: { id: targetBeamId } });
+    }
+    if (!targetBeam && (beamNo || activeRun.current_beam_no)) {
+      const targetBeamNo = String(beamNo || activeRun.current_beam_no).trim();
+      targetBeam = await prisma.beamStockMaster.findFirst({
+        where: { beam_no: targetBeamNo }
+      });
+    }
+
+    const originalBeamNo = targetBeam ? targetBeam.beam_no : (beamNo || activeRun.current_beam_no || `BM-${loomNum}`);
+    const originalSetNo = targetBeam ? targetBeam.set_no : (activeRun.set_no || `SET-${loomNum}`);
+
+    const newCutBeamNo = getCutName(originalBeamNo);
+    const newCutSetNo = getCutName(originalSetNo);
+
+    // 3. Return Beam to Beam Stock with status 'CUT BEAM', updated cut beam_no & set_no, and remaining meter
+    if (targetBeam) {
+      await prisma.beamStockMaster.update({
+        where: { id: targetBeam.id },
+        data: {
+          beam_no: newCutBeamNo,
+          set_no: newCutSetNo,
+          status: 'CUT BEAM',
+          available_meter: remainingMeter,
+          current_balance_meter: remainingMeter,
+          loom_no_assigned: null,
+          reserved_for: null,
+          remarks: `CUT BEAM from Loom ${loomNum} (${wovenMeter}m woven, ${remainingMeter}m balance left). Reason: ${cutReason || 'Mid-run warp cut'}`
+        }
+      });
+    } else {
+      // Create new Cut Beam record in BeamStockMaster if not existing
+      await prisma.beamStockMaster.create({
+        data: {
+          date: new Date(),
+          design_no: activeRun.design_no_sp_no || 'UNKNOWN',
+          set_no: newCutSetNo,
+          beam_no: newCutBeamNo,
+          beam_length: remainingMeter,
+          available_meter: remainingMeter,
+          current_balance_meter: remainingMeter,
+          status: 'CUT BEAM',
+          remarks: `CUT BEAM from Loom ${loomNum} (${wovenMeter}m woven, ${remainingMeter}m balance left)`
+        }
+      });
+    }
+
+    // 4. Archive woven production to CompletedWarpHistory
+    if (activeRun && activeRun.design_no_sp_no && activeRun.design_no_sp_no !== '—' && wovenMeter > 0) {
+      try {
+        const start = activeRun.loom_start_date ? new Date(activeRun.loom_start_date) : new Date();
+        const end = new Date();
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        let runningDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        if (runningDays <= 0) runningDays = 1;
+        const avgDailyProd = Math.round(wovenMeter / runningDays);
+
+        const loom = await prisma.loomMaster.findUnique({ where: { loom_no: loomNum } });
+        const getLoomUnit = (no) => {
+          if (no <= 56) return 'I';
+          if (no <= 112) return 'II';
+          if (no <= 168) return 'III';
+          return 'IV';
+        };
+        const loomUnit = (loom && loom.unit && loom.unit !== 'Unknown') ? loom.unit : getLoomUnit(loomNum);
+
+        await prisma.completedWarpHistory.create({
+          data: {
+            loom_no: loomNum,
+            design_no_sp_no: activeRun.design_no_sp_no,
+            start_date: start,
+            end_date: end,
+            warp_meter: wovenMeter,
+            total_production_meter: wovenMeter,
+            running_days: runningDays,
+            avg_daily_production: avgDailyProd,
+            efficiency_pct: 100,
+            unit: loomUnit
+          }
+        });
+      } catch (err) {
+        console.error('Error saving cut beam history:', err);
+      }
+    }
+
+    // 5. Delete/Clear active run on Loom
+    await prisma.loomRunEntry.deleteMany({ where: { loom_no: loomNum } });
+
+    // 6. Set Loom status to Available
+    await prisma.loomMaster.update({
+      where: { loom_no: loomNum },
+      data: { status: 'Available' }
+    }).catch(() => { });
+
+    res.json({
+      success: true,
+      loomNo: loomNum,
+      cutBeamNo: newCutBeamNo,
+      cutSetNo: newCutSetNo,
+      warpedMeter,
+      producedMeter: wovenMeter,
+      remainingMeter,
+      message: `Cut Beam successful! Beam updated to #${newCutBeamNo} and returned to stock with ${remainingMeter}m balance as CUT BEAM.`
+    });
+  } catch (error) {
+    console.error('Cut Beam Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ----------------------------------------------------
 // DEDICATED DELETE & CRUD ENDPOINTS FOR FULL PERSISTENCE
 // ----------------------------------------------------
@@ -5762,6 +7169,14 @@ app.delete('/api/active-runs/:loomNo', async (req, res) => {
   try {
     const loomNo = parseInt(req.params.loomNo, 10);
     await prisma.loomRunEntry.deleteMany({ where: { loom_no: loomNo } });
+    await prisma.loomMaster.update({
+      where: { loom_no: loomNo },
+      data: { status: 'Available' }
+    }).catch(() => { });
+    await prisma.beamStockMaster.updateMany({
+      where: { loom_no_assigned: loomNo },
+      data: { loom_no_assigned: null, status: 'Completed', reserved_for: null }
+    }).catch(() => { });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -5813,7 +7228,7 @@ app.get('/api/sizing/requests', async (req, res) => {
     const requests = await prisma.beamPreparationRequest.findMany({
       orderBy: { target_date: 'asc' }
     });
-    
+
     // dynamically calc priority
     for (const req of requests) {
       if (req.status !== 'BEAM READY') {
@@ -5824,17 +7239,17 @@ app.get('/api/sizing/requests', async (req, res) => {
         if (diffDays <= 2) priority = 'Critical';
         else if (diffDays <= 5) priority = 'High';
         else if (diffDays <= 10) priority = 'Medium';
-        
+
         if (req.priority !== priority) {
-           await prisma.beamPreparationRequest.update({
-             where: { id: req.id },
-             data: { priority }
-           });
-           req.priority = priority;
+          await prisma.beamPreparationRequest.update({
+            where: { id: req.id },
+            data: { priority }
+          });
+          req.priority = priority;
         }
       }
     }
-    
+
     res.json(requests);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -5845,7 +7260,7 @@ app.post('/api/sizing/requests/:id/progress', async (req, res) => {
   try {
     const { id } = req.params;
     const { status, vendor_name, set_no, beam_no, actual_meter, warping_vendor, warping_dc_no, warping_batch, sizing_vendor, sizing_dc_no, sizing_machine, warping_remarks, sizing_remarks } = req.body;
-    
+
     const updateData = { status };
     if (vendor_name) updateData.vendor_name = vendor_name;
     if (set_no) updateData.set_no = set_no;
@@ -5859,17 +7274,17 @@ app.post('/api/sizing/requests/:id/progress', async (req, res) => {
     if (sizing_machine) updateData.sizing_machine = sizing_machine;
     if (warping_remarks) updateData.warping_remarks = warping_remarks;
     if (sizing_remarks) updateData.sizing_remarks = sizing_remarks;
-    
+
     if (status === 'WARPING RUNNING') updateData.warping_start_date = new Date();
     if (status === 'WARPING COMPLETED') updateData.warping_completion_date = new Date();
     if (status === 'SIZING RUNNING') updateData.sizing_start_date = new Date();
     if (status === 'SIZING COMPLETED') updateData.sizing_completion_date = new Date();
-    
+
     const updated = await prisma.beamPreparationRequest.update({
       where: { id: Number(id) },
       data: updateData
     });
-    
+
     res.json(updated);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -5881,13 +7296,13 @@ app.post('/api/sizing/requests/:id/ready', async (req, res) => {
     const { id } = req.params;
     const request = await prisma.beamPreparationRequest.findUnique({ where: { id: Number(id) } });
     if (!request) return res.status(404).json({ error: 'Request not found' });
-    
+
     // Update request to BEAM READY
     await prisma.beamPreparationRequest.update({
       where: { id: Number(id) },
       data: { status: 'BEAM READY', beam_ready_date: new Date() }
     });
-    
+
     // Create Beam Stock
     const newBeam = await prisma.beamStockMaster.create({
       data: {
@@ -5900,30 +7315,65 @@ app.post('/api/sizing/requests/:id/ready', async (req, res) => {
         status: 'Available'
       }
     });
-    
+
     // Auto-reserve for this plan
     await prisma.plannedAssignment.updateMany({
       where: { loom_no: request.loom_no, next_design: request.design_no, confirmation_status: 'BEAM REQUESTED' },
       data: { confirmation_status: 'BEAM READY', reserved_beam_id: newBeam.id }
     });
-    
+
     // Mark stock as Reserved
     await prisma.beamStockMaster.update({
       where: { id: newBeam.id },
       data: { status: 'Reserved', reserved_for: `Loom ${request.loom_no} - ${request.design_no}`, loom_no_assigned: request.loom_no }
     });
-    
+
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-const PORT = process.env.PORT || 3002;
-if (process.env.VERCEL !== '1') {
-  app.listen(PORT, () => {
-    console.log('Server running on port ' + PORT);
-  });
+async function reconcileBeamAssignmentsOnStartup() {
+  try {
+    const activeRuns = await prisma.loomRunEntry.findMany();
+    const activeLoomBeams = new Map();
+    activeRuns.forEach(r => {
+      if (r.current_beam_no) activeLoomBeams.set(r.loom_no, r.current_beam_no.trim());
+    });
+
+    const planned = await prisma.plannedAssignment.findMany({
+      where: { status: { in: ['PLANNED', 'APPROVED', 'CONFIRMED'] } }
+    });
+    const plannedBeamIds = new Set(planned.map(p => p.reserved_beam_id).filter(Boolean));
+
+    const beams = await prisma.beamStockMaster.findMany();
+    let reconciledCount = 0;
+    for (const b of beams) {
+      if (b.loom_no_assigned) {
+        const runningBeam = activeLoomBeams.get(b.loom_no_assigned);
+        const isActuallyRunning = runningBeam && runningBeam === (b.beam_no ? b.beam_no.trim() : '');
+        const isReservedInPlan = plannedBeamIds.has(b.id);
+
+        if (!isActuallyRunning && !isReservedInPlan) {
+          await prisma.beamStockMaster.update({
+            where: { id: b.id },
+            data: { loom_no_assigned: null, reserved_for: null, status: 'Available' }
+          });
+          reconciledCount++;
+        }
+      }
+    }
+    if (reconciledCount > 0) {
+      console.log(`Reconciled ${reconciledCount} orphaned beam assignments on server startup.`);
+    }
+  } catch (err) {
+    console.error('Beam assignment startup reconciliation error:', err);
+  }
 }
 
-module.exports = app;
+const PORT = process.env.PORT || 3002;
+app.listen(PORT, async () => {
+  console.log(`API server running on port ${PORT}`);
+  await reconcileBeamAssignmentsOnStartup();
+});

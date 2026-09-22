@@ -8,8 +8,9 @@ import {
 import { format, parseISO } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { API_BASE_URL } from '../config';
-import { calculateLoomRun } from '../utils/calculations';
-import { CompanyPrintHeader } from '../components/common/CompanyPrintHeader';
+import { getMainEntryLoomRun } from '../utils/calculations';
+import { useAppContext } from '../context/AppProvider';
+import { CompanyPrintHeader, PrintTableHeaderRow } from '../components/common/CompanyPrintHeader';
 import { triggerPrint } from '../utils/printManager';
 
 interface RunningLoomItem {
@@ -53,6 +54,7 @@ interface OrderItem {
 export default function DesignWiseRunningReport() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { activeRuns, productionLogs, orders: contextOrders, beams } = useAppContext();
 
   // State variables
   const [runningLooms, setRunningLooms] = useState<RunningLoomItem[]>([]);
@@ -106,12 +108,12 @@ export default function DesignWiseRunningReport() {
     fetchReportData();
   }, []);
 
-  // Auto-refresh timer (30 sec interval when enabled)
+  // Auto-refresh timer (5 sec interval when enabled)
   useEffect(() => {
     if (!autoRefresh) return;
     const timer = setInterval(() => {
       fetchReportData();
-    }, 30000);
+    }, 5000);
     return () => clearInterval(timer);
   }, [autoRefresh]);
 
@@ -158,11 +160,17 @@ export default function DesignWiseRunningReport() {
       if (searchQuery.trim() !== '') {
         const q = searchQuery.toLowerCase().trim();
         const matchesLoom = item.loomNo.toString().includes(q);
-        const matchesDesign = item.designNo.toLowerCase().includes(q);
-        const matchesUnit = item.unit.toLowerCase().includes(q);
-        const matchesConst = item.construction.toLowerCase().includes(q);
-        const matchesWeave = item.weave.toLowerCase().includes(q);
-        if (!matchesLoom && !matchesDesign && !matchesUnit && !matchesConst && !matchesWeave) {
+        const matchesDesign = (item.designNo || '').toLowerCase().includes(q);
+        const matchesUnit = (item.unit || '').toLowerCase().includes(q);
+        const matchesConst = (item.construction || '').toLowerCase().includes(q);
+        const matchesWeave = (item.weave || '').toLowerCase().includes(q);
+        const matchesBeam = (item.currentBeamNo || '').toLowerCase().includes(q);
+        const matchesSet = ((item as any).setNo || (item as any).set_no || '').toLowerCase().includes(q);
+        const matchesOrder = ((item as any).orderNo || (item as any).order_no || '').toLowerCase().includes(q);
+        const matchesCustomer = ((item as any).customerName || (item as any).customer_name || '').toLowerCase().includes(q);
+        const matchesReed = (item.currentReedNo || (item as any).current_reed_no || '').toLowerCase().includes(q);
+
+        if (!matchesLoom && !matchesDesign && !matchesUnit && !matchesConst && !matchesWeave && !matchesBeam && !matchesSet && !matchesOrder && !matchesCustomer && !matchesReed) {
           return false;
         }
       }
@@ -355,12 +363,11 @@ export default function DesignWiseRunningReport() {
   };
 
   const handleExportPDF = () => {
-    triggerPrint();
+    triggerPrint({ orientation: 'landscape', title: 'Design-Wise Loom Running Report' });
   };
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto pb-20">
-      <CompanyPrintHeader title="Design-Wise Loom Running Report" subtitle="Management Summary View" />
       
       {/* ── Top Header Bar ── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm print:hidden">
@@ -689,31 +696,36 @@ export default function DesignWiseRunningReport() {
               const unitTotalLooms = Object.values(designsMap).reduce((acc, looms) => acc + looms.length, 0);
 
               return (
-                <div key={unitName} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div key={unitName} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden print:overflow-visible print:border-none print:shadow-none print:m-0 print:p-0">
                   
                   {/* Unit Section Header */}
-                  <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+                  <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between print:bg-slate-100 print:text-slate-900 print:border-b-2 print:border-slate-900 print:py-2 print:px-3 print:rounded-none">
                     <div className="flex items-center gap-3">
-                      <Building2 className="w-5 h-5 text-spu-accent" />
+                      <Building2 className="w-5 h-5 text-spu-accent print:hidden" />
                       <h2 className="text-base font-black tracking-wide uppercase">{unitName}</h2>
                     </div>
-                    <div className="flex items-center gap-2 bg-slate-800 px-3.5 py-1.5 rounded-xl border border-slate-700 text-xs font-bold">
-                      <span className="text-slate-400 uppercase">Unit Running Looms:</span>
-                      <span className="text-spu-accent text-sm font-black">{unitTotalLooms}</span>
+                    <div className="flex items-center gap-2 bg-slate-800 px-3.5 py-1.5 rounded-xl border border-slate-700 text-xs font-bold print:bg-transparent print:border-none print:p-0">
+                      <span className="text-slate-400 print:text-slate-700 uppercase">Unit Running Looms:</span>
+                      <span className="text-spu-accent print:text-black text-sm font-black">{unitTotalLooms}</span>
                     </div>
                   </div>
 
                   {/* Unit Table */}
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto print:overflow-visible">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
-                        <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-black uppercase tracking-wider">
-                          <th className="py-3.5 px-4 w-12 text-center">#</th>
-                          <th className="py-3.5 px-4">Design No / SP No</th>
-                          <th className="py-3.5 px-4">Running Loom Numbers</th>
-                          <th className="py-3.5 px-4 text-center">Total Looms</th>
-                          <th className="py-3.5 px-4">Technical Spec</th>
-                          <th className="py-3.5 px-4 text-right">Details</th>
+                        <PrintTableHeaderRow 
+                          title="Design-Wise Loom Running Report" 
+                          subtitle={`Management Summary View — ${unitName}`} 
+                          colSpan={6} 
+                        />
+                        <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-black uppercase tracking-wider print:bg-slate-100 print:text-black">
+                          <th className="py-3.5 px-4 w-12 text-center print:w-[5%] print:py-2 print:px-2">#</th>
+                          <th className="py-3.5 px-4 print:w-[17%] print:py-2 print:px-2">Design No / SP No</th>
+                          <th className="py-3.5 px-4 print:w-[38%] print:py-2 print:px-2">Running Loom Numbers</th>
+                          <th className="py-3.5 px-4 text-center print:w-[8%] print:py-2 print:px-2">Total Looms</th>
+                          <th className="py-3.5 px-4 print:w-[18%] print:py-2 print:px-2">Technical Spec</th>
+                          <th className="py-3.5 px-4 text-right print:text-left print:w-[14%] print:py-2 print:px-2">Details</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
@@ -724,13 +736,37 @@ export default function DesignWiseRunningReport() {
                           // Sorted loom numbers numerically
                           const sortedLooms = [...looms].sort((a, b) => a.loomNo - b.loomNo);
 
-                          // Calculate runout dates range for this design
+                          // Read runout dates from activeRuns precalculated values (Main Entry SSOT)
                           const runoutDates = sortedLooms.map(l => {
-                            const calc = calculateLoomRun({
-                              loomStartDate: new Date(l.loomStartDate),
+                            const activeRun = (activeRuns as any)[l.loomNo];
+                            if (activeRun && activeRun.expectedRunoutDate) {
+                              return activeRun.expectedRunoutDate instanceof Date
+                                ? activeRun.expectedRunoutDate
+                                : new Date(activeRun.expectedRunoutDate);
+                            }
+                            const fallbackRun = {
+                              loomNo: l.loomNo,
+                              designNo: l.designNo,
+                              loomStartDate: l.loomStartDate,
                               warpedMeter: l.warpedMeter,
-                              dailyProduction: l.dailyProduction,
+                              dailyProduction: 0,
                               crimpPercent: l.crimpPercent || 0.05
+                            };
+                            const design = { crimpPercent: l.crimpPercent || 0.05 };
+                            const order = contextOrders.find((o: any) =>
+                              (o.design_no_sp_no || '').trim().toLowerCase() === (l.designNo || '').trim().toLowerCase()
+                            );
+                            const beam = beams.find((b: any) =>
+                              (b.beamNo && l.currentBeamNo && b.beamNo.toString().toLowerCase() === l.currentBeamNo.trim().toLowerCase()) ||
+                              (b.beam_no && l.currentBeamNo && b.beam_no.toString().toLowerCase() === l.currentBeamNo.trim().toLowerCase())
+                            );
+                            const calc = getMainEntryLoomRun({
+                              loomNo: l.loomNo,
+                              activeRun: fallbackRun,
+                              design,
+                              order,
+                              beam,
+                              productionLogs
                             });
                             return calc.expectedRunoutDate;
                           });
@@ -743,32 +779,35 @@ export default function DesignWiseRunningReport() {
 
                           return (
                             <React.Fragment key={rowKey}>
-                              <tr className="hover:bg-slate-50/80 dark:hover:bg-slate-700/40 transition-colors group">
+                              <tr className="hover:bg-slate-50/80 dark:hover:bg-slate-700/40 transition-colors group print:border-b print:border-slate-200">
                                 
-                                {/* Expand toggle */}
-                                <td className="py-3.5 px-4 text-center">
+                                {/* Expand toggle / row index */}
+                                <td className="py-3.5 px-4 text-center print:py-2 print:px-2 print:w-[5%]">
                                   <button
                                     onClick={() => toggleRowExpand(rowKey)}
-                                    className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition-colors"
+                                    className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition-colors print:hidden"
                                   >
                                     {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                                   </button>
+                                  <span className="hidden print:inline font-mono font-bold text-xs">{idx + 1}</span>
                                 </td>
 
                                 {/* Design No */}
-                                <td className="py-3.5 px-4 font-black text-slate-900 dark:text-white">
+                                <td className="py-3.5 px-4 font-black text-slate-900 dark:text-white print:py-2 print:px-2 print:text-black print:w-[17%]">
                                   <button
                                     onClick={() => setSelectedDesignDetail(designNo)}
-                                    className="text-spu-primary dark:text-blue-400 hover:underline flex items-center gap-1.5 text-xs font-black"
+                                    className="text-spu-primary dark:text-blue-400 hover:underline flex items-center gap-1.5 text-xs font-black print:hidden"
                                   >
                                     <span>{designNo}</span>
                                     <ExternalLink className="w-3 h-3 opacity-60" />
                                   </button>
+                                  <span className="hidden print:inline font-black text-slate-900 text-xs">{designNo}</span>
                                 </td>
 
                                 {/* Loom Numbers */}
-                                <td className="py-3.5 px-4 font-bold text-slate-700 dark:text-slate-200">
-                                  <div className="flex flex-wrap gap-1.5 items-center">
+                                <td className="py-3.5 px-4 font-bold text-slate-700 dark:text-slate-200 print:py-2 print:px-2 print:w-[38%]">
+                                  {/* Screen view interactive buttons */}
+                                  <div className="flex flex-wrap gap-1.5 items-center print:hidden">
                                     {sortedLooms.map(l => (
                                       <button
                                         key={l.loomNo}
@@ -780,29 +819,44 @@ export default function DesignWiseRunningReport() {
                                       </button>
                                     ))}
                                   </div>
+                                  {/* Print view plain badges - wrap cleanly */}
+                                  <div className="hidden print:block leading-normal">
+                                    {sortedLooms.map(l => (
+                                      <span
+                                        key={l.loomNo}
+                                        className="print-keep"
+                                      >
+                                        L-{l.loomNo}
+                                      </span>
+                                    ))}
+                                  </div>
                                 </td>
 
                                 {/* Total Looms Count */}
-                                <td className="py-3.5 px-4 text-center">
-                                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-spu-primary/10 text-spu-primary dark:bg-blue-950/60 dark:text-blue-300 font-black text-sm">
+                                <td className="py-3.5 px-4 text-center print:py-2 print:px-2 print:w-[8%]">
+                                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-spu-primary/10 text-spu-primary dark:bg-blue-950/60 dark:text-blue-300 font-black text-sm print:w-auto print:h-auto print:bg-transparent print:text-black">
                                     {looms.length}
                                   </span>
                                 </td>
 
                                 {/* Technical Specs */}
-                                <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px]">
-                                  <div>Const: <span className="font-semibold text-slate-700 dark:text-slate-200">{looms[0]?.construction || 'N/A'}</span></div>
-                                  <div>Weave: <span className="font-semibold text-slate-700 dark:text-slate-200">{looms[0]?.weave || 'N/A'}</span></div>
+                                <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px] print:py-2 print:px-2 print:text-slate-900 print:w-[18%] leading-snug">
+                                  <div>Const: <span className="font-semibold text-slate-700 dark:text-slate-200 print:text-black break-words">{looms[0]?.construction || 'N/A'}</span></div>
+                                  <div>Weave: <span className="font-semibold text-slate-700 dark:text-slate-200 print:text-black">{looms[0]?.weave || 'N/A'}</span></div>
                                 </td>
 
                                 {/* Action Expand */}
-                                <td className="py-3.5 px-4 text-right">
+                                <td className="py-3.5 px-4 text-right print:text-left print:py-2 print:px-2 print:w-[14%]">
                                   <button
                                     onClick={() => toggleRowExpand(rowKey)}
-                                    className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg text-[11px] font-bold transition-all"
+                                    className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg text-[11px] font-bold transition-all print:hidden"
                                   >
                                     {isExpanded ? 'Hide Details' : 'View Looms'}
                                   </button>
+                                  <div className="hidden print:block text-left text-[9.5px] text-slate-900 leading-tight">
+                                    <div>Earliest: <span className="font-bold">{earliestRunout ? format(earliestRunout, 'dd-MMM-yy') : 'N/A'}</span></div>
+                                    <div>Latest: <span className="font-bold">{latestRunout ? format(latestRunout, 'dd-MMM-yy') : 'N/A'}</span></div>
+                                  </div>
                                 </td>
                               </tr>
 
@@ -849,12 +903,38 @@ export default function DesignWiseRunningReport() {
                                             </thead>
                                             <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                                               {sortedLooms.map(loomItem => {
-                                                const calc = calculateLoomRun({
-                                                  loomStartDate: new Date(loomItem.loomStartDate),
-                                                  warpedMeter: loomItem.warpedMeter,
-                                                  dailyProduction: loomItem.dailyProduction,
-                                                  crimpPercent: loomItem.crimpPercent || 0.05
-                                                });
+                                                const activeRun = (activeRuns as any)[loomItem.loomNo];
+                                                const calc = (activeRun && activeRun.expectedRunoutDate) ? {
+                                                  producedMeter: Number(activeRun.producedMeter ?? 0),
+                                                  netBalanceMeter: Number(activeRun.netBalanceMeter ?? 0),
+                                                  balanceDays: Number(activeRun.balanceDays ?? 999999),
+                                                  expectedRunoutDate: activeRun.expectedRunoutDate instanceof Date ? activeRun.expectedRunoutDate : new Date(activeRun.expectedRunoutDate)
+                                                } : (() => {
+                                                  const fallbackRun = {
+                                                    loomNo: loomItem.loomNo,
+                                                    designNo: loomItem.designNo,
+                                                    loomStartDate: loomItem.loomStartDate,
+                                                    warpedMeter: loomItem.warpedMeter,
+                                                    dailyProduction: 0,
+                                                    crimpPercent: loomItem.crimpPercent || 0.05
+                                                  };
+                                                  const loomDesign = { crimpPercent: loomItem.crimpPercent || 0.05 };
+                                                  const loomOrder = contextOrders.find((o: any) =>
+                                                    (o.design_no_sp_no || '').trim().toLowerCase() === (loomItem.designNo || '').trim().toLowerCase()
+                                                  );
+                                                  const loomBeam = beams.find((b: any) =>
+                                                    (b.beamNo && loomItem.currentBeamNo && b.beamNo.toString().toLowerCase() === loomItem.currentBeamNo.trim().toLowerCase()) ||
+                                                    (b.beam_no && loomItem.currentBeamNo && b.beam_no.toString().toLowerCase() === loomItem.currentBeamNo.trim().toLowerCase())
+                                                  );
+                                                  return getMainEntryLoomRun({
+                                                    loomNo: loomItem.loomNo,
+                                                    activeRun: fallbackRun,
+                                                    design: loomDesign,
+                                                    order: loomOrder,
+                                                    beam: loomBeam,
+                                                    productionLogs
+                                                  });
+                                                })();
 
                                                 return (
                                                   <tr key={loomItem.loomNo} className="hover:bg-slate-50 dark:hover:bg-slate-750">
@@ -936,16 +1016,16 @@ export default function DesignWiseRunningReport() {
           )}
 
           {/* Overall Grand Total Footer */}
-          <div className="bg-slate-900 text-white rounded-2xl p-6 flex items-center justify-between shadow-xl">
+          <div className="bg-slate-900 text-white rounded-2xl p-6 flex items-center justify-between shadow-xl print:bg-slate-100 print:text-black print:border-t-2 print:border-black print:rounded-none print:p-3">
             <div>
-              <h3 className="text-lg font-black tracking-wide uppercase">GRAND TOTAL RUNNING LOOMS</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Unique count of currently active running looms</p>
+              <h3 className="text-lg font-black tracking-wide uppercase print:text-sm">GRAND TOTAL RUNNING LOOMS</h3>
+              <p className="text-xs text-slate-400 print:text-slate-600 mt-0.5">Unique count of currently active running looms</p>
             </div>
             <div className="text-right">
-              <span className="text-4xl font-black text-spu-accent">
+              <span className="text-4xl font-black text-spu-accent print:text-xl print:text-black">
                 {summaryMetrics.totalRunningLooms}
               </span>
-              <span className="text-xs text-slate-400 block font-semibold">/ 224 Looms Active</span>
+              <span className="text-xs text-slate-400 print:text-slate-700 block font-semibold">/ 224 Looms Active</span>
             </div>
           </div>
         </div>
@@ -953,8 +1033,8 @@ export default function DesignWiseRunningReport() {
       ) : (
 
         /* ── VIEW MODE 2: VISUAL MATRIX VIEW (Grid) ── */
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-4">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 space-y-4 print:border-none print:p-0">
+          <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-4 print:hidden">
             <div>
               <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-wider">
                 Visual Matrix View (Design × Unit)
@@ -963,15 +1043,20 @@ export default function DesignWiseRunningReport() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto print:overflow-visible">
             <table className="w-full border-collapse text-xs text-left">
               <thead>
-                <tr className="bg-slate-900 text-white uppercase text-[11px] font-black tracking-wider">
-                  <th className="p-3 border border-slate-700">Design No / SP No</th>
+                <PrintTableHeaderRow 
+                  title="Design-Wise Loom Running Report" 
+                  subtitle="Visual Matrix View (Design × Unit)" 
+                  colSpan={matrixData.unitsList.length + 2} 
+                />
+                <tr className="bg-slate-900 text-white uppercase text-[11px] font-black tracking-wider print:bg-slate-100 print:text-black">
+                  <th className="p-3 border border-slate-700 print:border-slate-300">Design No / SP No</th>
                   {matrixData.unitsList.map(unit => (
-                    <th key={unit} className="p-3 border border-slate-700 text-center">{unit}</th>
+                    <th key={unit} className="p-3 border border-slate-700 print:border-slate-300 text-center">{unit}</th>
                   ))}
-                  <th className="p-3 border border-slate-700 text-center bg-slate-800">Total Looms</th>
+                  <th className="p-3 border border-slate-700 print:border-slate-300 text-center bg-slate-800 print:bg-slate-200">Total Looms</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700 font-semibold">

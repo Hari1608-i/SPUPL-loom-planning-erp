@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { mockLooms, mockRuns, mockNextPlans } from '../data/mockData';
 import { API_BASE_URL } from '../config';
-import { parseConstructionSpecs } from '../utils/calculations';
+import { parseConstructionSpecs, getMainEntryLoomRun, isMatchingDesign } from '../utils/calculations';
 
 export interface ActiveRun {
   loomNo: number;
@@ -12,6 +11,18 @@ export interface ActiveRun {
   loomStartDate: string;
   warpedMeter: number;
   dailyProduction: number;
+  producedMeter?: number;
+  grossBalanceMeter?: number;
+  crimpLossMeter?: number;
+  netBalanceMeter?: number;
+  actualProductionHistory?: number[];
+  avgDailyProduction?: number;
+  effectiveDailyProduction?: number;
+  balanceDays?: number;
+  expectedRunoutDate?: Date;
+  runoutStatus?: string;
+  runoutSource?: string;
+  confidenceLevel?: string;
   crimpPercent: number;
   rpm?: number | null;
   efficiency?: number | null;
@@ -20,6 +31,7 @@ export interface ActiveRun {
   machineUtilization?: number | null;
   productionOverride?: number | null;
   overrideReason?: string;
+  remarks?: string;
 }
 
 export interface NextPlanState {
@@ -179,30 +191,142 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       setLooms(loadedLooms);
 
-      // Merge Active Runs
+      // Index daily production logs by loom for rapid lookup
+      const logsByLoomMap = new Map<number, any[]>();
+      if (Array.isArray(logsData)) {
+        logsData.forEach(l => {
+          const lNo = Number(l.loom_no);
+          if (!logsByLoomMap.has(lNo)) logsByLoomMap.set(lNo, []);
+          logsByLoomMap.get(lNo)!.push(l);
+        });
+      }
+
+      // Merge Active Runs with cumulative production & logs history
       const activeRunObj: Record<number, ActiveRun> = {};
       if (Array.isArray(activeRunsData)) {
         activeRunsData.forEach(run => {
-          const matchedDesign = loadedDesigns.find(d => d.designNo === run.design_no_sp_no);
-          const crimp = matchedDesign ? (matchedDesign.crimpPercent * 100) : 0;
+          const matchedDesign = loadedDesigns.find(d => 
+            d.designNo === run.design_no_sp_no || 
+            d.design_no_sp_no === run.design_no_sp_no ||
+            (d.designNo && run.design_no_sp_no && d.designNo.trim().toLowerCase() === run.design_no_sp_no.trim().toLowerCase())
+          );
+          const rawCrimp = matchedDesign ? Number(matchedDesign.crimpPercent || matchedDesign.crimp_percent || 0) : 0;
+          const crimp = rawCrimp > 0 ? (rawCrimp > 1 ? rawCrimp / 100 : rawCrimp) : 0.05;
           let startDate = new Date().toISOString().split('T')[0];
           try {
             if (run.loom_start_date) startDate = new Date(run.loom_start_date).toISOString().split('T')[0];
           } catch (e) {}
 
-          activeRunObj[run.loom_no] = {
+          const currentDesignClean = (run.design_no_sp_no || '').trim().toLowerCase();
+          const loomLogsList = logsByLoomMap.get(Number(run.loom_no)) || [];
+
+          const loomStartDate = startDate;
+
+          // Calculate cumulative produced meters and actual daily production history
+          // IMPORTANT: Only include logs up to today (same as LoomRow's selectedProductionDate cutoff)
+          const todayStr = new Date().toISOString().split('T')[0];
+          const relevantLogs: number[] = [];
+          let cumulativeProduced = 0;
+          let latestLogRpm: number | null = null;
+          let latestLogEff: number | null = null;
+
+          for (let li = 0; li < loomLogsList.length; li++) {
+            const l = loomLogsList[li];
+            const lDesign = (l.design_no || '').trim().toLowerCase();
+            if (currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
+
+            let lDateStr = '';
+            try {
+              if (l.date) lDateStr = new Date(l.date).toISOString().split('T')[0];
+              else if (l.createdAt) lDateStr = new Date(l.createdAt).toISOString().split('T')[0];
+            } catch (e) {}
+
+            // Skip logs before actual loom start date
+            if (loomStartDate && lDateStr && lDateStr < loomStartDate) continue;
+            // Skip logs dated AFTER today (matches LoomRow selectedProductionDate cutoff)
+            if (lDateStr && lDateStr > todayStr) continue;
+
+            const pMtr = Number(l.produced_meter) || 0;
+            relevantLogs.push(pMtr);
+            cumulativeProduced += pMtr;
+
+            if (l.rpm !== undefined && l.rpm !== null && Number(l.rpm) > 0) {
+              latestLogRpm = Number(l.rpm);
+            }
+            if (l.efficiency !== undefined && l.efficiency !== null && Number(l.efficiency) > 0) {
+              latestLogEff = Number(l.efficiency);
+            }
+          }
+
+          // Always use the cumulative sum from actual daily production logs.
+          // daily_production in LoomRunEntry stores the LAST SINGLE-DAY value entered by the user,
+          // not a running total. Falling back to it would show a wrong (too-low) produced meter.
+          // If no logs have been saved yet, producedMeter is correctly 0.
+          const finalProducedMeter = cumulativeProduced;
+
+          const matchedOrder = Array.isArray(ordersData) ? ordersData.find(o => 
+            (o.design_no_sp_no && run.design_no_sp_no && isMatchingDesign(o.design_no_sp_no, currentDesignClean))
+          ) : null;
+          const matchedBeam = Array.isArray(beamsData) ? beamsData.find(b => 
+            (b.beamNo && run.current_beam_no && b.beamNo.toString().toLowerCase() === run.current_beam_no.trim().toLowerCase()) ||
+            (b.beam_no && run.current_beam_no && b.beam_no.toString().toLowerCase() === run.current_beam_no.trim().toLowerCase())
+          ) : null;
+          // Check if a production log specifically exists for today with RPM / Efficiency (matching MainEntry behavior)
+          const todayLog = loomLogsList.find(l => {
+            let lDateStr = '';
+            try {
+              if (l.date) lDateStr = new Date(l.date).toISOString().split('T')[0];
+              else if (l.createdAt) lDateStr = new Date(l.createdAt).toISOString().split('T')[0];
+            } catch (e) {}
+            return lDateStr === todayStr && (!currentDesignClean || !l.design_no || isMatchingDesign(l.design_no, currentDesignClean));
+          });
+          const todayRpm = (todayLog && todayLog.rpm !== undefined && todayLog.rpm !== null && Number(todayLog.rpm) > 0) ? Number(todayLog.rpm) : null;
+          const todayEff = (todayLog && todayLog.efficiency !== undefined && todayLog.efficiency !== null && Number(todayLog.efficiency) > 0) ? Number(todayLog.efficiency) : null;
+
+          const activeRunPayload = {
             loomNo: run.loom_no,
             designNo: run.design_no_sp_no,
             currentBeamNo: run.current_beam_no || '',
             setNo: run.set_no || '',
             beamId: run.beam_id || null,
-            loomStartDate: startDate,
+            loomStartDate: loomStartDate,
             warpedMeter: Number(run.warped_meter) || 0,
-            dailyProduction: Number(run.daily_production) || 0,
-            rpm: run.rpm,
-            efficiency: run.efficiency,
+            dailyProduction: finalProducedMeter,
+            rpm: todayRpm,
+            efficiency: todayEff,
             crimpPercent: crimp,
             remarks: run.remarks || ''
+          };
+
+          const calc = getMainEntryLoomRun({
+            loomNo: run.loom_no,
+            activeRun: activeRunPayload,
+            design: matchedDesign,
+            order: matchedOrder,
+            beam: matchedBeam,
+            productionLogs: logsData,
+            currentDate: new Date()  // always today — matches LoomRow default
+          });
+
+          activeRunObj[run.loom_no] = {
+            ...activeRunPayload,
+            dailyProduction: calc.producedMeter,
+            producedMeter: calc.producedMeter,
+            grossBalanceMeter: calc.warpBalanceGross,
+            crimpLossMeter: calc.crimpLossMeter,
+            netBalanceMeter: calc.netBalanceMeter,
+            avgDailyProduction: calc.avgProduction,
+            effectiveDailyProduction: calc.effectiveDailyProduction,
+            balanceDays: calc.balanceDays,
+            expectedRunoutDate: calc.expectedRunoutDate,
+            runoutStatus: calc.runoutStatus,
+            runoutSource: calc.runoutSource,
+            confidenceLevel: calc.confidenceLevel,
+            actualProductionHistory: relevantLogs,
+            runningDays: calc.runningDays,
+            actualCrimpPercent: calc.actualCrimpPercent,
+            effectiveCrimpPercent: calc.effectiveCrimpPercent,
+            standardCrimpPercent: calc.standardCrimpPercent
           } as any;
         });
       }
@@ -250,27 +374,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshData();
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        refreshData();
+      }
+    }, 15000);
+    return () => clearInterval(interval);
   }, []);
 
+  const contextValue = React.useMemo(() => ({
+    activeRuns, 
+    setActiveRuns, 
+    nextPlans, 
+    setNextPlans, 
+    rawNextPlans,
+    looms, 
+    setLooms, 
+    designs, 
+    setDesigns,
+    reeds,
+    reedRequirements,
+    orders,
+    beams,
+    completedHistory,
+    productionLogs,
+    refreshData
+  }), [
+    activeRuns,
+    nextPlans,
+    rawNextPlans,
+    looms,
+    designs,
+    reeds,
+    reedRequirements,
+    orders,
+    beams,
+    completedHistory,
+    productionLogs
+  ]);
+
   return (
-    <AppContext.Provider value={{ 
-      activeRuns, 
-      setActiveRuns, 
-      nextPlans, 
-      setNextPlans, 
-      rawNextPlans,
-      looms, 
-      setLooms, 
-      designs, 
-      setDesigns,
-      reeds,
-      reedRequirements,
-      orders,
-      beams,
-      completedHistory,
-      productionLogs,
-      refreshData
-    }}>
+    <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   );

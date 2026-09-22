@@ -72,7 +72,7 @@ export default function ErpAlertCenter() {
   useEffect(() => {
     fetchAlerts();
     refreshData();
-    const interval = setInterval(fetchAlerts, 15000);
+    const interval = setInterval(fetchAlerts, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -108,38 +108,58 @@ export default function ErpAlertCenter() {
     }
   };
 
+  const ALLOWED_DEPTS = ['PLANNING', 'SIZING', 'REED', 'WEAVING', 'RUNOUT'];
+
   // Target navigation router
   const handleNavigateToTarget = (dept: string) => {
-    const d = dept.toUpperCase();
-    if (d.includes('BEAM')) navigate('/beam-stock');
+    const d = (dept || '').toUpperCase();
+    if (d.includes('SIZING') || d.includes('BEAM')) navigate('/beam-stock');
     else if (d.includes('REED')) navigate('/reed-stock');
     else if (d.includes('PLAN')) navigate('/plan');
     else if (d.includes('WEAVING') || d.includes('RUNOUT')) navigate('/entry');
-    else if (d.includes('DELIVERY') || d.includes('ORDER')) navigate('/orders');
     else navigate('/plan');
   };
 
   const getTargetButtonLabel = (dept: string) => {
-    const d = dept.toUpperCase();
-    if (d.includes('BEAM')) return 'GO TO BEAM STOCK';
+    const d = (dept || '').toUpperCase();
+    if (d.includes('SIZING') || d.includes('BEAM')) return 'GO TO SIZING / BEAM';
     if (d.includes('REED')) return 'GO TO REED STOCK';
     if (d.includes('PLAN')) return 'GO TO LOOM PLANNING';
     if (d.includes('WEAVING') || d.includes('RUNOUT')) return 'GO TO MAIN ENTRY';
-    if (d.includes('DELIVERY') || d.includes('ORDER')) return 'GO TO ORDER MANAGEMENT';
     return 'GO TO MODULE';
   };
 
+  // Normalization and exclusion: Delivery is completely removed; Beam Stock mapped to Planning/Sizing
+  const allowedAlerts = alerts
+    .map(a => {
+      const deptUpper = (a.department || '').toUpperCase();
+      if (deptUpper === 'BEAM STOCK') {
+        return {
+          ...a,
+          department: a.alert_code === 'BMS-003' ? 'PLANNING' : 'SIZING'
+        };
+      }
+      return a;
+    })
+    .filter(a => {
+      const dept = (a.department || '').toUpperCase();
+      return dept !== 'DELIVERY' && ALLOWED_DEPTS.includes(dept);
+    });
+
   // Filter calculations
-  const filteredAlerts = alerts.filter(a => {
-    const q = searchTerm.toLowerCase();
-    const matchSearch = (
+  const filteredAlerts = allowedAlerts.filter(a => {
+    const q = (searchTerm || '').trim().toLowerCase();
+    const matchSearch = !q || (
       (a.alert_code && a.alert_code.toLowerCase().includes(q)) ||
       (a.message && a.message.toLowerCase().includes(q)) ||
       (a.order_no && a.order_no.toLowerCase().includes(q)) ||
+      ((a as any).ibpo_no && (a as any).ibpo_no.toLowerCase().includes(q)) ||
       (a.design_no && a.design_no.toLowerCase().includes(q)) ||
       (a.department && a.department.toLowerCase().includes(q)) ||
       (a.loom_no && a.loom_no.toString().includes(q)) ||
-      (a.beam_no && a.beam_no.toLowerCase().includes(q))
+      (a.beam_no && a.beam_no.toLowerCase().includes(q)) ||
+      ((a as any).set_no && (a as any).set_no.toString().toLowerCase().includes(q)) ||
+      ((a as any).customer_name && (a as any).customer_name.toLowerCase().includes(q))
     );
     if (!matchSearch) return false;
 
@@ -169,13 +189,13 @@ export default function ErpAlertCenter() {
     return true;
   });
 
-  // KPI Metrics
-  const criticalCount = alerts.filter(a => a.priority.includes('CRITICAL') && a.status === 'OPEN').length;
-  const highCount = alerts.filter(a => a.priority.includes('HIGH') && a.status === 'OPEN').length;
-  const mediumCount = alerts.filter(a => a.priority.includes('MEDIUM') && a.status === 'OPEN').length;
-  const ackCount = alerts.filter(a => a.status === 'ACKNOWLEDGED').length;
-  const openTotal = alerts.filter(a => a.status === 'OPEN').length;
-  const loggedTotal = alerts.length;
+  // KPI Metrics (Calculated strictly from allowed 5 departments, excluding Delivery)
+  const criticalCount = allowedAlerts.filter(a => a.priority.includes('CRITICAL') && a.status === 'OPEN').length;
+  const highCount = allowedAlerts.filter(a => a.priority.includes('HIGH') && a.status === 'OPEN').length;
+  const mediumCount = allowedAlerts.filter(a => a.priority.includes('MEDIUM') && a.status === 'OPEN').length;
+  const ackCount = allowedAlerts.filter(a => a.status === 'ACKNOWLEDGED').length;
+  const openTotal = allowedAlerts.filter(a => a.status === 'OPEN').length;
+  const loggedTotal = allowedAlerts.length;
 
   const calculateAge = (createdAtStr: string) => {
     const diffMs = Date.now() - new Date(createdAtStr).getTime();
@@ -184,6 +204,14 @@ export default function ErpAlertCenter() {
     if (diffHrs < 24) return `${diffHrs}h ago`;
     const diffDays = Math.floor(diffHrs / 24);
     return `${diffDays}d ago`;
+  };
+
+  // Department count helper for tabs
+  const getDeptCount = (dept: string) => {
+    if (dept === 'ALL') {
+      return allowedAlerts.filter(a => statusFilter === 'ALL' ? true : a.status.toUpperCase() === statusFilter.toUpperCase()).length;
+    }
+    return allowedAlerts.filter(a => a.department.toUpperCase() === dept && (statusFilter === 'ALL' ? true : a.status.toUpperCase() === statusFilter.toUpperCase())).length;
   };
 
   return (
@@ -196,7 +224,7 @@ export default function ErpAlertCenter() {
             <AlertCircle className="w-7 h-7 mr-3 text-red-600 animate-pulse" /> COMMON ALERT CENTER
           </h1>
           <p className="text-slate-500 text-xs mt-1 font-semibold">
-            Central Department Alert & Action Hub: <span className="text-blue-700 font-bold">Planning → Beam Stock → Reed → Weaving → Loom Runout → Delivery Risk</span>
+            Central Department Alert & Action Hub: <span className="text-blue-700 font-bold">Planning → Sizing → Reed → Weaving → Loom Runout</span>
           </p>
         </div>
 
@@ -308,17 +336,20 @@ export default function ErpAlertCenter() {
         
         {/* Department Tabs */}
         <div className="flex items-center flex-wrap gap-1">
-          {['ALL', 'PLANNING', 'BEAM STOCK', 'REED', 'WEAVING', 'RUNOUT', 'DELIVERY', 'SIZING'].map(dept => (
-            <button
-              key={dept}
-              onClick={() => setDeptFilter(dept)}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
-                deptFilter === dept ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              {dept}
-            </button>
-          ))}
+          {['ALL', 'PLANNING', 'SIZING', 'REED', 'WEAVING', 'RUNOUT'].map(dept => {
+            const count = getDeptCount(dept);
+            return (
+              <button
+                key={dept}
+                onClick={() => setDeptFilter(dept)}
+                className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                  deptFilter === dept ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                {dept} ({count})
+              </button>
+            );
+          })}
         </div>
 
         {/* Priority & Status Dropdowns */}
@@ -420,9 +451,13 @@ export default function ErpAlertCenter() {
                 <tr>
                   <td colSpan={13} className="p-12 text-center space-y-2">
                     <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
-                    <div className="text-slate-800 font-black text-sm uppercase">NO ACTIVE ALERTS</div>
+                    <div className="text-slate-800 font-black text-sm uppercase">
+                      {deptFilter === 'ALL' ? 'NO ACTIVE ALERTS' : `NO ${deptFilter} ALERTS`}
+                    </div>
                     <div className="text-slate-500 text-xs font-medium">
-                      All monitored departments are currently within the planned operating conditions.
+                      {deptFilter === 'ALL' 
+                        ? 'All monitored departments are currently within the planned operating conditions.' 
+                        : `No active alerts found for ${deptFilter} department.`}
                     </div>
                   </td>
                 </tr>

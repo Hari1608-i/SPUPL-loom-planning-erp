@@ -74,7 +74,7 @@ export default function SizingDashboard() {
 
   useEffect(() => {
     fetchRequests();
-    const interval = setInterval(fetchRequests, 15000);
+    const interval = setInterval(fetchRequests, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -154,11 +154,24 @@ export default function SizingDashboard() {
     critical: requests.filter(r => r.priority === 'Critical' && r.status !== 'BEAM READY').length
   };
 
-  const filteredRequests = requests.filter(r =>
-    r.design_no.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.loom_no.toString().includes(searchTerm) ||
-    (r.beam_no && r.beam_no.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredRequests = requests.filter(r => {
+    const q = (searchTerm || '').trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (r.design_no || '').toLowerCase().includes(q) ||
+      (r.loom_no || '').toString().toLowerCase().includes(q) ||
+      (r.beam_no || '').toString().toLowerCase().includes(q) ||
+      ((r as any).set_no || '').toString().toLowerCase().includes(q) ||
+      ((r as any).order_no || '').toString().toLowerCase().includes(q) ||
+      (r.vendor_name || '').toLowerCase().includes(q) ||
+      ((r as any).sizing_vendor || '').toLowerCase().includes(q) ||
+      ((r as any).warping_vendor || '').toLowerCase().includes(q) ||
+      ((r as any).sizing_dc_no || '').toLowerCase().includes(q) ||
+      (r.status || '').toLowerCase().includes(q) ||
+      (r.priority || '').toLowerCase().includes(q) ||
+      ((r as any).remarks || (r as any).sizing_remarks || '').toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div className="space-y-6 flex flex-col h-full bg-slate-50/70 p-4">

@@ -79,11 +79,20 @@ export default function DesignMaster() {
 
 
   const filteredDesigns = processedDesigns.filter(d => {
-    if (!searchTerm) return true;
-    const q = searchTerm.toLowerCase();
-    return d.design_no_sp_no.toLowerCase().includes(q) ||
-           d.construction.toLowerCase().includes(q) ||
-           d.weave_type.toLowerCase().includes(q);
+    const q = (searchTerm || '').trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (d.design_no_sp_no || '').toLowerCase().includes(q) ||
+      (d.construction || '').toLowerCase().includes(q) ||
+      (d.weave_type || '').toLowerCase().includes(q) ||
+      (d.reed_count || '').toString().toLowerCase().includes(q) ||
+      (d.pick || '').toString().toLowerCase().includes(q) ||
+      (d.beam_type || '').toLowerCase().includes(q) ||
+      (d.greige_width || '').toString().toLowerCase().includes(q) ||
+      (d.total_ends || '').toString().toLowerCase().includes(q) ||
+      (d.reed_space_warp_width || '').toString().toLowerCase().includes(q) ||
+      (d.remarks || '').toLowerCase().includes(q)
+    );
   }).sort((a, b) => {
     const valA = a[sortField] ?? '';
     const valB = b[sortField] ?? '';

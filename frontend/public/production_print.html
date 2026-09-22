@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daily Production Print - August 26</title>
+  <style>
+    /* PAGE SETUP PER USER SPECIFICATIONS */
+    @page {
+      size: A4 landscape;
+      margin: 0;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: #555;
+      font-family: Arial, Calibri, sans-serif;
+      color: #000;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* Outer wrapper for screen view to display discrete pages like print preview */
+    .print-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      padding: 20px 0;
+    }
+
+    .page {
+      width: 297mm;
+      height: 210mm;
+      background: #fff;
+      overflow: hidden;
+      position: relative;
+      page-break-after: always;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
+
+    @media print {
+      body {
+        background: transparent;
+      }
+      .print-container {
+        padding: 0;
+        gap: 0;
+      }
+      .page {
+        box-shadow: none;
+        page-break-after: always;
+        break-after: page;
+        margin: 0;
+      }
+    }
+
+    /* Page 1 (PRODUCTION 1) print scale 55%, margins: left 0.25in, right 0.17in, top 0.16in, bottom 0.27in */
+    .page-1 {
+      padding: 0.16in 0.17in 0.27in 0.25in;
+    }
+
+    .page-1-content {
+      width: 100%;
+      height: 100%;
+      zoom: 0.55;
+    }
+
+    /* Page 2 (PRODUCTION 2) print scale 45%, margins: 0 */
+    .page-2 {
+      padding: 0.05in; /* microscopic edge clearance */
+    }
+
+    .page-2-content {
+      width: 100%;
+      height: 100%;
+      zoom: 0.45;
+    }
+
+    /* Excel Table Styling */
+    .excel-table {
+      width: 100%;
+      border-collapse: collapse;
+      border-spacing: 0;
+      table-layout: fixed;
+      font-size: 9pt;
+      color: #000;
+    }
+
+    .excel-table td, .excel-table th {
+      border: 1px solid #000;
+      padding: 1px 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.15;
+    }
+
+    /* Screen Action Bar (hidden when printed) */
+    .screen-toolbar {
+      position: fixed;
+      top: 15px;
+      right: 25px;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(30, 41, 59, 0.92);
+      backdrop-filter: blur(8px);
+      padding: 8px 16px;
+      border-radius: 30px;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+      color: #fff;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    .screen-toolbar .info {
+      font-size: 12px;
+      font-weight: 600;
+      color: #cbd5e1;
+    }
+
+    .screen-toolbar button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s;
+    }
+
+    .screen-toolbar button:hover {
+      background: #1d4ed8;
+    }
+
+    @media print {
+      .screen-toolbar {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="screen-toolbar no-print">
+    <div class="info">📄 A4 Landscape • 2 Pages (Excel Exact)</div>
+    <button onclick="window.print()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+      Print / Save as PDF
+    </button>
+  </div>
+
+  <div class="print-container">
+    <!-- PAGE 1: PRODUCTION 1 (Daily Meeting Production Targets) -->
+    <div class="page page-1">
+      <div class="page-1-content">
+        <table class="excel-table">
+  <colgroup>
+    <col style="width: 4.432%;">
+    <col style="width: 8.361%;">
+    <col style="width: 8.590%;">
+    <col style="width: 9.101%;">
+    <col style="width: 12.241%;">
+    <col style="width: 5.588%;">
+    <col style="width: 5.588%;">
+    <col style="width: 5.867%;">
+    <col style="width: 4.387%;">
+    <col style="width: 4.432%;">
+    <col style="width: 6.607%;">
+    <col style="width: 6.790%;">
+    <col style="width: 5.867%;">
+    <col style="width: 4.574%;">
+    <col style="width: 3.372%;">
+    <col style="width: 4.204%;">
+  </colgroup>
+  <tbody>
+    <tr style="height: 18pt;">
+      <td colspan="2" style="background-color: #FFE699; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; text-align: center; vertical-align: middle; white-space: nowrap">31-08-2026</td>
+      <td colspan="14" style="background-color: #FFE699; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 10pt; text-align: center; vertical-align: middle; white-space: nowrap">DAILY MEETING PRODUCTION TARGETS</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 10pt; vertical-align: middle; white-space: nowrap">Monthly Target Lacs</td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">18.70</td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">13.72</td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">4.98</td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 10pt; text-align: center; vertical-align: middle; white-space: nowrap">0.60</td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 10pt; text-align: center; vertical-align: middle; white-space: nowrap">0.44</td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 10pt; text-align: center; vertical-align: middle; white-space: nowrap">0.16</td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 10pt; text-align: center; vertical-align: middle; white-space: nowrap">Avg/Day</td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 10pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; vertical-align: middle; white-space: nowrap">                                UP TO DATE/DAY/AVG</td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #D0CFCF; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 24pt;">
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">S.NO</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">DEPARTMENT</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">HEAD</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">MENTOR</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">NAME</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">TARGET</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">ACTUAL</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">DIFF</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">%</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">PERFORMANCE</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">UPTO   DATE</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">AVERAGE</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">DEVI</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">%</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">%</td>
+      <td style="background-color: #F4B183; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">PERFORMANCE</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">DISPATCH</td>
+      <td rowspan="4" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">MR.M.RAMESH</td>
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">MR.JAGAN</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">DESPATCH</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">77950</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">44944</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-33006</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-42%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">9</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1372421</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">44272</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-33678</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-43%</td>
+      <td rowspan="6" style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-41%</td>
+      <td rowspan="6" style="background-color: #F8CBAD; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 14pt; text-align: center; vertical-align: middle; white-space: nowrap">4</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">PACKING</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">77950</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">65691</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">32685</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">42%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1607952</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">51869</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-26081</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-33%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2</td>
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">INSPECTION</td>
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">MR.M.RAMESH</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">INSPECTION/DAY</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">77950</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">76042</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-1908</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-2%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1619231</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">52233</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-25717</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-33%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">FABRIC (PURCHASE) </td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">30000</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-30000</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-100%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">10</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">425054</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">13711</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-16289</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-54%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td rowspan="5" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">PROC/DYEING</td>
+      <td rowspan="4" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">MR.NATESAN</td>
+      <td rowspan="4" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">MR.NATESAN</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">PINNING</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">8360</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">8360</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">296162</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">9554</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">9554</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">REPROCESS</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">3</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">PROCESSING DELIVERY  INHOUSE</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">35000</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">30905</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-4095</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-12%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">3</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">698534</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">22533</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-12467</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-36%</td>
+      <td rowspan="3" style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-18.6%</td>
+      <td rowspan="3" style="background-color: #A9CE91; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 14pt; text-align: center; vertical-align: middle; white-space: nowrap">3</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">PROCESSING DELIVERY OUT SIDE</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">36348</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1173</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1173</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">MR.GANESH</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">DYEING & PRINTING</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">50000</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">119032</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">69032</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">138%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1236035</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">39872</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-10128</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-20%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td rowspan="3" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td rowspan="3" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">GREY WAREHOUSE</td>
+      <td rowspan="12" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">MR.GUNASEKARAN</td>
+      <td rowspan="3" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">MR.M.RAMESH</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">TOTAL PRODN-GREIGE</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">75000</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">61525</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-13475</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-18%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">5</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2173308</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">70107</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-4893</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-7%</td>
+      <td rowspan="12" style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">8.77%</td>
+      <td rowspan="12" style="background-color: #BDD7EE; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 14pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">TOTAL PRODN-FINISH</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">GREIGE & YD OUTWARD</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">80000</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">86881</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">6881</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">9%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2435145</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">78553</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-1447</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-2%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2</td>
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">OUT SOURCING</td>
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">MR.MADHESH</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">GREIGE FABRIC</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">15000</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">64938</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">49938</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">333%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1385018</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">44678</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">29678</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">198%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">YD FABRIC</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">15000</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">37198</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">22198</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">148%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">906162</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">29231</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">14231</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">95%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">3</td>
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">WEAVING</td>
+      <td rowspan="2" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">MR.GUNASEKARAN</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">INHOUSE ( KPICKS )</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">155739</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">113465</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-42274</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-27%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">8</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">149761</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">4831</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-150908</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-97%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">INHOUSE ( MTRS )AVG PICK 59.1</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">68400</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">52527</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-15873</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-23%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">6</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">70630</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2278</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-66122</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-97%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td rowspan="5" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">4</td>
+      <td rowspan="5" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">SIZING</td>
+      <td rowspan="5" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">MR.SENTHIL</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">SIZING</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">40000</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">57930</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">17930</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">45%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1202195</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">38780</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-1220</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-3%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">SEC WARPING </td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">4000</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">3310</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-690</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-17%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">4</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">174950</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">5644</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1644</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">41%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">SAMPLE</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">4</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">4</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">92</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">3</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-1</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-26%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">RE-WINDING PRODUCTION (KGS)</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">600</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">674</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">74</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">12%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">17378</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">561</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-39</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-7%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">REMANANTS GENARATION</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">358</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">358</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">7824</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">252</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">252</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td rowspan="4" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">SPINNING</td>
+      <td rowspan="4" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">MR.VENKATESHWARAN</td>
+      <td rowspan="4" style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">MR.VENKATESHWARAN</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">VSF</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">45945</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1482</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1482</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+      <td rowspan="4" style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-3%</td>
+      <td rowspan="4" style="background-color: #FFE699; font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 14pt; text-align: center; vertical-align: middle; white-space: nowrap">2</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">FLAX , LINEN & OTHERS </td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">3500</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2664</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-836</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-24%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">7</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">102287</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">3300</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-200</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-6%</td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">3</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">VSF GPS (GMS)</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">135</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-135</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">4</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">FLAX GPS</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">140</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">199</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">3</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">4711</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">152</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">12</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">SALES RETURN</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2917</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">94</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">94</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">2</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">REPRODUCTION</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">3</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">REJECTION</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">WEAVING- 0, PROCESSING - 0 VENDOR -574</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">574</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">574</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">40152</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1295</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1295</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">4</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">REWASH</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">VENDOR - 76. PROCESSING  -376</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">452</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">452</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">42887</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1383</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1383</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 32.25pt;">
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">5</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">TRANSPORT</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal">MR SARAVANAN</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: normal"></td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">45</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">48</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">3</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">7%</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">1194</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">39</td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap">-6</td>
+      <td style="font-weight: bold; font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Bookman Old Style', Arial, sans-serif; font-size: 9pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+  </tbody>
+</table>
+
+      </div>
+    </div>
+
+    <!-- PAGE 2: PRODUCTION 2 (8 Department Details) -->
+    <div class="page page-2">
+      <div class="page-2-content">
+        <table class="excel-table">
+  <colgroup>
+    <col style="width: 2.149%;">
+    <col style="width: 6.893%;">
+    <col style="width: 7.637%;">
+    <col style="width: 8.711%;">
+    <col style="width: 13.011%;">
+    <col style="width: 11.156%;">
+    <col style="width: 13.492%;">
+    <col style="width: 18.533%;">
+    <col style="width: 7.523%;">
+    <col style="width: 10.896%;">
+  </colgroup>
+  <tbody>
+    <tr style="height: 18pt;">
+      <td colspan="2" style="background-color: #B4C7E7; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">DATE-31-08-2026</td>
+      <td colspan="8" style="background-color: #B4C7E7; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="background-color: #FFE699; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">                           </td>
+      <td style="background-color: #FFE699; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">DEPT</td>
+      <td style="background-color: #FFE699; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">HEADS</td>
+      <td style="background-color: #FFE699; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">MENTOR</td>
+      <td style="background-color: #FFE699; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">DETAILS</td>
+      <td colspan="3" style="background-color: #FFE699; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">DESCRIPTION</td>
+      <td style="background-color: #FFE699; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #FFE699; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td rowspan="5" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td rowspan="5" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">PLANNING</td>
+      <td rowspan="5" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">BALAMURALI </td>
+      <td rowspan="5" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">MANIKANDAN</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">CURRENT ORDER STATUS</td>
+      <td colspan="2" style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: left; vertical-align: middle; white-space: nowrap">YARN DYED -25.63 Lacs / SOLID -1.94Lacs / OTHER SOLIDS -0.89Lacs</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: left; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">CRITICAL ORDERS</td>
+      <td colspan="2" style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: left; vertical-align: top; white-space: nowrap">sp26/015,200,153,080,566,567,181,197</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: left; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">FAST TRACK ORDER</td>
+      <td colspan="2" style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: left; vertical-align: middle; white-space: nowrap">SP26/598,599,620,619,330,150,148,596,736,737,739,116,568</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: left; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">Reproduction Order</td>
+      <td colspan="2" style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: left; vertical-align: middle; white-space: nowrap">SP20/272,SP23/164,SP26/269,244,242,274</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: left; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">NEW ORDERS</td>
+      <td colspan="2" style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: left; vertical-align: middle; white-space: nowrap">YARN DYED-0.08/ SOLID-0.00/ OTHER SOLIDS- 0.11/ OTHER GREY-0.00</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: left; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td rowspan="4" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">2</td>
+      <td rowspan="4" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">SIZING</td>
+      <td rowspan="4" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">GUNASEKARAN</td>
+      <td rowspan="4" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">SENTHIL</td>
+      <td style="background-color: #D9D9D9; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">QTY</td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">NO O DAYS</td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">REMARKS</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">DYED YARN STOCK</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">97995</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">GRY YARN STOCK </td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">114145</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">TOTAL</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">212140</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td rowspan="7" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">3</td>
+      <td rowspan="7" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">WEAVING</td>
+      <td rowspan="7" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">GUNASEKARAN</td>
+      <td rowspan="7" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">GUNASEKARAN</td>
+      <td style="background-color: #D9D9D9; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">ON DATE</td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">UP TO DATE</td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">REMARKS</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">EFFICIENCY%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">57%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">61%</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">UTILISATION%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">85%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">90%</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">UE%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">48%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">55%</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">NO OF KNOTTINGS</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">6</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">256</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">NO OF SORT CHANGES</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">23</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">391</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">NO OF FULL LOOM STOPPAGE</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">19</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">222</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td rowspan="22" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">4</td>
+      <td rowspan="22" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: normal">GREIGE INSPECTION</td>
+      <td rowspan="22" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">GUNASEKARAN</td>
+      <td rowspan="22" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">M.RAMESH</td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">GREIGE FABRIC </td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">AS ON DATE</td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">UP TO DATE</td>
+      <td style="background-color: #BFBFBF; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">FINISHED FABRIC</td>
+      <td style="background-color: #BFBFBF; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: normal">AS ON DATE</td>
+      <td style="background-color: #BFBFBF; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">UP TO DATE</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">INHOUSE - TOTAL MTRS INSPECTED </td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">51885</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1744161</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">FINISHED INSPECTION MTRS</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">76042.40</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1618913.49</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">INHOUSE - TOTAL MTRS PASSED</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">51191</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1727721</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">REALISATION%</td>
+      <td style="font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">99.24</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">97.41</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">INHOUSE - TOTAL MTRS REJECTED</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">694</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">16440</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">PROCESSING REJECTION MTRS</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">802.40</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">INHOUSE - REJECTION %</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1.34</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.94</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">REJECTION%</td>
+      <td style="font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.05</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="background-color: #A6A6A6; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #A6A6A6; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #A6A6A6; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">.</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">VENDOR REJECTION MTRS</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">574.00</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">9121.50</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">VENDOR - TOTAL MTRS INSPECTED </td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">9640.9</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">448748</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">REJECTION%</td>
+      <td style="font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.76</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.58</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">VENDOR - TOTAL MTRS PASSED</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">9630.7</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">440675</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">WEAVING REJECTION MTRS</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">30962.10</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">VENDOR - TOTAL MTRS REJECTED</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">10.2</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">8072</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">REJECTION %</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1.96</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">VENDOR - REJECTION %</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.1</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1.8</td>
+      <td style="background-color: #BFBFBF; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: right; vertical-align: middle; white-space: nowrap">TOTAL</td>
+      <td style="background-color: #BFBFBF; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">76716.40</td>
+      <td style="background-color: #BFBFBF; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1659899</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="background-color: #A6A6A6; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #A6A6A6; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #A6A6A6; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">PROCESSING REWASH MTRS</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">376.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">13131.10</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">WASHING-TOTAL MTRS</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">REWASH%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.49</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.81</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">WASHING-TOTAL PASSED</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">VENDOR REWASH MTRS</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">76.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">28749.50</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">WASHING-TOTAL MTRS REJECTED</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">REWASH%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.10</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1.78</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">WASHING-REJECTION%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="background-color: #BFBFBF; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: right; vertical-align: middle; white-space: nowrap">TOTAL</td>
+      <td style="background-color: #A6A6A6; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">452.59</td>
+      <td style="background-color: #A6A6A6; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">41883.19</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="background-color: #A6A6A6; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #A6A6A6; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #A6A6A6; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">SALES RETUNRS</td>
+      <td rowspan="2" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.0</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 11pt; text-align: center; vertical-align: middle; white-space: nowrap">-</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">TOTAL MTRS INSPECTED </td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">61525</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">2192910</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 10pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">TOTAL MTRS PASSED</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">60821</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">2168397</td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">REMARKS</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">TOTAL MTRS REJECTED</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">704.2</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">24512</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: normal"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">REJECTION %</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1.14</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1.12</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: normal"></td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: normal"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="background-color: #A6A6A6; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #A6A6A6; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #A6A6A6; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">  </td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td colspan="2" style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="background-color: #D9D9D9; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">AS ON DATE</td>
+      <td style="background-color: #D9D9D9; font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">UP TO DATE</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td rowspan="12" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">5</td>
+      <td rowspan="12" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">MENDING</td>
+      <td rowspan="12" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">GUNASEKARAN</td>
+      <td rowspan="12" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">MATHESHWARAN</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">WEAVING- (INHOUSE)</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">67.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">40724.6</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1.62%</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">WEAVING-(VENDOR)</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1130.10</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">57978.7</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">3.64%</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">TOTAL</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1197.10</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">98703.3</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">2.41%</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">YARN-( INHOUSE)</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">33030.4</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1.19%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">YARN-(VENDOR)</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">2437.90</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">42023.4</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.78%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">TOTAL</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">2437.90</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">75053.8</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">2.34%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">SIZING - (INHOUSE)</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">SIZING - (VENDOR)</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">245.1</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.01%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">PROCESSING</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0.00%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">TOTAL</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">3635.00</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">174002.2</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">4.01%</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="background-color: #BFBFBF; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #BFBFBF; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #A6A6A6; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">NO OF DAYS</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">GREIGE FABRIC STOCK</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td rowspan="3" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">6</td>
+      <td rowspan="3" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">PROCESSING </td>
+      <td rowspan="3" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">NATESAN</td>
+      <td rowspan="3" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">NATESAN</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">YARN DYED FABRIC STOCK</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">111683</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td colspan="3" style="background-color: #BFBFBF; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">OTD PENDING STATUS</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">TOTAL</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">111683</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">3.7</td>
+      <td style="background-color: #BFBFBF; font-weight: bold; color: #FF0000; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">Departments Wise Pending </td>
+      <td style="background-color: #BFBFBF; font-weight: bold; color: #FF0000; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">31-Aug</td>
+      <td style="background-color: #BFBFBF; font-weight: bold; color: #FF0000; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">30-Aug</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="background-color: #BFBFBF; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #A6A6A6; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">Greige</td>
+      <td style="background-color: #A6A6A6; font-weight: bold; font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">Greige Yarn</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">89</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">89</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td rowspan="6" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">7</td>
+      <td rowspan="6" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">RAW MATERIAL</td>
+      <td rowspan="6" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">VENKAT</td>
+      <td rowspan="6" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">MOHANA /CHANDRU</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">TOTAL NO OF ORDERS</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">189</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">256</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">Dyed Yarn</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">40</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">52</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">YARN COMPLETED</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">149</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">197</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">Sizing</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">50</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">54</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">NOT COMMPLETED</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">39</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">59</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">Greige WareHouse</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">29</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">34</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">ONTIME </td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">74</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">29</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">Processing</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">27</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">35</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">DELAY</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">1</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">Finished WareHouse</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">23</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">28</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="background-color: #BFBFBF; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #BFBFBF; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="background-color: #BFBFBF; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-weight: bold; font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">Final Dispatch</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">23</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">28</td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td rowspan="5" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">8</td>
+      <td rowspan="5" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">HRD</td>
+      <td rowspan="5" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">JAYANTH </td>
+      <td rowspan="5" style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">MOHAN</td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">APPROVED STRENGTH</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">510</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">ENGAGED STRENGTH</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">569</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">EXCESS</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">59</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">NO OF NEW JOINERS</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 18pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap">OTHERS</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap">0</td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+    <tr style="height: 3pt;">
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Arial', Arial, sans-serif; font-size: 12pt; text-align: center; vertical-align: middle; white-space: nowrap"> </td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+      <td style="font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; vertical-align: middle; white-space: nowrap"></td>
+    </tr>
+  </tbody>
+</table>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -17,14 +17,7 @@ export default function LiveStatusBar() {
 
   let criticalCount = 0;
   Object.values(activeRuns).forEach(run => {
-    const design = designs.find(d => d.designNo === run.designNo);
-    const crimpPercent = design ? design.crimpPercent : 0;
-    const calc = calculateLoomRun({
-      loomStartDate: new Date(run.loomStartDate),
-      warpedMeter: run.warpedMeter,
-      dailyProduction: run.dailyProduction,
-      crimpPercent: crimpPercent
-    });
+    const calc = calculateLoomRun(run as any);
     if (calc.balanceDays <= 2) {
       criticalCount++;
     }

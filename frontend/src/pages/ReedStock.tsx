@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Layers, Search, Plus, RefreshCw, CheckCircle2, ShieldCheck, Download, Trash2, Edit3, Box, AlertTriangle, X, Database, ShoppingBag, CheckCircle } from 'lucide-react';
 import { API_BASE_URL } from '../config';
 import { useAppContext } from '../context/AppProvider';
@@ -124,16 +124,105 @@ export default function ReedStock() {
     if (statusFilter === 'LOW_STOCK' && (bal <= 0 || bal > 2)) return false;
     if (statusFilter === 'OUT_OF_STOCK' && bal > 0) return false;
 
-    if (!searchTerm) return true;
-    const q = searchTerm.toLowerCase();
+    const q = (searchTerm || '').trim().toLowerCase();
+    if (!q) return true;
     return (
-      (r.reed_count && r.reed_count.toLowerCase().includes(q)) ||
+      (r.reed_count && r.reed_count.toString().toLowerCase().includes(q)) ||
+      (r.reed_no && r.reed_no.toString().toLowerCase().includes(q)) ||
       (r.location && r.location.toLowerCase().includes(q)) ||
       (r.vendor && r.vendor.toLowerCase().includes(q)) ||
       (r.make_vendor && r.make_vendor.toLowerCase().includes(q)) ||
-      (r.status && r.status.toLowerCase().includes(q))
+      (r.status && r.status.toLowerCase().includes(q)) ||
+      ((r as any).reserved_for_design && (r as any).reserved_for_design.toLowerCase().includes(q)) ||
+      ((r as any).reserved_for_order && (r as any).reserved_for_order.toString().toLowerCase().includes(q)) ||
+      ((r as any).reserved_for_loom && (r as any).reserved_for_loom.toString().toLowerCase().includes(q)) ||
+      ((r as any).remarks && (r as any).remarks.toLowerCase().includes(q))
     );
   });
+
+  // Grouped Order Reed Requirements by Reed Count
+  const groupedReedRequirements = useMemo(() => {
+    const activeOrders = orders.filter((o: any) => o.order_completion_status !== 'COMPLETED' && o.status !== 'ORDER COMPLETED');
+    
+    const groupMap: Record<string, {
+      reedCount: string;
+      ordersList: any[];
+      orderNos: string[];
+      totalRequiredReedQty: number;
+    }> = {};
+
+    activeOrders.forEach((ord: any) => {
+      const matchedDesign = designs.find((d: any) =>
+        (d.design_no_sp_no || '').trim() === (ord.design_no_sp_no || '').trim() ||
+        (d.design_no_sp_no || '').trim() === (ord.ibpo_no || '').trim() ||
+        (d.design_no_sp_no || '').replace('SP026', 'SP26').trim() === (ord.ibpo_no || '').replace('SP026', 'SP26').trim()
+      );
+      const reedCount = (ord.reed_count || matchedDesign?.reed_count || '').trim() || '—';
+      const orderNoStr = ord.ibpo_no || ord.order_no || '—';
+      const plannedLoomCount = Math.max(1, Number(ord.planned_loom_count) || 1);
+
+      if (!groupMap[reedCount]) {
+        groupMap[reedCount] = {
+          reedCount,
+          ordersList: [],
+          orderNos: [],
+          totalRequiredReedQty: 0
+        };
+      }
+      groupMap[reedCount].ordersList.push(ord);
+      if (!groupMap[reedCount].orderNos.includes(orderNoStr)) {
+        groupMap[reedCount].orderNos.push(orderNoStr);
+      }
+      groupMap[reedCount].totalRequiredReedQty += plannedLoomCount;
+    });
+
+    return Object.values(groupMap)
+      .map(group => {
+        const matchingReeds = reeds.filter(r => (r.reed_count || '').trim().toLowerCase() === group.reedCount.toLowerCase());
+        const availableQty = matchingReeds.reduce((sum, r) => sum + Number(r.available_qty !== undefined ? r.available_qty : (r.total_qty || 1)), 0);
+        const reservedQty = matchingReeds.reduce((sum, r) => sum + Number(r.reserved_qty || 0), 0);
+        const runningQty = matchingReeds.reduce((sum, r) => sum + Number(r.running_qty || 0), 0);
+
+        const usableBalance = Math.max(0, availableQty - reservedQty - runningQty);
+        const shortageQty = Math.max(0, group.totalRequiredReedQty - usableBalance);
+
+        let stockStatus: 'STOCK AVAILABLE' | 'STOCK LOW' | 'OUT OF STOCK' = 'OUT OF STOCK';
+        if (usableBalance >= group.totalRequiredReedQty) {
+          stockStatus = 'STOCK AVAILABLE';
+        } else if (usableBalance > 0) {
+          stockStatus = 'STOCK LOW';
+        } else {
+          stockStatus = 'OUT OF STOCK';
+        }
+
+        return {
+          reedCount: group.reedCount,
+          orderNosStr: group.orderNos.join(', '),
+          totalRequiredReedQty: group.totalRequiredReedQty,
+          availableQty: usableBalance,
+          shortageQty,
+          stockStatus,
+          sampleOrder: group.ordersList[0],
+          ordersList: group.ordersList
+        };
+      })
+      .filter(g => g.stockStatus === 'STOCK LOW' || g.stockStatus === 'OUT OF STOCK')
+      .filter(g => {
+        const q = (searchTerm || '').trim().toLowerCase();
+        if (!q) return true;
+        return (
+          g.reedCount.toLowerCase().includes(q) ||
+          g.orderNosStr.toLowerCase().includes(q) ||
+          g.stockStatus.toLowerCase().includes(q) ||
+          (g.ordersList || []).some((ord: any) =>
+            (ord.design_no_sp_no || '').toLowerCase().includes(q) ||
+            (ord.ibpo_no || '').toLowerCase().includes(q) ||
+            (ord.order_no || '').toLowerCase().includes(q) ||
+            (ord.customer_name || '').toLowerCase().includes(q)
+          )
+        );
+      });
+  }, [orders, designs, reeds, searchTerm]);
 
   const handleSeedSampleStock = async () => {
     setSaving(true);
@@ -302,13 +391,10 @@ export default function ReedStock() {
     const run = Number(r.running_qty || 0);
     const bal = r.balance_qty !== undefined ? r.balance_qty : (avail - res - run);
 
-    if (bal < 0) {
-      return <span className="px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-black uppercase">DATA MISMATCH</span>;
-    }
-    if (bal === 0 && run === 0 && res === 0) {
+    if (avail <= 0) {
       return <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 text-[10px] font-black uppercase">OUT OF STOCK</span>;
     }
-    if (bal === 0) {
+    if (bal <= 0) {
       return run > 0 ? (
         <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-black uppercase">RUNNING</span>
       ) : (
@@ -449,25 +535,7 @@ export default function ReedStock() {
             </p>
           </div>
           <span className="px-2.5 py-1 rounded-md bg-amber-50 text-amber-800 text-xs font-bold border border-amber-200">
-            {
-              orders
-                .filter((o: any) => o.order_completion_status !== 'COMPLETED' && o.status !== 'ORDER COMPLETED')
-                .filter((ord: any) => {
-                  const matchedDesign = designs.find((d: any) =>
-                    (d.design_no_sp_no || '').trim() === (ord.design_no_sp_no || '').trim() ||
-                    (d.design_no_sp_no || '').trim() === (ord.ibpo_no || '').trim() ||
-                    (d.design_no_sp_no || '').replace('SP026', 'SP26').trim() === (ord.ibpo_no || '').replace('SP026', 'SP26').trim()
-                  );
-                  const reedCount = ord.reed_count || matchedDesign?.reed_count || '';
-                  const reqResult = calculateOrderReedRequirement({
-                    orderQty: ord.order_qty,
-                    plannedLoomCount: ord.planned_loom_count || 1,
-                    reedCount,
-                    availableReeds: reeds
-                  });
-                  return reqResult.stockStatus === 'STOCK LOW' || reqResult.stockStatus === 'OUT OF STOCK';
-                }).length
-            } Orders Needing Attention
+            {groupedReedRequirements.length} Reed Counts Needing Attention
           </span>
         </div>
 
@@ -476,106 +544,53 @@ export default function ReedStock() {
             <thead className="bg-slate-800 text-white font-bold sticky top-0">
               <tr className="border-b border-slate-700">
                 <th className="py-2.5 px-2 text-center w-[4%]">#</th>
-                <th className="py-2.5 px-2 w-[22%]">Order / IBPO No</th>
-                <th className="py-2.5 px-2 text-center bg-indigo-900 text-indigo-200 w-[15%]">Reed Count</th>
-                <th className="py-2.5 px-2 text-center bg-blue-900 text-blue-100 w-[14%]">Required Reed Qty</th>
-                <th className="py-2.5 px-2 text-center w-[14%]">Available Reed Qty</th>
-                <th className="py-2.5 px-2 text-center text-amber-300 w-[13%]">Shortage Qty</th>
+                <th className="py-2.5 px-2 w-[26%]">Order / IBPO Nos</th>
+                <th className="py-2.5 px-2 text-center bg-indigo-900 text-indigo-200 w-[14%]">Reed Count</th>
+                <th className="py-2.5 px-2 text-center bg-blue-900 text-blue-100 w-[13%]">Required Reed Qty</th>
+                <th className="py-2.5 px-2 text-center w-[13%]">Available Reed Qty</th>
+                <th className="py-2.5 px-2 text-center text-amber-300 w-[12%]">Shortage Qty</th>
                 <th className="py-2.5 px-2 text-center w-[12%]">Status</th>
                 <th className="py-2.5 px-2 text-center w-[6%] bg-blue-950 text-blue-200">+ Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-              {
-                orders
-                  .filter((o: any) => o.order_completion_status !== 'COMPLETED' && o.status !== 'ORDER COMPLETED')
-                  .filter((ord: any) => {
-                    const matchedDesign = designs.find((d: any) =>
-                      (d.design_no_sp_no || '').trim() === (ord.design_no_sp_no || '').trim() ||
-                      (d.design_no_sp_no || '').trim() === (ord.ibpo_no || '').trim() ||
-                      (d.design_no_sp_no || '').replace('SP026', 'SP26').trim() === (ord.ibpo_no || '').replace('SP026', 'SP26').trim()
-                    );
-                    const reedCount = ord.reed_count || matchedDesign?.reed_count || '';
-                    const reqResult = calculateOrderReedRequirement({
-                      orderQty: ord.order_qty,
-                      plannedLoomCount: ord.planned_loom_count || 1,
-                      reedCount,
-                      availableReeds: reeds
-                    });
-                    return reqResult.stockStatus === 'STOCK LOW' || reqResult.stockStatus === 'OUT OF STOCK';
-                  }).length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="py-6 text-center text-emerald-700 bg-emerald-50/50 font-bold">
-                      <CheckCircle className="w-5 h-5 inline mr-2 text-emerald-600" />
-                      All active orders have sufficient physical reed stock available in factory inventory! No reed shortages detected.
+              {groupedReedRequirements.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-6 text-center text-emerald-700 bg-emerald-50/50 font-bold">
+                    <CheckCircle className="w-5 h-5 inline mr-2 text-emerald-600" />
+                    All active orders have sufficient physical reed stock available in factory inventory! No reed shortages detected.
+                  </td>
+                </tr>
+              ) : (
+                groupedReedRequirements.map((item: any, idx: number) => (
+                  <tr key={item.reedCount || idx} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-2 px-2 text-center text-slate-400 font-bold">{idx + 1}</td>
+                    <td className="py-2 px-2 font-black text-blue-700 text-xs break-words" title={item.orderNosStr}>{item.orderNosStr}</td>
+                    <td className="py-2 px-2 text-center font-black text-indigo-900 bg-indigo-50/50 text-xs">{item.reedCount}</td>
+                    <td className="py-2 px-2 text-center font-black text-blue-900 bg-blue-50/50 text-xs">{item.totalRequiredReedQty}</td>
+                    <td className="py-2 px-2 text-center font-bold text-slate-700 text-xs">{item.availableQty}</td>
+                    <td className="py-2 px-2 text-center font-black text-amber-700 bg-amber-50/50 text-xs">{item.shortageQty > 0 ? item.shortageQty : '0'}</td>
+                    <td className="py-2 px-2 text-center">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider inline-block ${
+                        item.stockStatus === 'STOCK LOW'
+                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                          : 'bg-red-100 text-red-800 border border-red-300'
+                      }`}>
+                        {item.stockStatus}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      <button
+                        onClick={() => openOrderStockModal(item.sampleOrder, { requiredReedQty: item.totalRequiredReedQty, availableQty: item.availableQty, shortageQty: item.shortageQty }, item.reedCount)}
+                        title={`Add Reed Stock Against Reed Count ${item.reedCount}`}
+                        className="w-7 h-7 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-black text-base flex items-center justify-center mx-auto shadow-md transition-all active:scale-95"
+                      >
+                        +
+                      </button>
                     </td>
                   </tr>
-                ) : (
-                  orders
-                    .filter((o: any) => o.order_completion_status !== 'COMPLETED' && o.status !== 'ORDER COMPLETED')
-                    .filter((ord: any) => {
-                      const matchedDesign = designs.find((d: any) =>
-                        (d.design_no_sp_no || '').trim() === (ord.design_no_sp_no || '').trim() ||
-                        (d.design_no_sp_no || '').trim() === (ord.ibpo_no || '').trim() ||
-                        (d.design_no_sp_no || '').replace('SP026', 'SP26').trim() === (ord.ibpo_no || '').replace('SP026', 'SP26').trim()
-                      );
-                      const reedCount = ord.reed_count || matchedDesign?.reed_count || '';
-                      const reqResult = calculateOrderReedRequirement({
-                        orderQty: ord.order_qty,
-                        plannedLoomCount: ord.planned_loom_count || 1,
-                        reedCount,
-                        availableReeds: reeds
-                      });
-                      return reqResult.stockStatus === 'STOCK LOW' || reqResult.stockStatus === 'OUT OF STOCK';
-                    })
-                    .map((ord: any, idx: number) => {
-                      const matchedDesign = designs.find((d: any) =>
-                        (d.design_no_sp_no || '').trim() === (ord.design_no_sp_no || '').trim() ||
-                        (d.design_no_sp_no || '').trim() === (ord.ibpo_no || '').trim() ||
-                        (d.design_no_sp_no || '').replace('SP026', 'SP26').trim() === (ord.ibpo_no || '').replace('SP026', 'SP26').trim()
-                      );
-
-                      const reedCount = ord.reed_count || matchedDesign?.reed_count || '—';
-                      const plannedLoomCount = ord.planned_loom_count || 1;
-
-                      const reqResult = calculateOrderReedRequirement({
-                        orderQty: ord.order_qty,
-                        plannedLoomCount,
-                        reedCount,
-                        availableReeds: reeds
-                      });
-
-                      return (
-                        <tr key={ord.id || idx} className="hover:bg-slate-50 transition-colors">
-                          <td className="py-2 px-2 text-center text-slate-400 font-bold">{idx + 1}</td>
-                          <td className="py-2 px-2 font-black text-blue-700 text-xs break-words">{ord.ibpo_no || ord.order_no || '—'}</td>
-                          <td className="py-2 px-2 text-center font-black text-indigo-900 bg-indigo-50/50 text-xs">{reedCount}</td>
-                          <td className="py-2 px-2 text-center font-black text-blue-900 bg-blue-50/50 text-xs">{reqResult.requiredReedQty}</td>
-                          <td className="py-2 px-2 text-center font-bold text-slate-700 text-xs">{reqResult.availableQty}</td>
-                          <td className="py-2 px-2 text-center font-black text-amber-700 bg-amber-50/50 text-xs">{reqResult.shortageQty > 0 ? reqResult.shortageQty : '0'}</td>
-                          <td className="py-2 px-2 text-center">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider inline-block ${
-                              reqResult.stockStatus === 'STOCK LOW'
-                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                : 'bg-red-100 text-red-800 border border-red-300'
-                            }`}>
-                              {reqResult.stockStatus}
-                            </span>
-                          </td>
-                          <td className="py-2 px-2 text-center">
-                            <button
-                              onClick={() => openOrderStockModal(ord, reqResult, reedCount)}
-                              title="Add Reed Stock Against Order"
-                              className="w-7 h-7 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-black text-base flex items-center justify-center mx-auto shadow-md transition-all active:scale-95"
-                            >
-                              +
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                )
-              }
+                ))
+              )}
             </tbody>
           </table>
         </div>

@@ -8,15 +8,51 @@ export function normalizeIbpo(ibpo?: string | null): string {
 export function parseConstructionSpecs(constructionStr?: string | null): { pick: string; greigeWidth: string; reedSpace: string } {
   if (!constructionStr) return { pick: '', greigeWidth: '', reedSpace: '' };
   const str = constructionStr.trim();
-  const match = str.match(/(\d+)\s*[xX]\s*(\d+)\s*(?:\/|\s)+(\d+(?:\.\d+)?)\s*["']?/);
-  if (match) {
-    const pick = match[2] || '';
-    const greigeWidth = match[3] || '';
-    const wNum = parseFloat(greigeWidth);
-    const reedSpace = !isNaN(wNum) ? (wNum + 1.5).toString() : '';
-    return { pick, greigeWidth, reedSpace };
+
+  let pick = '';
+  let greigeWidth = '';
+
+  const matchFull = str.match(/(?:[\/\(]|\s)\s*(\d{2,3})\s*[xX*]\s*(\d{2,3})\s*(?:[-\/,\s]+(\d+(?:\.\d+)?)\s*["']?)?/);
+  if (matchFull) {
+    pick = matchFull[2] || '';
+    if (matchFull[3]) {
+      greigeWidth = matchFull[3];
+    }
   }
-  return { pick: '', greigeWidth: '', reedSpace: '' };
+
+  if (!pick) {
+    const matchEpiPpi = str.match(/(?:[\/\(,]|\s)\s*(\d{2,3})\s*[xX*]\s*(\d{2,3})/);
+    if (matchEpiPpi) {
+      pick = matchEpiPpi[2] || '';
+    } else {
+      const matchSpaceEpiPpi = str.match(/,\s*(\d{2,3})\s+(\d{2,3})\s*[\/\(]/);
+      if (matchSpaceEpiPpi) {
+        pick = matchSpaceEpiPpi[2] || '';
+      } else {
+        const matches = str.match(/(\d{2,3})\s*[xX*]\s*(\d{2,3})/g);
+        if (matches && matches.length > 0) {
+          const last = matches[matches.length - 1];
+          const parts = last.split(/[xX*]/);
+          if (parts.length === 2) pick = parts[1].trim();
+        }
+      }
+    }
+  }
+
+  if (!greigeWidth) {
+    const matchWidth = str.match(/(?:[-\/,\s]+\s*(\d{2}(?:\.\d+)?))\s*(?:["']|FW|F\.W|CW)?/i);
+    if (matchWidth) {
+      const wVal = parseFloat(matchWidth[1]);
+      if (!isNaN(wVal) && wVal >= 30 && wVal <= 140) {
+        greigeWidth = matchWidth[1];
+      }
+    }
+  }
+
+  const wNum = parseFloat(greigeWidth);
+  const reedSpace = !isNaN(wNum) ? (wNum + 1.5).toString() : '';
+
+  return { pick, greigeWidth, reedSpace };
 }
 
 
@@ -30,6 +66,7 @@ export interface LoomRunEntryInput {
   pick?: number | string | null;
   actualProductionHistory?: number[];
   productionOverride?: number | string | null;
+  actualWarpConsumed?: number | null;
 }
 
 export type RunoutSourceType = 'ACTUAL PRODUCTION' | 'RPM + EFFICIENCY' | 'DAILY PRODUCTION' | 'MANUAL OVERRIDE' | 'DATA REQUIRED';
@@ -524,6 +561,19 @@ export function calculateSmartCapacitySuggestions(
   };
 }
 
+export function normalizeDesignStr(d?: string | null): string {
+  if (!d) return '';
+  const clean = d.trim().toLowerCase();
+  // SP20/272-22097 is known legacy typo/synonym for SP20/272-22907 (Order 22907)
+  if (clean === 'sp20/272-22097' || clean === 'sp20/272-22907') return 'sp20/272-22907';
+  return clean;
+}
+
+export function isMatchingDesign(d1?: string | null, d2?: string | null): boolean {
+  if (!d1 || !d2) return false;
+  return normalizeDesignStr(d1) === normalizeDesignStr(d2);
+}
+
 export interface CalculatedLoomRun {
   runningDays: number;
   producedMeter: number;
@@ -537,9 +587,33 @@ export interface CalculatedLoomRun {
   balanceDays: number;
   expectedRunoutDate: Date;
   runoutStatus: 'RUNOUT OVERDUE' | 'RUNOUT <= 1 DAY' | 'RUNOUT <= 2 DAYS' | 'RUNOUT <= 5 DAYS' | 'RUNOUT <= 7 DAYS' | 'RUNOUT <= 10 DAYS' | 'RUNOUT <= 15 DAYS' | 'NORMAL' | 'DATA REQUIRED';
+  actualCrimpPercent?: number | null;
+  effectiveCrimpPercent?: number;
+  standardCrimpPercent?: number;
 }
 
 export function calculateLoomRun(input: LoomRunEntryInput, currentDate: Date = new Date()): CalculatedLoomRun {
+  // If the input already has precalculated runout from Main Entry single source of truth, return directly
+  if ((input as any).expectedRunoutDate && typeof (input as any).balanceDays === 'number' && (input as any).netBalanceMeter !== undefined) {
+    return {
+      runningDays: (input as any).runningDays || 1,
+      producedMeter: Number((input as any).producedMeter !== undefined ? (input as any).producedMeter : (input as any).dailyProduction || 0),
+      avgProduction: Number((input as any).avgDailyProduction || (input as any).avgProduction || (input as any).effectiveDailyProduction || 0),
+      effectiveDailyProduction: Number((input as any).effectiveDailyProduction || (input as any).avgDailyProduction || 0),
+      runoutSource: (input as any).runoutSource || 'ACTUAL PRODUCTION',
+      confidenceLevel: (input as any).confidenceLevel || 'HIGH CONFIDENCE',
+      warpBalanceGross: Number((input as any).grossBalanceMeter !== undefined ? (input as any).grossBalanceMeter : (input as any).warpBalanceGross || 0),
+      crimpLossMeter: Number((input as any).crimpLossMeter || 0),
+      netBalanceMeter: Number((input as any).netBalanceMeter || 0),
+      balanceDays: Number((input as any).balanceDays),
+      expectedRunoutDate: (input as any).expectedRunoutDate instanceof Date ? (input as any).expectedRunoutDate : new Date((input as any).expectedRunoutDate),
+      runoutStatus: (input as any).runoutStatus || 'NORMAL',
+      actualCrimpPercent: (input as any).actualCrimpPercent !== undefined ? (input as any).actualCrimpPercent : null,
+      effectiveCrimpPercent: typeof (input as any).effectiveCrimpPercent === 'number' ? (input as any).effectiveCrimpPercent : undefined,
+      standardCrimpPercent: typeof (input as any).standardCrimpPercent === 'number' ? (input as any).standardCrimpPercent : undefined
+    };
+  }
+
   const start = startOfDay(input.loomStartDate);
   const current = startOfDay(currentDate);
 
@@ -548,54 +622,110 @@ export function calculateLoomRun(input: LoomRunEntryInput, currentDate: Date = n
 
   // 1. Total Cumulative Production Meter entered by user (NOT summed day-wise)
   const producedMeter = Math.max(0, typeof input.dailyProduction === 'number' ? input.dailyProduction : parseFloat(String(input.dailyProduction || 0)) || 0);
+  const warpedMtr = Math.max(0, Number(input.warpedMeter) || 0);
 
-  // 2. Expected Daily Production Rate (Forecast Rate M/Day)
-  let effectiveDailyProduction = 0;
-  let runoutSource: RunoutSourceType = 'DATA REQUIRED';
-  let confidenceLevel: ConfidenceLevelType = 'DATA REQUIRED';
+  // Standard Crimp %: normalized as percentage (e.g. 5.0 for 5%). Retained from Design Master / loom setup, fallback to 5.0% if missing or 0.
+  const rawCrimp = Number(input.crimpPercent) || 0;
+  const standardCrimpPercent = rawCrimp > 0 ? (rawCrimp > 1 ? rawCrimp : rawCrimp * 100) : 5.0;
 
-  const rpmVal = typeof input.rpm === 'number' ? input.rpm : parseFloat(String(input.rpm || ''));
-  const effVal = typeof input.efficiency === 'number' ? input.efficiency : parseFloat(String(input.efficiency || ''));
-  const pickVal = typeof input.pick === 'number' ? input.pick : parseFloat(String(input.pick || ''));
+  // Actual Crimp %: When actual warp consumption and actual fabric production are available:
+  // Actual Crimp % = ((Actual Warp Consumed / Actual Fabric Production) - 1) × 100
+  const actualWarpConsumed = typeof (input as any).actualWarpConsumed === 'number' && (input as any).actualWarpConsumed > 0
+    ? (input as any).actualWarpConsumed
+    : null;
 
-  if (!isNaN(rpmVal) && rpmVal > 0 && !isNaN(effVal) && effVal > 0) {
-    let metersPerDay = 0;
-    if (!isNaN(pickVal) && pickVal > 0) {
-      metersPerDay = (rpmVal * 60 * 24 * (effVal / 100)) / (pickVal * 39.3701);
-    } else {
-      metersPerDay = (rpmVal * 60 * 24 * (effVal / 100)) / (50 * 39.3701);
-    }
-    if (metersPerDay > 0) {
-      effectiveDailyProduction = metersPerDay;
-      runoutSource = 'RPM + EFFICIENCY';
-      confidenceLevel = 'HIGH CONFIDENCE';
+  let actualCrimpPercent: number | null = null;
+  if (actualWarpConsumed !== null && producedMeter > 0 && actualWarpConsumed >= producedMeter) {
+    const computedActual = ((actualWarpConsumed / producedMeter) - 1) * 100;
+    if (computedActual >= 0.1 && computedActual <= 25.0) {
+      actualCrimpPercent = computedActual;
     }
   }
 
+  // Effective Crimp % to use for crimp loss
+  const effectiveCrimpPercent = actualCrimpPercent !== null ? actualCrimpPercent : standardCrimpPercent;
+  const effectiveCrimpRate = effectiveCrimpPercent / 100;
+
+  // If loom has no warp allocated and no production, runout cannot be calculated
+  if (warpedMtr <= 0 && producedMeter <= 0) {
+    return {
+      runningDays,
+      producedMeter: 0,
+      avgProduction: 0,
+      effectiveDailyProduction: 0,
+      runoutSource: 'DATA REQUIRED',
+      confidenceLevel: 'DATA REQUIRED',
+      warpBalanceGross: 0,
+      crimpLossMeter: 0,
+      netBalanceMeter: 0,
+      balanceDays: 999999,
+      expectedRunoutDate: new Date(currentDate),
+      runoutStatus: 'DATA REQUIRED',
+      actualCrimpPercent: null,
+      effectiveCrimpPercent: standardCrimpPercent,
+      standardCrimpPercent
+    };
+  }
+
+  // 2. Calculate real average production from actual history if available
+  const nonZeroLogs = (input.actualProductionHistory || []).filter(p => typeof p === 'number' && p > 0);
+  let actualAvg = 0;
+  if (nonZeroLogs.length > 0) {
+    // Only consider logs >= 25m as normal running days to avoid skewing by minor knotting/setup test blips
+    const sigLogs = nonZeroLogs.filter(p => p >= 25);
+    const useLogs = sigLogs.length > 0 ? sigLogs : nonZeroLogs;
+    actualAvg = useLogs.reduce((sum, val) => sum + val, 0) / useLogs.length;
+  } else if (runningDays > 0 && producedMeter > 0) {
+    actualAvg = producedMeter / runningDays;
+  }
+
+  let effectiveDailyProduction = actualAvg;
+  let runoutSource: RunoutSourceType = 'ACTUAL PRODUCTION';
+  let confidenceLevel: ConfidenceLevelType = 'HIGH CONFIDENCE';
+
   const override = typeof input.productionOverride === 'number' ? input.productionOverride : parseFloat(String(input.productionOverride || ''));
-  if (effectiveDailyProduction <= 0 && !isNaN(override) && override > 0) {
+  if (!isNaN(override) && override > 0) {
     effectiveDailyProduction = override;
     runoutSource = 'MANUAL OVERRIDE';
     confidenceLevel = 'HIGH CONFIDENCE';
+  } else if (effectiveDailyProduction < 40) {
+    // If actualAvg is negligible (< 40 M/d, e.g. only 0.1m test or machine was stopped), fallback to RPM + EFFICIENCY
+    const rpmVal = typeof input.rpm === 'number' ? input.rpm : parseFloat(String(input.rpm || ''));
+    const effVal = typeof input.efficiency === 'number' ? input.efficiency : parseFloat(String(input.efficiency || ''));
+    const pickVal = typeof input.pick === 'number' ? input.pick : parseFloat(String(input.pick || ''));
+    const pickToUse = (!isNaN(pickVal) && pickVal > 0) ? pickVal : 50;
+
+    // In textile manufacturing, if snapshot efficiency is < 30% (stopped/breakdown/knotting),
+    // future warp runout must be forecasted using standard baseline parameters (600 RPM @ 60% efficiency)
+    const effectiveEff = (!isNaN(effVal) && effVal >= 30) ? effVal : 60;
+    const effectiveRpm = (!isNaN(rpmVal) && rpmVal > 100) ? rpmVal : 600;
+
+    effectiveDailyProduction = (effectiveRpm * 60 * 24 * (effectiveEff / 100)) / (pickToUse * 39.3701);
+    if (effectiveDailyProduction < 40) {
+      effectiveDailyProduction = 200; // Standard weaving daily output baseline
+    }
+    runoutSource = 'RPM + EFFICIENCY';
+    confidenceLevel = (!isNaN(effVal) && effVal >= 30) ? 'HIGH CONFIDENCE' : 'MEDIUM CONFIDENCE';
   }
 
-  if (effectiveDailyProduction <= 0 && producedMeter > 0 && runningDays > 0) {
-    effectiveDailyProduction = producedMeter / runningDays;
-    runoutSource = 'ACTUAL PRODUCTION';
-    confidenceLevel = 'MEDIUM CONFIDENCE';
-  }
+  const avgProduction = actualAvg > 0 ? actualAvg : effectiveDailyProduction;
 
-  const avgProduction = effectiveDailyProduction;
-
-  // 3. Current Warp Balance = max(0, Original Warp Meter - Current Total Production)
-  const warpedMtr = Math.max(0, Number(input.warpedMeter) || 0);
+  // 3. Gross Warp Balance = max(0, Original Warp Meter - Current Total Production)
   const warpBalanceGross = Math.max(0, warpedMtr - producedMeter);
-  const crimpPercent = input.crimpPercent || 0;
-  const crimpLossMeter = warpBalanceGross * crimpPercent;
+  // Crimp Loss (M) against production = Cumulative Fabric Production × Crimp % / 100
+  // When cumulative production = 0, Crimp Loss = 0
+  const crimpLossMeter = producedMeter > 0 ? producedMeter * effectiveCrimpRate : 0;
+  // Net Warp Balance = Gross Balance - Crimp Loss (subtracted exactly once)
   const netBalanceMeter = Math.max(0, warpBalanceGross - crimpLossMeter);
 
-  // 4. Balance Days = Net Balance / Expected Daily Production Rate
-  const balanceDays = effectiveDailyProduction > 0 ? netBalanceMeter / effectiveDailyProduction : (warpedMtr > 0 && producedMeter >= warpedMtr ? 0 : 999999);
+  // 4. Balance Days = Net Balance / Expected Daily Production Rate (capped to 180 days max)
+  let balanceDays = 999999;
+  if (warpedMtr > 0 && (producedMeter >= warpedMtr || netBalanceMeter <= 0)) {
+    balanceDays = 0;
+  } else if (effectiveDailyProduction > 0) {
+    balanceDays = netBalanceMeter / effectiveDailyProduction;
+    if (balanceDays > 180) balanceDays = 180;
+  }
 
   // 5. Expected Runout Date
   const expectedRunoutDate = new Date(currentDate);
@@ -605,7 +735,7 @@ export function calculateLoomRun(input: LoomRunEntryInput, currentDate: Date = n
 
   // 6. Runout Status
   let runoutStatus: CalculatedLoomRun['runoutStatus'] = 'NORMAL';
-  if (warpedMtr > 0 && producedMeter >= warpedMtr) {
+  if (warpedMtr > 0 && (producedMeter >= warpedMtr || netBalanceMeter <= 0)) {
     runoutStatus = 'RUNOUT OVERDUE';
   } else if (balanceDays === 999999 || effectiveDailyProduction <= 0) {
     runoutStatus = 'DATA REQUIRED';
@@ -637,8 +767,143 @@ export function calculateLoomRun(input: LoomRunEntryInput, currentDate: Date = n
     netBalanceMeter,
     balanceDays,
     expectedRunoutDate,
-    runoutStatus
+    runoutStatus,
+    actualCrimpPercent,
+    effectiveCrimpPercent,
+    standardCrimpPercent
   };
+}
+
+/**
+ * Standardized calculation of loom running metrics strictly identical to the Main Entry page.
+ * Used across all runout pages (Loom Runout, Design Runout, Runout Monitor, Availability Board, Dashboards)
+ * to guarantee 100% data consistency.
+ */
+export function getMainEntryLoomRun({
+  loomNo,
+  activeRun,
+  design,
+  order,
+  beam,
+  productionLogs,
+  currentDate = new Date(),
+  draftDailyProduction,
+  draftRpm,
+  draftEfficiency
+}: {
+  loomNo: number;
+  activeRun: any;
+  design?: any;
+  order?: any;
+  beam?: any;
+  productionLogs?: any[];
+  currentDate?: Date;
+  draftDailyProduction?: number | '';
+  draftRpm?: number | '';
+  draftEfficiency?: number | '';
+}): CalculatedLoomRun {
+  if (!activeRun || !activeRun.designNo || activeRun.designNo.trim() === '') {
+    return {
+      runningDays: 1,
+      producedMeter: 0,
+      avgProduction: 0,
+      effectiveDailyProduction: 0,
+      runoutSource: 'DATA REQUIRED',
+      confidenceLevel: 'DATA REQUIRED',
+      warpBalanceGross: 0,
+      crimpLossMeter: 0,
+      netBalanceMeter: 0,
+      balanceDays: 999999,
+      expectedRunoutDate: new Date(currentDate),
+      runoutStatus: 'DATA REQUIRED'
+    };
+  }
+
+  const currentDesignClean = (activeRun.designNo || activeRun.design_no_sp_no || '').trim().toLowerCase();
+
+  // Helper for consistent date string comparison (YYYY-MM-DD)
+  const getLogDateStr = (l: any): string => {
+    if (!l) return '';
+    if (l._dateStr) return l._dateStr;
+    if (typeof l.date === 'string' && l.date.length >= 10) return l.date.substring(0, 10);
+    try {
+      return format(new Date(l.date || l.createdAt || new Date()), 'yyyy-MM-dd');
+    } catch {
+      return '';
+    }
+  };
+
+  const startDateStr = activeRun.loomStartDate
+    ? (typeof activeRun.loomStartDate === 'string' && activeRun.loomStartDate.length >= 10
+        ? activeRun.loomStartDate.substring(0, 10)
+        : format(new Date(activeRun.loomStartDate), 'yyyy-MM-dd'))
+    : '';
+
+  // 1. Logs for this loom matching running design
+  const loomLogsList = (productionLogs || []).filter((l: any) => Number(l.loom_no) === Number(loomNo));
+
+  // 2. Loom start date
+  const effectiveStartDateStr = startDateStr;
+
+  // 3. Sum cumulative production and gather logs on or after effectiveStartDateStr
+  const curDateStr = format(currentDate, 'yyyy-MM-dd');
+  const loomLogs: number[] = [];
+  let totalCumulativeProducedMtr = 0;
+  for (let li = 0; li < loomLogsList.length; li++) {
+    const l = loomLogsList[li];
+    const lDesign = (l.design_no || '').trim().toLowerCase();
+    if (currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
+
+    const logDateStr = getLogDateStr(l);
+    if (effectiveStartDateStr && logDateStr < effectiveStartDateStr) continue;
+    if (curDateStr && logDateStr > curDateStr) continue;
+
+    const pVal = Number(l.produced_meter) || 0;
+    loomLogs.push(pVal);
+    totalCumulativeProducedMtr += pVal;
+  }
+
+  // 4. Effective Warped Meter
+  const effectiveWarpMtr =
+    typeof activeRun.warpedMeter === 'number' && activeRun.warpedMeter > 0
+      ? activeRun.warpedMeter
+      : (beam?.available_meter || beam?.beamLength || 0);
+
+  // 5. Crimp and Pick
+  const rawDesignCrimp = Number(design?.crimpPercent ?? design?.crimp_percent ?? order?.crimp_percent ?? 0);
+  const effectiveCrimp = rawDesignCrimp > 0 ? (rawDesignCrimp > 1 ? rawDesignCrimp / 100 : rawDesignCrimp) : 0.05;
+  const effectivePick = design?.pick || (order?.ppi !== undefined && order?.ppi !== null && order?.ppi !== '' ? String(order.ppi) : '') || order?.pick;
+
+  const draftMeter = (typeof draftDailyProduction === 'number' && draftDailyProduction > 0) ? draftDailyProduction : 0;
+  const effectiveProducedMtr = totalCumulativeProducedMtr + draftMeter;
+  const effectiveHistory = draftMeter > 0 ? [...loomLogs, draftMeter] : loomLogs;
+
+  const effectiveRpm = (draftRpm !== undefined && draftRpm !== null && draftRpm !== '')
+    ? Number(draftRpm)
+    : (activeRun.rpm !== '' && activeRun.rpm !== null && activeRun.rpm !== undefined ? Number(activeRun.rpm) : null);
+
+  const effectiveEff = (draftEfficiency !== undefined && draftEfficiency !== null && draftEfficiency !== '')
+    ? Number(draftEfficiency)
+    : (activeRun.efficiency !== '' && activeRun.efficiency !== null && activeRun.efficiency !== undefined ? Number(activeRun.efficiency) : null);
+
+  const actualWarpConsumed = activeRun.actualWarpConsumed ?? (
+    beam && beam.total_warped_meter > 0 && beam.current_balance_meter !== undefined && beam.current_balance_meter !== null && beam.current_balance_meter > 0 && beam.current_balance_meter < beam.total_warped_meter
+      ? beam.total_warped_meter - beam.current_balance_meter
+      : null
+  );
+
+  return calculateLoomRun({
+    loomStartDate: effectiveStartDateStr ? new Date(effectiveStartDateStr) : (activeRun.loomStartDate ? new Date(activeRun.loomStartDate) : new Date()),
+    warpedMeter: effectiveWarpMtr,
+    dailyProduction: effectiveProducedMtr,
+    crimpPercent: effectiveCrimp,
+    rpm: effectiveRpm,
+    efficiency: effectiveEff,
+    pick: effectivePick,
+    actualProductionHistory: effectiveHistory,
+    productionOverride: activeRun.productionOverride,
+    actualWarpConsumed
+  } as any, currentDate);
 }
 
 export function formatRunoutDate(dateStr?: string | Date | null): string {
@@ -710,13 +975,16 @@ export function calculateOrderLoomPlanningSummary(input: OrderLoomRequirementInp
       const lNo = Number(plan.loom_no);
       if (runningLoomSet.has(lNo)) return;
 
-      const planDesign = (plan.next_design || plan.design_no || '').trim().toLowerCase();
+      // MUST have a valid next_design — plans with empty next_design are stale/ghost records
+      const planDesign = (plan.next_design || plan.design_no || '').trim();
+      if (!planDesign) return;
+
+      // Match ONLY by IBPO/order_no — never match by design number alone
+      // (same design number can appear in multiple different orders)
       const planIbpo = (plan.ibpo_no || plan.order_no || '').trim().toLowerCase();
-
       const matchesIbpo = targetIbpo && planIbpo && (planIbpo === targetIbpo || planIbpo.includes(targetIbpo));
-      const matchesDesign = targetDesign && planDesign && (planDesign === targetDesign || planDesign.replace('SP026', 'SP26') === targetDesign.replace('SP026', 'SP26'));
 
-      if (matchesIbpo || matchesDesign) {
+      if (matchesIbpo) {
         plannedLoomSet.add(lNo);
       }
     });

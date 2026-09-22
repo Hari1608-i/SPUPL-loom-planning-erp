@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { calculateLoomRun, calculateNextPlanRunouts, calculateOrderPlanning } from '../utils/calculations';
+import { calculateLoomRun, calculateNextPlanRunouts, calculateOrderPlanning, getMainEntryLoomRun } from '../utils/calculations';
 
 import { Calendar, Search, ArrowRight, Printer } from 'lucide-react';
 import { format, addDays } from 'date-fns';
@@ -97,43 +97,50 @@ export default function AvailabilityBoard() {
           (o.order_no || '').trim().toLowerCase() === cleanRunDesign
         );
 
-        const loomLogs = productionLogs
-          .filter(l => l.loom_no === loomNo)
-          .map(l => l.produced_meter);
-
-        const effectivePick = design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick;
-
-        const calc = calculateLoomRun({
-          loomStartDate: new Date(activeRun.loomStartDate || activeRun.loom_start_date || new Date()),
-          warpedMeter: Number(activeRun.warpedMeter || activeRun.warped_meter || 0),
-          dailyProduction: Number(activeRun.dailyProduction || activeRun.daily_production || 0),
-          crimpPercent: design ? (design.crimpPercent ?? design.crimp_percent ?? 0) : 0,
-          rpm: activeRun.rpm ? Number(activeRun.rpm) : 600,
-          efficiency: activeRun.efficiency ? Number(activeRun.efficiency) : 60,
-          pick: effectivePick,
-          actualProductionHistory: loomLogs
-        });
-        
+        const currentRunout = activeRun.expectedRunoutDate instanceof Date ? activeRun.expectedRunoutDate : new Date(activeRun.expectedRunoutDate || new Date());
+        currentRunoutDate = currentRunout;
+        loomDailyProd = activeRun.effectiveDailyProduction > 0 ? activeRun.effectiveDailyProduction : 300;
         const start = new Date(activeRun.loomStartDate || activeRun.loom_start_date || new Date());
-        currentRunoutDate = calc.expectedRunoutDate;
-        loomDailyProd = calc.effectiveDailyProduction > 0 ? calc.effectiveDailyProduction : 300;
 
-        const pos = calculatePosition(start, currentRunoutDate);
-        if (pos) {
+        const pos = currentRunoutDate ? calculatePosition(start, currentRunoutDate) : null;
+        if (pos && currentRunoutDate) {
           const baseColor = getDesignColor(currentDesign);
           currentBar = {
             ...pos,
             label: currentDesign,
             color: baseColor,
-            tooltip: `Running: ${currentDesign}\nProduced: ${calc.producedMeter.toFixed(0)}m\nEffective Prod: ${calc.effectiveDailyProduction.toFixed(1)}m/d\nRunout: ${format(currentRunoutDate, 'dd MMM yyyy')}`
+            tooltip: `Running: ${currentDesign}\nProduced: ${Math.round(activeRun.producedMeter || 0)}m\nEffective Prod: ${(activeRun.effectiveDailyProduction || activeRun.avgDailyProduction || 0).toFixed(1)}m/d\nRunout: ${format(currentRunoutDate, 'dd MMM yyyy')}`
           };
         }
       }
 
-      // Find all queued next plans for this loom from rawNextPlans
-      const loomPlans = (rawNextPlans || []).filter(
-        p => Number(p.loom_no) === loomNo && p.status !== 'CANCELLED' && p.status !== 'COMPLETED'
-      );
+      // Find all queued next plans for this loom from rawNextPlans (excluding plans already confirmed/running in Main Entry)
+      const runningDesignClean = (currentDesign !== '-' ? currentDesign : '').trim().toLowerCase();
+      const runningBeamClean = (activeRun?.currentBeamNo || activeRun?.beam_no || '').trim().toLowerCase();
+
+      const loomPlans = (rawNextPlans || []).filter(p => {
+        if (Number(p.loom_no) !== loomNo) return false;
+        const st = (p.status || '').toUpperCase();
+        const rSt = (p.readiness_status || '').toUpperCase();
+        const cSt = (p.confirmation_status || '').toUpperCase();
+
+        if (st === 'CANCELLED' || st === 'COMPLETED' || rSt === 'RUNNING IN MAIN ENTRY') return false;
+
+        const pDes = (p.next_design || p.designNo || '').trim().toLowerCase();
+        const pBeam = (p.reserved_beam_no || p.beamNo || '').trim().toLowerCase();
+
+        // If the plan is already running on this loom (same design or same beam that's currently active in Main Entry)
+        if (runningDesignClean && pDes === runningDesignClean) {
+          if (st === 'CONFIRMED' || rSt === 'RUNNING IN MAIN ENTRY' || cSt === 'CONFIRMED' || (runningBeamClean && pBeam === runningBeamClean)) {
+            return false;
+          }
+        }
+        if (runningBeamClean && pBeam && runningBeamClean === pBeam) {
+          return false;
+        }
+
+        return true;
+      });
 
       const calculatedNextPlans = calculateNextPlanRunouts(
         currentRunoutDate,
@@ -149,19 +156,33 @@ export default function AvailabilityBoard() {
         calculatedNextPlans.forEach(np => {
           const pos = calculatePosition(np.startDate, np.expectedRunoutDate);
           const isSameDesign = np.designNo === currentDesign;
-          const matchedBeams = beamStock.filter(b => b.design_no === np.designNo && (b.status === 'READY' || b.status === 'Available'));
-          const bStatus = matchedBeams.length > 0 || (np.beamNo && np.beamNo !== '—') ? 'READY' : 'WAITING';
+          const hasConfirmedBeam = np.beamNo && np.beamNo !== '—' && np.beamNo !== 'NOT ALLOCATED' && np.beamNo !== 'PENDING';
+          const bStatus = hasConfirmedBeam ? 'READY' : 'WAITING';
 
           if (np.sequence === 1) {
             activeBeamStatus = bStatus;
-            planningStatus = bStatus === 'READY' ? 'READY TO START' : 'WAITING FOR BEAM';
+            if (currentDesign !== '-') {
+              planningStatus = hasConfirmedBeam ? 'CONFIRMED - WAITING RUNOUT' : 'PLAN SETUP — BEAM PENDING';
+            } else {
+              planningStatus = hasConfirmedBeam ? 'READY TO START' : 'WAITING FOR BEAM';
+            }
           }
 
           if (pos) {
             let barColor = getDesignColor(np.designNo);
-            if (bStatus === 'WAITING' && !isSameDesign) {
-              barColor = 'bg-yellow-400 border-yellow-500 text-yellow-900';
+            let isUnbeamedSetup = false;
+
+            if (!hasConfirmedBeam) {
+              // Unified Amber Dashed style for all plan setups prior to beam confirmation
+              barColor = 'bg-amber-400 border-2 border-dashed border-amber-600 text-amber-950 font-black shadow-sm';
+              isUnbeamedSetup = true;
             }
+
+            const rawPlanObj = loomPlans[np.sequence - 1];
+            const orderNo = rawPlanObj?.order_no || '—';
+            const remarks = rawPlanObj?.remarks || (isUnbeamedSetup ? 'Plan Setup — Beam Confirmation Pending' : 'Beam Confirmed & Ready');
+            const matchedDesign = designs.find(d => (d.design_no_sp_no || d.designNo) === np.designNo);
+            const construction = matchedDesign?.construction || matchedDesign?.warp_weft_quality || '—';
 
             nextBars.push({
               sequence: np.sequence,
@@ -169,7 +190,15 @@ export default function AvailabilityBoard() {
               label: `N${np.sequence}: ${np.designNo}`,
               color: barColor,
               isSameDesign,
-              tooltip: `N${np.sequence} Plan: ${np.designNo}\nBeam: ${np.beamNo}\nStart: ${np.startDateFormatted}\nRunout: ${np.expectedRunoutDateFormatted}`
+              isUnbeamedSetup,
+              designNo: np.designNo,
+              orderNo,
+              construction,
+              beamNo: np.beamNo,
+              startDateFormatted: np.startDateFormatted,
+              expectedRunoutDateFormatted: np.expectedRunoutDateFormatted,
+              remarks,
+              tooltip: `N${np.sequence} PLAN DETAILS:\n• Design: ${np.designNo}\n• Order: ${orderNo}\n• Construction: ${construction}\n• Beam: ${hasConfirmedBeam ? np.beamNo : 'Pending Allocation'}\n• Start: ${np.startDateFormatted}\n• Runout: ${np.expectedRunoutDateFormatted}\n• Remarks: ${remarks}`
             });
           }
         });
@@ -189,24 +218,43 @@ export default function AvailabilityBoard() {
         planningStatus,
         currentBar,
         nextBars,
-        isNextPlanDisplay
+        isNextPlanDisplay,
+        currentBeamNo: activeRun?.currentBeamNo || activeRun?.beam_no || '',
+        currentSetNo: activeRun?.setNo || activeRun?.set_no || '',
+        currentOrderNo: activeRun?.orderNo || activeRun?.order_no || '',
+        loomType: loom?.loomType || loom?.make || ''
       };
     });
 
     return rows.sort((a, b) => a.loomNo - b.loomNo);
   }, [looms, activeRuns, nextPlans, rawNextPlans, orders, designs, timelineStart, timelineEnd, beamStock, productionLogs]);
 
-  const filteredData = boardData.filter(d => 
-    d.loomNo.toString().includes(searchTerm) || 
-    d.currentDesign.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    d.nextDesign.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredData = boardData.filter(d => {
+    const q = (searchTerm || '').trim().toLowerCase();
+    if (!q) return true;
+    return (
+      d.loomNo.toString().includes(q) ||
+      (d.currentDesign || '').toLowerCase().includes(q) ||
+      (d.nextDesign || '').toLowerCase().includes(q) ||
+      (d.currentBeamNo || '').toString().toLowerCase().includes(q) ||
+      (d.currentSetNo || '').toString().toLowerCase().includes(q) ||
+      (d.currentOrderNo || '').toString().toLowerCase().includes(q) ||
+      (d.unit || '').toString().toLowerCase().includes(q) ||
+      (d.planningStatus || '').toLowerCase().includes(q) ||
+      (d.loomType || '').toLowerCase().includes(q) ||
+      (d.nextBars || []).some((nb: any) =>
+        (nb.designNo || '').toLowerCase().includes(q) ||
+        (nb.orderNo || '').toString().toLowerCase().includes(q) ||
+        (nb.beamNo || '').toString().toLowerCase().includes(q)
+      )
+    );
+  });
 
   const totalLooms = boardData.length;
   const runningCount = boardData.filter(b => b.currentDesign !== '-').length;
   const availableCount = totalLooms - runningCount;
-  const waitingCount = boardData.filter(b => b.beamStatus === 'WAITING').length;
-  const readyCount = boardData.filter(b => b.beamStatus === 'READY').length;
+  const waitingCount = boardData.filter(b => b.currentDesign === '-' && b.planningStatus === 'WAITING FOR BEAM').length;
+  const readyCount = boardData.filter(b => b.currentDesign === '-' && b.planningStatus === 'READY TO START').length;
 
   const DAY_WIDTH = 60;
   const timelineWidth = Math.max(1200, timelineScale * DAY_WIDTH);
@@ -332,11 +380,12 @@ export default function AvailabilityBoard() {
                     {row.currentRunout && !isNaN(new Date(row.currentRunout).getTime()) ? format(new Date(row.currentRunout), 'dd/MM') : '-'}
                   </div>
                   <div className="flex-1 p-2 flex flex-col justify-center truncate">
-                     <span className={`text-[10px] font-black uppercase ${
-                       row.planningStatus === 'AVAILABLE FOR PLANNING' ? 'text-slate-400' :
-                       row.planningStatus === 'READY TO START' ? 'text-emerald-600' :
-                       row.planningStatus === 'WAITING FOR BEAM' ? 'text-yellow-600' : 'text-purple-600'
-                     }`}>{row.planningStatus}</span>
+                      <span className={`text-[10px] font-black uppercase ${
+                        row.planningStatus === 'AVAILABLE FOR PLANNING' ? 'text-slate-400' :
+                        row.planningStatus === 'READY TO START' ? 'text-emerald-600' :
+                        row.planningStatus === 'WAITING FOR BEAM' ? 'text-yellow-600' :
+                        row.planningStatus === 'CONFIRMED - WAITING RUNOUT' ? 'text-blue-600 font-black' : 'text-purple-600'
+                      }`}>{row.planningStatus}</span>
                      {row.nextDesign !== '-' && <span className="text-[11px] font-bold text-slate-700 truncate">» {row.nextDesign}</span>}
                   </div>
                 </div>
@@ -387,9 +436,9 @@ export default function AvailabilityBoard() {
           </div>
         </div>
         <div className="border-t border-slate-200 bg-white p-3 flex justify-center gap-6 z-20 flex-shrink-0 shadow-sm">
-          <div className="flex items-center text-[10px] font-bold text-slate-600"><span className="w-3 h-3 rounded-full bg-blue-500 mr-1.5 shadow-sm"></span> Design Specific Colors</div>
+          <div className="flex items-center text-[10px] font-bold text-slate-600"><span className="w-3 h-3 rounded-full bg-blue-500 mr-1.5 shadow-sm"></span> Design Specific Colors (Beam Confirmed)</div>
+          <div className="flex items-center text-[10px] font-bold text-slate-600"><span className="w-4 h-3 rounded bg-amber-400 border-2 border-dashed border-amber-600 mr-1.5 shadow-sm"></span> Plan Setup (Beam Pending)</div>
           <div className="flex items-center text-[10px] font-bold text-slate-600"><span className="w-3 h-3 rounded-full bg-emerald-600 mr-1.5 shadow-sm"></span> Ready To Start</div>
-          <div className="flex items-center text-[10px] font-bold text-slate-600"><span className="w-3 h-3 rounded-full bg-yellow-400 mr-1.5 shadow-sm"></span> Waiting Beam</div>
           <div className="flex items-center text-[10px] font-bold text-slate-600"><span className="w-3 h-3 rounded-full bg-slate-200 mr-1.5 border border-slate-300"></span> Available</div>
         </div>
       </div>

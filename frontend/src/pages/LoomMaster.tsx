@@ -314,12 +314,17 @@ export default function LoomMaster() {
   };
 
   const filteredRows = rows.filter(r => {
-    if (!searchTerm) return true;
-    const q = searchTerm.toLowerCase();
-    return r.loomNo.toString().includes(q) || 
-           r.unit.toLowerCase().includes(q) || 
-           r.loomType.toLowerCase().includes(q) || 
-           r.weave.toLowerCase().includes(q);
+    const q = (searchTerm || '').trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (r.loomNo || '').toString().toLowerCase().includes(q) || 
+      (r.unit || '').toString().toLowerCase().includes(q) || 
+      (r.loomType || '').toString().toLowerCase().includes(q) || 
+      (r.beamType || '').toString().toLowerCase().includes(q) || 
+      (r.width || '').toString().toLowerCase().includes(q) || 
+      (r.weave || '').toString().toLowerCase().includes(q) ||
+      (r.installedLever || '').toString().toLowerCase().includes(q)
+    );
   });
 
   return (

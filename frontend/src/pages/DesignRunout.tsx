@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../context/AppProvider';
-import { calculateLoomRun } from '../utils/calculations';
+
 import { BarChart2, Search, ChevronDown, ChevronRight, Calendar, Download, FileSpreadsheet, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
-import { CompanyPrintHeader } from '../components/common/CompanyPrintHeader';
+import { CompanyPrintHeader, PrintTableHeaderRow } from '../components/common/CompanyPrintHeader';
 import { triggerPrint } from '../utils/printManager';
 
 export default function DesignRunout() {
@@ -14,18 +14,24 @@ export default function DesignRunout() {
 
   const groupedData = useMemo(() => {
     const runsWithCalc = Object.values(activeRuns).map(run => {
-      const design = designs.find(d => d.designNo === run.designNo);
       const loom = looms.find(l => l.loomNo === run.loomNo);
-      const calc = calculateLoomRun({
-        loomStartDate: new Date(run.loomStartDate),
-        warpedMeter: run.warpedMeter,
-        dailyProduction: run.dailyProduction,
-        crimpPercent: design?.crimpPercent || 0,
-      });
-      return { 
-        ...run, 
-        ...calc, 
-        unit: loom?.unit || 'Unknown' 
+
+      // AppProvider already computed the correct runout via getMainEntryLoomRun with full production logs.
+      // Read those pre-calculated fields directly — no double-calculation.
+      return {
+        ...run,
+        unit: loom?.unit || 'Unknown',
+        producedMeter: run.producedMeter ?? 0,
+        warpBalanceGross: run.grossBalanceMeter ?? 0,
+        netBalanceMeter: run.netBalanceMeter ?? 0,
+        avgProduction: run.avgDailyProduction ?? 0,
+        effectiveDailyProduction: run.effectiveDailyProduction ?? 0,
+        balanceDays: run.balanceDays ?? 999999,
+        expectedRunoutDate: run.expectedRunoutDate instanceof Date ? run.expectedRunoutDate : new Date(run.expectedRunoutDate ?? new Date()),
+        runoutSource: run.runoutSource ?? 'DATA REQUIRED',
+        confidenceLevel: run.confidenceLevel ?? 'DATA REQUIRED',
+        runoutStatus: run.runoutStatus ?? 'DATA REQUIRED',
+        runningDays: (run as any).runningDays ?? 0
       };
     });
 
@@ -67,9 +73,18 @@ export default function DesignRunout() {
     return Object.values(groups).sort((a, b) => a.earliestRunout.getTime() - b.earliestRunout.getTime());
   }, [activeRuns, designs, looms]);
 
-  const filteredData = groupedData.filter(d => 
-    d.designNo.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredData = groupedData.filter(d => {
+    const q = (searchTerm || '').trim().toLowerCase();
+    if (!q) return true;
+    if ((d.designNo || '').toLowerCase().includes(q)) return true;
+    return (d.looms || []).some((l: any) =>
+      (l.loomNo || '').toString().toLowerCase().includes(q) ||
+      (l.setNo || l.set_no || '').toString().toLowerCase().includes(q) ||
+      (l.currentBeamNo || l.beam_no || '').toString().toLowerCase().includes(q) ||
+      (l.orderNo || l.order_no || '').toString().toLowerCase().includes(q) ||
+      (l.unit || '').toLowerCase().includes(q)
+    );
+  });
 
   const handleExportExcel = () => {
     const summaryRows = filteredData.map(d => ({
@@ -137,7 +152,7 @@ export default function DesignRunout() {
   };
 
   const handleExportPDF = () => {
-    triggerPrint();
+    triggerPrint({ orientation: 'landscape', title: 'Design-Wise Runout Report' });
   };
 
   return (
@@ -180,7 +195,7 @@ export default function DesignRunout() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-industrial-100 overflow-hidden flex flex-col">
+      <div className="bg-white rounded-xl shadow-sm border border-industrial-100 overflow-hidden flex flex-col print:border-none print:shadow-none print:overflow-visible">
         <div className="p-4 border-b border-industrial-100 bg-industrial-50 flex justify-between items-center print:hidden">
            <div className="relative w-64">
              <Search className="w-4 h-4 absolute left-3 top-2.5 text-industrial-400" />
@@ -195,28 +210,34 @@ export default function DesignRunout() {
            <div className="text-sm text-industrial-500 font-medium">Active Designs: {filteredData.length}</div>
         </div>
         
-        <div className="overflow-x-auto flex-1 min-h-[400px]">
+        <div className="overflow-x-auto flex-1 min-h-[400px] print:overflow-visible print:min-h-0">
           <table className="w-full text-left border-collapse whitespace-nowrap">
-            <thead className="bg-white sticky top-0 shadow-sm z-10">
-              <tr className="border-b border-industrial-200">
-                <th className="py-3 px-4 w-10"></th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase">Design No / SP No</th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right">Running Looms</th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right">Total Net Balance</th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right">Avg Production</th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right">Earliest Runout</th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right">Latest Runout</th>
+            <thead className="bg-white sticky top-0 shadow-sm z-10 print:static print:shadow-none">
+              <PrintTableHeaderRow 
+                title="Design-Wise Runout Report" 
+                subtitle="Aggregated Warp Balance & Runout Schedule by Design" 
+                colSpan={7} 
+              />
+              <tr className="border-b border-industrial-200 print:border-black print:bg-slate-100 print:text-black">
+                <th className="py-3 px-4 w-10 print:text-black print:py-1 print:px-2">#</th>
+                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase print:text-black print:font-black">Design No / SP No</th>
+                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right print:text-black print:font-black">Running Looms</th>
+                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right print:text-black print:font-black">Total Net Balance</th>
+                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right print:text-black print:font-black">Avg Production</th>
+                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right print:text-black print:font-black">Earliest Runout</th>
+                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right print:text-black print:font-black">Latest Runout</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-industrial-100">
               {filteredData.map(row => (
                 <React.Fragment key={row.designNo}>
                   <tr 
-                    className="hover:bg-industrial-50 transition-colors cursor-pointer"
+                    className="hover:bg-industrial-50 transition-colors cursor-pointer print:border-b print:border-slate-200"
                     onClick={() => setExpandedDesign(expandedDesign === row.designNo ? null : row.designNo)}
                   >
-                    <td className="py-3 px-4">
-                      {expandedDesign === row.designNo ? <ChevronDown className="w-5 h-5 text-industrial-400" /> : <ChevronRight className="w-5 h-5 text-industrial-400" />}
+                    <td className="py-3 px-4 print:py-1 print:px-2">
+                      {expandedDesign === row.designNo ? <ChevronDown className="w-5 h-5 text-industrial-400 print:hidden" /> : <ChevronRight className="w-5 h-5 text-industrial-400 print:hidden" />}
+                      <span className="hidden print:inline font-bold font-mono text-xs">{filteredData.indexOf(row) + 1}</span>
                     </td>
                     <td className="py-3 px-6 font-bold text-industrial-800 flex items-center">
                       {row.designNo}

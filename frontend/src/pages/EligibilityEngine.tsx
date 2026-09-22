@@ -100,12 +100,7 @@ function computeCompatibility(
     currentDesign = activeRun.designNo;
     avgProduction = Number(activeRun.dailyProduction) || 300;
     try {
-      const calc = calculateLoomRun({
-        loomStartDate: new Date(activeRun.loomStartDate || new Date()),
-        warpedMeter: Number(activeRun.warpedMeter) || 1800,
-        dailyProduction: avgProduction,
-        crimpPercent: Number(design.crimpPercent || design.crimp_percent) || 5
-      });
+      const calc = calculateLoomRun(activeRun as any);
       balanceDays = calc.balanceDays;
       runoutDate = calc.expectedRunoutDate;
     } catch (e) {

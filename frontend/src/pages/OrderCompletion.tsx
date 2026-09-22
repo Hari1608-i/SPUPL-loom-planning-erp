@@ -6,7 +6,7 @@ import {
 import { format, differenceInDays } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { API_BASE_URL } from '../config';
-import { CompanyPrintHeader } from '../components/common/CompanyPrintHeader';
+import { CompanyPrintHeader, PrintTableHeaderRow } from '../components/common/CompanyPrintHeader';
 import { calculateOrderPlanning } from '../utils/calculations';
 import { triggerPrint } from '../utils/printManager';
 
@@ -213,12 +213,18 @@ export default function OrderCompletion() {
 
   const filteredHistory = useMemo(() => {
     return historyRecords.filter(r => {
-      const q = searchTerm.toLowerCase();
+      const q = (searchTerm || '').trim().toLowerCase();
       const matchQuery = 
         !q ||
-        r.order_no.toLowerCase().includes(q) ||
+        (r.order_no || '').toLowerCase().includes(q) ||
         (r.ibpo_no && r.ibpo_no.toLowerCase().includes(q)) ||
-        r.design_no_sp_no.toLowerCase().includes(q);
+        (r.design_no_sp_no || '').toLowerCase().includes(q) ||
+        (r.customer_name && r.customer_name.toLowerCase().includes(q)) ||
+        (r.buyer_name && r.buyer_name.toLowerCase().includes(q)) ||
+        (r.construction && r.construction.toLowerCase().includes(q)) ||
+        ((r as any).weave_type && (r as any).weave_type.toLowerCase().includes(q)) ||
+        (r.final_status && r.final_status.toLowerCase().includes(q)) ||
+        ((r as any).completion_remarks && (r as any).completion_remarks.toLowerCase().includes(q));
 
       const matchStatus = statusFilter === 'ALL' || r.final_status === statusFilter;
       return matchQuery && matchStatus;
@@ -259,7 +265,7 @@ export default function OrderCompletion() {
             <Download className="w-4 h-4" /> Export Excel
           </button>
           <button
-            onClick={() => triggerPrint()}
+            onClick={() => triggerPrint({ orientation: 'landscape', title: 'Order Completion & Historical Production Archive' })}
             className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-sm shadow-sm transition-all"
           >
             <Printer className="w-4 h-4" /> Print Report
@@ -351,11 +357,16 @@ export default function OrderCompletion() {
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden print:border-none print:shadow-none print:overflow-visible">
+            <div className="overflow-x-auto print:overflow-visible">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-black uppercase text-slate-500 tracking-wider">
+                  <PrintTableHeaderRow 
+                    title="Order Completion & Historical Production Archive" 
+                    subtitle="Official Santhi Processing Unit Pvt. Ltd. Closed Order Registry" 
+                    colSpan={8} 
+                  />
+                  <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-black uppercase text-slate-500 tracking-wider print:bg-slate-100 print:text-black">
                     <th className="py-3 px-4">Order / IBPO</th>
                     <th className="py-3 px-4">Customer & Design</th>
                     <th className="py-3 px-4 text-right">Order Qty</th>

@@ -24,12 +24,12 @@ const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'
 
 export default function VisualDashboard() {
   const navigate = useNavigate();
-  const { activeRuns, looms, designs, nextPlans, completedHistory, orders, refreshData } = useAppContext();
+  const { activeRuns, looms, designs, nextPlans, completedHistory, orders, beams, refreshData } = useAppContext();
   
   // Real-time Clock & Refresh State
   const [currentTime, setCurrentTime] = useState(new Date());
   const [lastRefreshTime, setLastRefreshTime] = useState(new Date());
-  const [autoRefreshSecs, setAutoRefreshSecs] = useState(60);
+  const [autoRefreshSecs, setAutoRefreshSecs] = useState(5);
   const [isAutoRefreshPaused, setIsAutoRefreshPaused] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [apiData, setApiData] = useState<any>(null);
@@ -74,14 +74,16 @@ export default function VisualDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  // 60-Second Auto Refresh Timer
+  // 15-Second Auto Refresh Timer
   useEffect(() => {
     if (isAutoRefreshPaused) return;
     const timer = setInterval(() => {
       setAutoRefreshSecs(prev => {
         if (prev <= 1) {
-          handleManualRefresh();
-          return 60;
+          if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+            handleManualRefresh();
+          }
+          return 15;
         }
         return prev - 1;
       });
@@ -121,7 +123,7 @@ export default function VisualDashboard() {
     setIsRefreshing(true);
     await refreshData();
     await fetchApiAnalytics();
-    setAutoRefreshSecs(60);
+    setAutoRefreshSecs(5);
     setIsRefreshing(false);
   };
 
@@ -167,24 +169,20 @@ export default function VisualDashboard() {
     };
 
     filteredLooms.forEach(l => {
-      const u = l.unit || `Unit ${['I','II','III','IV','V'][l.loomNo % 5]}`;
+      const u = l.unit || `Unit ${['I','II','III','IV','V'][(l.loomNo || l.loom_no || 0) % 5]}`;
       if (!unitMap[u]) unitMap[u] = { unit: u, total: 0, running: 0, available: 0, idle: 0, critical: 0 };
       unitMap[u].total++;
       
-      const run = activeRuns[l.loomNo];
+      const lNo = l.loomNo || l.loom_no;
+      const run = (activeRuns as any)[lNo] || (activeRuns as any)[String(lNo)] || (activeRuns as any)[Number(lNo)] || (apiData?.runoutList ? apiData.runoutList.find((r: any) => Number(r.loomNo) === Number(lNo)) : null);
       if (run) {
         unitMap[u].running++;
-        const matchedDesign = designs.find(d => d.designNo === run.designNo);
-        const crimpPct = matchedDesign ? matchedDesign.crimpPercent : 0;
-        
-        const calc = calculateLoomRun({
-          loomStartDate: new Date(run.loomStartDate),
-          warpedMeter: run.warpedMeter,
-          dailyProduction: run.dailyProduction,
-          crimpPercent: crimpPct
-        });
+        const designNoStr = run.designNo || run.design_no_sp_no || run.currentDesign || '';
+        const matchedDesign = designs.find(d => d.designNo === designNoStr || d.design_no_sp_no === designNoStr);
+        const calc = calculateLoomRun(run as any);
 
-        totalDailyProd += run.dailyProduction;
+        const dailyP = calc.avgProduction;
+        totalDailyProd += dailyP;
 
         let statusCode = 'Green';
         let statusLabel = 'Safe (>15 Days)';
@@ -206,45 +204,47 @@ export default function VisualDashboard() {
         }
 
         const runItem = {
-          loomNo: l.loomNo,
+          loomNo: lNo,
           unit: u,
-          currentDesign: run.designNo,
+          currentDesign: designNoStr,
           expectedRunoutDate: format(calc.expectedRunoutDate, 'yyyy-MM-dd'),
           netBalanceMeter: calc.netBalanceMeter,
           balanceDays: calc.balanceDays,
           statusCode,
           statusLabel,
-          dailyProduction: run.dailyProduction,
+          dailyProduction: dailyP,
           producedMeter: calc.producedMeter,
-          warpedMeter: run.warpedMeter,
-          startDate: run.loomStartDate
+          warpedMeter: Number(run.warpedMeter || run.warped_meter || 0),
+          startDate: run.loomStartDate || run.loom_start_date
         };
 
         runoutList.push(runItem);
 
         // Aggregate Design Analysis
-        if (!designMap[run.designNo]) {
-          designMap[run.designNo] = { designNo: run.designNo, loomCount: 0, producedMeter: 0, netBalanceMeter: 0, dailyProd: 0 };
+        if (designNoStr) {
+          if (!designMap[designNoStr]) {
+            designMap[designNoStr] = { designNo: designNoStr, loomCount: 0, producedMeter: 0, netBalanceMeter: 0, dailyProd: 0 };
+          }
+          designMap[designNoStr].loomCount++;
+          designMap[designNoStr].producedMeter += calc.producedMeter;
+          designMap[designNoStr].netBalanceMeter += calc.netBalanceMeter;
+          designMap[designNoStr].dailyProd += dailyP;
         }
-        designMap[run.designNo].loomCount++;
-        designMap[run.designNo].producedMeter += calc.producedMeter;
-        designMap[run.designNo].netBalanceMeter += calc.netBalanceMeter;
-        designMap[run.designNo].dailyProd += run.dailyProduction;
 
       } else {
         unitMap[u].available++;
-        if (l.status === 'IDLE') unitMap[u].idle++;
+        if (l.status === 'IDLE' || l.status === 'Available' || l.status === 'AVAILABLE') unitMap[u].idle++;
       }
     });
 
     const runningLoomsCount = runoutList.length;
-    const idleLoomsCount = Math.max(0, totalLoomsCount - runningLoomsCount - Math.round(totalLoomsCount * 0.05));
-    const maintenanceLoomsCount = Math.max(0, totalLoomsCount - runningLoomsCount - idleLoomsCount);
+    const maintenanceLoomsCount = filteredLooms.filter(l => (l.status || '').toUpperCase() === 'MAINTENANCE').length;
     const availableLoomsCount = Math.max(0, totalLoomsCount - runningLoomsCount - maintenanceLoomsCount);
+    const idleLoomsCount = availableLoomsCount;
 
     // KPI Aggregates
     const machineUtilizationPct = totalLoomsCount > 0 ? Math.round((runningLoomsCount / totalLoomsCount) * 100) : 0;
-    const beamUtilizationPct = 84;
+    const beamUtilizationPct = totalLoomsCount > 0 ? Math.min(100, Math.round((runningLoomsCount / totalLoomsCount) * 100)) : 84;
     const prodEfficiencyPct = runningLoomsCount > 0 ? Math.min(98, Math.round(85 + (runningLoomsCount % 10))) : 0;
 
     // Leaderboards
@@ -279,35 +279,77 @@ export default function VisualDashboard() {
     const rawOrders = (orders && orders.length > 0) ? orders : (apiData?.ordersProgress || []);
     const ordersList = rawOrders.map((ord: any, i: number) => {
       const plan = calculateOrderPlanning({
-        orderQty: ord.order_qty ?? (i + 2) * 5000,
-        plannedLoomCount: ord.planned_loom_count || 0,
-        plannedAvgProduction: ord.avg_production_per_loom || 0,
+        orderQty: ord.order_qty ?? ord.orderQty ?? (i + 2) * 5000,
+        plannedLoomCount: ord.planned_loom_count || ord.actual_loom_count || 0,
+        plannedAvgProduction: ord.avg_production_per_loom || ord.actual_avg_production || 0,
         weavingPlannedDate: ord.weaving_planned_date || ord.weaving_start_date,
         weavingCompletionDate: ord.weaving_completion_date,
         actualLoomCount: ord.actual_loom_count,
         actualWeavingStartDate: ord.actual_weaving_start_date,
         actualAvgProduction: ord.actual_avg_production,
-        producedQty: ord.produced_qty,
+        producedQty: ord.produced_qty ?? ord.completedQty ?? ord.grey_qty ?? 0,
         actualCompletionDate: ord.actual_completion_date,
         status: ord.status,
         orderCompletionStatus: ord.order_completion_status
       });
 
+      const compPct = plan.orderQty > 0 ? Math.min(100, Math.round((plan.producedQty / plan.orderQty) * 100)) : 0;
+
       return {
-        orderNo: ord.ibpo_no || ord.order_no || `ORD-2026-00${i + 1}`,
-        customer: ord.customer_name || ['Reliance Textiles', 'Raymond Corp', 'Arvind Mills', 'Welspun India', 'Vardhman Fabrics'][i % 5],
-        designNo: ord.design_no_sp_no || designs[i % designs.length]?.designNo || `DES-${100 + i}`,
+        orderNo: ord.ibpo_no || ord.order_no || ord.orderNo || `ORD-2026-00${i + 1}`,
+        customer: ord.customer_name || ord.customer || ['Reliance Textiles', 'Raymond Corp', 'Arvind Mills', 'Welspun India', 'Vardhman Fabrics'][i % 5],
+        designNo: ord.design_no_sp_no || ord.designNo || designs[i % Math.max(1, designs.length)]?.designNo || `DES-${100 + i}`,
         orderQty: plan.orderQty,
         completedQty: plan.producedQty,
         balanceQty: plan.balanceQty,
-        completionPct: plan.orderQty > 0 ? Math.round((plan.producedQty / plan.orderQty) * 100) : 0,
+        completionPct: compPct,
         expectedCompletion: plan.expectedCompletionDateFormatted,
         deliveryDate: plan.targetCompletionDateFormatted,
-        status: plan.normalizedStatus,
+        status: ord.status || plan.normalizedStatus,
         varianceText: plan.varianceText,
         scheduleStatus: plan.scheduleStatus
       };
     });
+
+    // Collect active running design & order numbers from activeRuns or apiData.runoutList
+    const activeRunDesigns = new Set<string>();
+    const activeRunOrders = new Set<string>();
+    Object.values(activeRuns || {}).forEach((r: any) => {
+      if (r.designNo) activeRunDesigns.add(r.designNo.trim().toLowerCase());
+      if (r.design_no_sp_no) activeRunDesigns.add(r.design_no_sp_no.trim().toLowerCase());
+      if (r.orderNo) activeRunOrders.add(r.orderNo.trim().toUpperCase());
+      if (r.order_no) activeRunOrders.add(r.order_no.trim().toUpperCase());
+    });
+    if (apiData?.runoutList && Array.isArray(apiData.runoutList)) {
+      apiData.runoutList.forEach((r: any) => {
+        if (r.currentDesign) activeRunDesigns.add(r.currentDesign.trim().toLowerCase());
+        if (r.orderNo) activeRunOrders.add(r.orderNo.trim().toUpperCase());
+      });
+    }
+
+    const effectiveRunningLooms = (apiData?.kpis?.runningLooms !== undefined) ? apiData.kpis.runningLooms : runningLoomsCount;
+
+    const runningOrdersCount = effectiveRunningLooms === 0
+      ? 0
+      : (apiData?.kpis?.runningOrders ?? ordersList.filter((o: any) => {
+          const dNo = (o.designNo || '').trim().toLowerCase();
+          const oNo = (o.orderNo || '').trim().toUpperCase();
+          const isActivelyRunningOnLoom = activeRunDesigns.has(dNo) || (oNo && activeRunOrders.has(oNo)) || o.status === 'WEAVING RUNNING';
+          return o.completionPct < 100 && isActivelyRunningOnLoom;
+        }).length);
+
+    const completedOrdersCount = apiData?.kpis?.completedOrders ?? (ordersList.filter((o: any) => o.completionPct >= 100 || o.status === 'ORDER COMPLETED' || o.status === 'COMPLETED' || o.status === 'WEAVING COMPLETED').length);
+    const delayedOrdersCount = apiData?.kpis?.delayedOrders ?? (ordersList.filter((o: any) => o.scheduleStatus === 'DELAY RISK' || o.status === 'DELAYED').length);
+
+    const availableBeamsCount = (beams || []).filter((b: any) => (b.status || b.beamStatus || '').toUpperCase() === 'AVAILABLE' || (b.status || b.beamStatus || '').toUpperCase() === 'READY').length || (apiData?.kpis?.availableBeams ?? 28);
+    const reservedBeamsCount = (beams || []).filter((b: any) => (b.status || b.beamStatus || '').toUpperCase() === 'RESERVED' || (b.status || b.beamStatus || '').toUpperCase() === 'ALLOCATED').length || (apiData?.kpis?.reservedBeams ?? 14);
+    const runningBeamsCount = effectiveRunningLooms > 0 
+      ? (((beams || []).filter((b: any) => (b.status || b.beamStatus || '').toUpperCase() === 'RUNNING').length) || (apiData?.kpis?.runningBeams ?? effectiveRunningLooms))
+      : 0;
+
+    const sizingRunningBeamsCount = (beams || []).filter((b: any) => (b.status || b.beamStatus || b.sizingStatus || '').toUpperCase() === 'SIZING_RUNNING' || b.location === 'At Sizing').length || (apiData?.kpis?.sizingRunningBeams ?? 8);
+    const sizingCompletedBeamsCount = (beams || []).filter((b: any) => (b.status || b.beamStatus || b.sizingStatus || '').toUpperCase() === 'SIZING_COMPLETED').length || (apiData?.kpis?.sizingCompletedBeams ?? 12);
+    const beamReadyBeamsCount = (beams || []).filter((b: any) => (b.status || b.beamStatus || '').toUpperCase() === 'READY' || (b.status || b.beamStatus || '').toUpperCase() === 'AVAILABLE').length || (apiData?.kpis?.beamReadyBeams ?? 16);
 
     // Production Trend Data
     const trendMultiplier = trendPeriod === 'Weekly' ? 7 : trendPeriod === 'Monthly' ? 30 : trendPeriod === 'Yearly' ? 365 : 1;
@@ -329,13 +371,12 @@ export default function VisualDashboard() {
       utilizationPct: u.total > 0 ? Math.round((u.running / u.total) * 100) : 0
     }));
 
-    // Loom Status Doughnut Data
+    // Pie Chart Data: Loom Status Distribution
     const loomStatusDoughnut = [
       { name: 'Running', value: runningLoomsCount, color: '#10b981' },
       { name: 'Available', value: availableLoomsCount, color: '#3b82f6' },
-      { name: 'Idle', value: idleLoomsCount, color: '#64748b' },
-      { name: 'Maintenance', value: maintenanceLoomsCount, color: '#ef4444' },
-      { name: 'Reserved', value: Math.round(availableLoomsCount * 0.4), color: '#8b5cf6' }
+      { name: 'Idle', value: idleLoomsCount, color: '#f59e0b' },
+      { name: 'Maintenance', value: maintenanceLoomsCount, color: '#ef4444' }
     ];
 
     // Beam Status Pie Data
@@ -419,6 +460,15 @@ export default function VisualDashboard() {
       bottom10Looms,
       designAnalysis: Object.values(designMap).sort((a, b) => b.netBalanceMeter - a.netBalanceMeter),
       ordersList,
+      runningOrdersCount,
+      completedOrdersCount,
+      delayedOrdersCount,
+      availableBeamsCount,
+      reservedBeamsCount,
+      runningBeamsCount,
+      sizingRunningBeamsCount,
+      sizingCompletedBeamsCount,
+      beamReadyBeamsCount,
       trendData,
       unitStackedData,
       loomStatusDoughnut,
@@ -431,7 +481,7 @@ export default function VisualDashboard() {
       deliveryRisks,
       pipelineStages
     };
-  }, [looms, activeRuns, designs, filters, apiData, trendPeriod]);
+  }, [looms, activeRuns, designs, beams, filters, apiData, trendPeriod]);
 
   // ----------------------------------------------------
   // EXPORT HANDLERS (Excel, CSV, PDF, PNG)
@@ -691,10 +741,10 @@ export default function VisualDashboard() {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-9 gap-3">
           
           {/* Order Metrics */}
-          <KpiGlassCard title="Total Orders" value={apiData?.kpis?.totalOrders || 24} icon={Package} color="blue" onClick={() => openDrillDown('Total Orders List', 'order', computed.ordersList, '/orders')} />
-          <KpiGlassCard title="Running Orders" value={apiData?.kpis?.runningOrders || 18} icon={Activity} color="emerald" onClick={() => openDrillDown('Running Orders List', 'order', computed.ordersList.filter((o:any)=>o.completionPct < 100), '/orders')} />
-          <KpiGlassCard title="Completed Orders" value={apiData?.kpis?.completedOrders || 5} icon={CheckCircle2} color="cyan" onClick={() => openDrillDown('Completed Orders List', 'order', computed.ordersList.filter((o:any)=>o.completionPct === 100), '/orders')} />
-          <KpiGlassCard title="Delayed Orders" value={apiData?.kpis?.delayedOrders || 1} icon={AlertTriangle} color="red" onClick={() => openDrillDown('Delayed Orders List', 'order', computed.ordersList.filter((o:any)=>o.completionPct < 50), '/orders')} />
+          <KpiGlassCard title="Total Orders" value={apiData?.kpis?.totalOrders ?? computed.ordersList.length} icon={Package} color="blue" onClick={() => openDrillDown('Total Orders List', 'order', computed.ordersList, '/orders')} />
+          <KpiGlassCard title="Running Orders" value={apiData?.kpis?.runningOrders ?? computed.runningOrdersCount} icon={Activity} color="emerald" onClick={() => openDrillDown('Running Orders List', 'order', computed.ordersList.filter((o:any)=>o.completionPct < 100), '/orders')} />
+          <KpiGlassCard title="Completed Orders" value={apiData?.kpis?.completedOrders ?? computed.completedOrdersCount} icon={CheckCircle2} color="cyan" onClick={() => openDrillDown('Completed Orders List', 'order', computed.ordersList.filter((o:any)=>o.completionPct === 100), '/orders')} />
+          <KpiGlassCard title="Delayed Orders" value={apiData?.kpis?.delayedOrders ?? computed.delayedOrdersCount} icon={AlertTriangle} color="red" onClick={() => openDrillDown('Delayed Orders List', 'order', computed.ordersList.filter((o:any)=>o.completionPct < 50), '/orders')} />
 
           {/* Loom Metrics */}
           <KpiGlassCard title="Total Looms" value={computed.totalLoomsCount} icon={Factory} color="slate" onClick={() => openDrillDown('Total Factory Looms', 'loom', looms, '/looms')} />
@@ -704,28 +754,28 @@ export default function VisualDashboard() {
           <KpiGlassCard title="Critical Looms" value={computed.criticalCount} icon={AlertOctagon} color="red" onClick={() => openDrillDown('Critical Runout Looms (<=2 Days)', 'loom', computed.runoutList.filter(r=>r.balanceDays<=2), '/runout-monitor')} />
 
           {/* Beam Stock Metrics */}
-          <KpiGlassCard title="Available Beams" value={apiData?.kpis?.availableBeams || 28} icon={Package} color="emerald" onClick={() => openDrillDown('Available Beams Stock', 'beam', [], '/beam-stock')} />
-          <KpiGlassCard title="Reserved Beams" value={apiData?.kpis?.reservedBeams || 14} icon={Clock} color="purple" onClick={() => openDrillDown('Reserved Beams List', 'beam', [], '/beam-stock')} />
-          <KpiGlassCard title="Running Beams" value={apiData?.kpis?.runningBeams || 45} icon={Activity} color="indigo" onClick={() => openDrillDown('Running Beams on Looms', 'beam', [], '/beam-stock')} />
+          <KpiGlassCard title="Available Beams" value={apiData?.kpis?.availableBeams ?? computed.availableBeamsCount} icon={Package} color="emerald" onClick={() => openDrillDown('Available Beams Stock', 'beam', [], '/beam-stock')} />
+          <KpiGlassCard title="Reserved Beams" value={apiData?.kpis?.reservedBeams ?? computed.reservedBeamsCount} icon={Clock} color="purple" onClick={() => openDrillDown('Reserved Beams List', 'beam', [], '/beam-stock')} />
+          <KpiGlassCard title="Running Beams" value={apiData?.kpis?.runningBeams ?? computed.runningBeamsCount} icon={Activity} color="indigo" onClick={() => openDrillDown('Running Beams on Looms', 'beam', [], '/beam-stock')} />
 
           {/* Sizing & Prep */}
-          <KpiGlassCard title="Sizing Running" value={apiData?.kpis?.sizingRunningBeams || 8} icon={Scissors} color="amber" onClick={() => openDrillDown('Active Sizing Workflows', 'sizing', [], '/sizing')} />
-          <KpiGlassCard title="Sizing Completed" value={apiData?.kpis?.sizingCompletedBeams || 12} icon={CheckCircle2} color="emerald" onClick={() => openDrillDown('Completed Sizing Sets', 'sizing', [], '/sizing')} />
-          <KpiGlassCard title="Beam Ready" value={apiData?.kpis?.beamReadyBeams || 16} icon={CheckCircle2} color="teal" onClick={() => openDrillDown('Ready Beams for Allocation', 'beam', [], '/beam-stock')} />
+          <KpiGlassCard title="Sizing Running" value={apiData?.kpis?.sizingRunningBeams ?? computed.sizingRunningBeamsCount} icon={Scissors} color="amber" onClick={() => openDrillDown('Active Sizing Workflows', 'sizing', [], '/sizing')} />
+          <KpiGlassCard title="Sizing Completed" value={apiData?.kpis?.sizingCompletedBeams ?? computed.sizingCompletedBeamsCount} icon={CheckCircle2} color="emerald" onClick={() => openDrillDown('Completed Sizing Sets', 'sizing', [], '/sizing')} />
+          <KpiGlassCard title="Beam Ready" value={apiData?.kpis?.beamReadyBeams ?? computed.beamReadyBeamsCount} icon={CheckCircle2} color="teal" onClick={() => openDrillDown('Ready Beams for Allocation', 'beam', [], '/beam-stock')} />
 
           {/* Percentages */}
           <KpiGlassCard title="Machine Utilization" value={`${computed.machineUtilizationPct}%`} icon={TrendingUp} color="emerald" onClick={() => openDrillDown('Machine Utilization Details', 'kpi', [])} />
-          <KpiGlassCard title="Beam Utilization" value={`${computed.beamUtilizationPct}%`} icon={Layers} color="indigo" onClick={() => openDrillDown('Beam Utilization Details', 'kpi', [])} />
+          <KpiGlassCard title="Beam Utilization" value={`${computed.runningBeamsCount > 0 ? Math.round((computed.runningBeamsCount / Math.max(1, computed.availableBeamsCount + computed.runningBeamsCount)) * 100) : 0}%`} icon={Layers} color="indigo" onClick={() => openDrillDown('Beam Utilization Details', 'kpi', [])} />
           <KpiGlassCard title="Production Efficiency" value={`${computed.prodEfficiencyPct}%`} icon={Zap} color="emerald" onClick={() => openDrillDown('Production Efficiency Details', 'kpi', [])} />
-          <KpiGlassCard title="Order Completion" value={`${apiData?.kpis?.orderCompletionPct || 78}%`} icon={CheckCircle2} color="blue" onClick={() => openDrillDown('Order Completion Details', 'kpi', [])} />
+          <KpiGlassCard title="Order Completion" value={`${apiData?.kpis?.orderCompletionPct ?? (computed.ordersList.length > 0 ? Math.round((computed.completedOrdersCount / computed.ordersList.length) * 100) : 0)}%`} icon={CheckCircle2} color="blue" onClick={() => openDrillDown('Order Completion Details', 'kpi', [])} />
 
           {/* Today's Operations */}
           <KpiGlassCard title="Today Production" value={`${Math.round(computed.totalDailyProd).toLocaleString()} m`} icon={Flame} color="purple" onClick={() => openDrillDown("Today's Production Meter Breakup", 'run', computed.runoutList, '/history')} />
-          <KpiGlassCard title="Today Planning" value={apiData?.kpis?.todaysLoomPlanning || 12} icon={Calendar} color="blue" onClick={() => openDrillDown("Today's Planned Looms", 'plan', [], '/plan')} />
-          <KpiGlassCard title="Beam Allocation" value={apiData?.kpis?.todaysBeamAllocation || 8} icon={Package} color="emerald" onClick={() => openDrillDown("Today's Beam Allocations", 'beam', [], '/beam-stock')} />
-          <KpiGlassCard title="Sizing Plans" value={apiData?.kpis?.todaysSizingPlans || 5} icon={Scissors} color="amber" onClick={() => openDrillDown("Today's Sizing Schedules", 'sizing', [], '/sizing')} />
+          <KpiGlassCard title="Today Planning" value={apiData?.kpis?.todaysLoomPlanning ?? Math.round(computed.runningLoomsCount * 0.15)} icon={Calendar} color="blue" onClick={() => openDrillDown("Today's Planned Looms", 'plan', [], '/plan')} />
+          <KpiGlassCard title="Beam Allocation" value={apiData?.kpis?.todaysBeamAllocation ?? Math.round(computed.reservedBeamsCount * 0.25)} icon={Package} color="emerald" onClick={() => openDrillDown("Today's Beam Allocations", 'beam', [], '/beam-stock')} />
+          <KpiGlassCard title="Sizing Plans" value={apiData?.kpis?.todaysSizingPlans ?? computed.sizingRunningBeamsCount} icon={Scissors} color="amber" onClick={() => openDrillDown("Today's Sizing Schedules", 'sizing', [], '/sizing')} />
           <KpiGlassCard title="Upcoming Runouts" value={computed.warningCount + computed.criticalCount} icon={AlertTriangle} color="orange" onClick={() => openDrillDown('Upcoming Runouts (<=7 Days)', 'runout', computed.runoutList.filter(r=>r.balanceDays<=7), '/runout-monitor')} />
-          <KpiGlassCard title="Upcoming Deliveries" value={apiData?.kpis?.upcomingDeliveriesCount || 4} icon={ArrowRight} color="blue" onClick={() => openDrillDown('Upcoming Delivery Dates', 'order', computed.ordersList, '/orders')} />
+          <KpiGlassCard title="Upcoming Deliveries" value={apiData?.kpis?.upcomingDeliveriesCount ?? computed.ordersList.filter((o: any)=>o.completionPct < 100).length} icon={ArrowRight} color="blue" onClick={() => openDrillDown('Upcoming Delivery Dates', 'order', computed.ordersList, '/orders')} />
 
         </div>
       </div>
@@ -742,14 +792,14 @@ export default function VisualDashboard() {
         </h3>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-          {(apiData?.liveProductionStatus || [
-            { name: 'Production Running', count: computed.runningLoomsCount, percentage: Math.round((computed.runningLoomsCount/computed.totalLoomsCount)*100), color: 'emerald' },
-            { name: 'Planning Pending', count: computed.idleLoomsCount, percentage: Math.round((computed.idleLoomsCount/computed.totalLoomsCount)*100), color: 'blue' },
-            { name: 'Sizing Running', count: 8, percentage: 4, color: 'amber' },
-            { name: 'Warping Running', count: 6, percentage: 3, color: 'purple' },
-            { name: 'Maintenance', count: computed.maintenanceLoomsCount, percentage: Math.round((computed.maintenanceLoomsCount/computed.totalLoomsCount)*100), color: 'red' },
-            { name: 'Idle', count: computed.idleLoomsCount, percentage: Math.round((computed.idleLoomsCount/computed.totalLoomsCount)*100), color: 'slate' },
-            { name: 'Completed', count: 5, percentage: 12, color: 'cyan' }
+          {([
+            { name: 'Production Running', count: computed.runningLoomsCount, percentage: computed.totalLoomsCount > 0 ? Math.round((computed.runningLoomsCount/computed.totalLoomsCount)*100) : 0, color: 'emerald' },
+            { name: 'Planning Pending', count: computed.idleLoomsCount, percentage: computed.totalLoomsCount > 0 ? Math.round((computed.idleLoomsCount/computed.totalLoomsCount)*100) : 0, color: 'blue' },
+            { name: 'Sizing Running', count: computed.sizingRunningBeamsCount, percentage: computed.totalLoomsCount > 0 ? Math.round((computed.sizingRunningBeamsCount/computed.totalLoomsCount)*100) : 0, color: 'amber' },
+            { name: 'Warping Running', count: Math.round(computed.sizingRunningBeamsCount * 0.7), percentage: computed.totalLoomsCount > 0 ? Math.round(((computed.sizingRunningBeamsCount * 0.7)/computed.totalLoomsCount)*100) : 0, color: 'purple' },
+            { name: 'Maintenance', count: computed.maintenanceLoomsCount, percentage: computed.totalLoomsCount > 0 ? Math.round((computed.maintenanceLoomsCount/computed.totalLoomsCount)*100) : 0, color: 'red' },
+            { name: 'Idle', count: computed.idleLoomsCount, percentage: computed.totalLoomsCount > 0 ? Math.round((computed.idleLoomsCount/computed.totalLoomsCount)*100) : 0, color: 'slate' },
+            { name: 'Completed', count: computed.completedOrdersCount, percentage: computed.ordersList.length > 0 ? Math.round((computed.completedOrdersCount/computed.ordersList.length)*100) : 0, color: 'cyan' }
           ]).map((st: any, idx: number) => (
             <div 
               key={idx} 
@@ -786,10 +836,10 @@ export default function VisualDashboard() {
                 outerRadius={95}
                 paddingAngle={4}
                 dataKey="value"
-                onClick={(entry) => openDrillDown(`Looms: ${entry.name}`, 'loom', looms.filter(l=>(l.status||'AVAILABLE').toUpperCase()===entry.name.toUpperCase()), '/looms')}
+                onClick={(entry: any) => openDrillDown(`Looms: ${entry.name}`, 'loom', looms.filter(l=>(l.status||'AVAILABLE').toUpperCase()===entry.name.toUpperCase()), '/looms')}
                 className="cursor-pointer"
               >
-                {computed.loomStatusDoughnut.map((entry, index) => (
+                {computed.loomStatusDoughnut.map((entry: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
               </Pie>

@@ -12,10 +12,15 @@ export default function History() {
     const today = new Date();
     
     return completedHistory.filter(d => {
-      // Search text filter
+      const q = (searchTerm || '').trim().toLowerCase();
       const matchesSearch = 
-        d.loomNo.toString().includes(searchTerm) || 
-        d.designNo.toLowerCase().includes(searchTerm.toLowerCase());
+        !q ||
+        (d.loomNo || '').toString().toLowerCase().includes(q) || 
+        (d.designNo || '').toLowerCase().includes(q) ||
+        (d.unit || '').toLowerCase().includes(q) ||
+        ((d as any).setNo || (d as any).set_no || '').toString().toLowerCase().includes(q) ||
+        ((d as any).beamNo || (d as any).beam_no || '').toString().toLowerCase().includes(q) ||
+        ((d as any).orderNo || (d as any).order_no || '').toString().toLowerCase().includes(q);
       
       if (!matchesSearch) return false;
 

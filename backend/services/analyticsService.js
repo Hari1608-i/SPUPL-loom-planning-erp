@@ -89,42 +89,58 @@ async function getDashboardData(filters = {}) {
   }
 
   // Execute DB Queries Concurrently for Maximum Performance
-  const [ordersResult, loomsResult, beamsResult] = await Promise.all([
+  const [ordersResult, loomsResult, beamsResult, activeRunsList, dailyLogsResult, designsResult] = await Promise.all([
     prisma.orderMaster.findMany({ where: orderWhere }).catch(() => []),
     prisma.loomMaster.findMany({
       where: loomWhere,
       include: { LoomRunEntry: true, PlannedAssignment: true }
     }).catch(() => []),
-    prisma.beamStock.findMany({ where: beamWhere }).catch(() => [])
+    prisma.beamStockMaster.findMany({ where: beamWhere }).catch(() => []),
+    prisma.loomRunEntry.findMany().catch(() => []),
+    prisma.dailyProductionLog.findMany().catch(() => []),
+    prisma.designMaster.findMany().catch(() => [])
   ]);
 
   const orders = ordersResult || [];
   const looms = loomsResult || [];
   const beams = beamsResult || [];
+  const dailyLogs = dailyLogsResult || [];
+  const designs = designsResult || [];
 
   // 1. ORDER KPIS
   const totalOrders = orders.length;
-  const runningOrders = orders.filter(o => o.status === 'RUNNING' || o.status === 'Weaving In Progress' || o.status === 'In Production').length;
-  const completedOrders = orders.filter(o => o.status === 'COMPLETED' || o.status === 'Dispatched').length;
-  const delayedOrders = orders.filter(o => o.status === 'DELAYED' || (o.target_delivery_date && new Date(o.target_delivery_date) < new Date() && o.status !== 'COMPLETED')).length;
+  const activeRunDesignNos = new Set(activeRunsList.map(r => (r.design_no_sp_no || '').trim().toLowerCase()));
+  const activeRunOrderNos = new Set(activeRunsList.map(r => (r.order_no || '').trim().toUpperCase()).filter(Boolean));
+
+  const runningOrders = activeRunsList.length === 0 ? 0 : orders.filter(o => {
+    const oDesign = (o.design_no_sp_no || '').trim().toLowerCase();
+    const oIbpo = (o.ibpo_no || '').trim().toUpperCase();
+    const oNo = (o.order_no || '').trim().toUpperCase();
+    const isCompleted = o.status === 'ORDER COMPLETED' || o.status === 'Completed' || o.order_completion_status === 'COMPLETED';
+    if (isCompleted) return false;
+    return activeRunDesignNos.has(oDesign) || activeRunOrderNos.has(oIbpo) || activeRunOrderNos.has(oNo) || o.status === 'WEAVING RUNNING';
+  }).length;
+
+  const completedOrders = orders.filter(o => o.status === 'ORDER COMPLETED' || o.status === 'COMPLETED' || o.status === 'WEAVING COMPLETED' || o.order_completion_status === 'COMPLETED').length;
+  const delayedOrders = orders.filter(o => o.status === 'DELAYED' || (o.target_delivery_date && new Date(o.target_delivery_date) < new Date() && o.status !== 'COMPLETED' && o.status !== 'ORDER COMPLETED')).length;
 
   let totalOrderMeters = 0;
   let totalCompletedOrderMeters = 0;
   orders.forEach(o => {
     totalOrderMeters += parseSafeFloat(o.order_qty, 0);
-    const completed = parseSafeFloat(o.grey_qty, (o.status === 'COMPLETED' ? parseSafeFloat(o.order_qty, 0) : 0));
+    const completed = parseSafeFloat(o.grey_qty, (o.status === 'COMPLETED' || o.status === 'ORDER COMPLETED' ? parseSafeFloat(o.order_qty, 0) : 0));
     totalCompletedOrderMeters += completed;
   });
   const orderCompletionPct = totalOrderMeters > 0 ? Math.min(100, Math.round((totalCompletedOrderMeters / totalOrderMeters) * 100)) : 0;
 
   // 2. LOOM KPIS
   const totalLooms = looms.length || 224;
-  const runningLooms = looms.filter(l => l.status === 'RUNNING' || l.LoomRunEntry).length;
-  const idleLooms = looms.filter(l => l.status === 'IDLE' || (!l.LoomRunEntry && l.status !== 'MAINTENANCE')).length;
+  const runningLooms = activeRunsList.length;
+  const idleLooms = Math.max(0, totalLooms - runningLooms);
   const maintenanceLooms = looms.filter(l => l.status === 'MAINTENANCE').length;
   const availableLooms = Math.max(0, totalLooms - runningLooms - maintenanceLooms);
   
-  // Calculate Runout Days for active looms
+  // Calculate Runout Days for active looms (Harmonized with Main Entry Single Source of Truth)
   let criticalLooms = 0;
   const runoutList = [];
   const today = new Date();
@@ -133,13 +149,46 @@ async function getDashboardData(filters = {}) {
     if (l.LoomRunEntry) {
       const run = l.LoomRunEntry;
       const warpedMeter = parseSafeFloat(run.warped_meter, 0);
-      const dailyProd = parseSafeFloat(run.daily_production, 150);
-      const startDate = parseValidDate(run.loom_start_date) || today;
-      const daysElapsed = Math.max(0, (today.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
-      const producedSoFar = daysElapsed * dailyProd;
-      const netBalanceMeter = Math.max(0, warpedMeter - producedSoFar);
+      const designNo = run.design_no_sp_no;
+
+      // Filter production logs for this loom and design
+      const loomLogs = dailyLogs.filter(log =>
+        Number(log.loom_no) === Number(l.loom_no) &&
+        (!designNo || !log.design_no || log.design_no.trim().toLowerCase() === designNo.trim().toLowerCase())
+      );
+
+      const actualProduced = loomLogs.reduce((sum, log) => sum + parseSafeFloat(log.produced_meter, 0), 0);
+
+      // Crimp Rate calculation (Design Master fallback to 5.0%)
+      const designRec = designs.find(d =>
+        (d.design_no && designNo && d.design_no.trim().toLowerCase() === designNo.trim().toLowerCase()) ||
+        (d.design_no_sp_no && designNo && d.design_no_sp_no.trim().toLowerCase() === designNo.trim().toLowerCase())
+      );
+
+      let crimpRate = 0.05; // 5% default fallback
+      if (designRec && designRec.crimp_percentage != null && !isNaN(Number(designRec.crimp_percentage))) {
+        const val = Number(designRec.crimp_percentage);
+        if (val > 0 && val <= 30) crimpRate = val / 100;
+      } else if (run.crimp_percentage != null && !isNaN(Number(run.crimp_percentage))) {
+        const val = Number(run.crimp_percentage);
+        if (val > 0 && val <= 30) crimpRate = val / 100;
+      }
+
+      const crimpLossMeter = Math.round(actualProduced * crimpRate);
+      const grossBalanceMeter = Math.max(0, warpedMeter - actualProduced);
+      const netBalanceMeter = Math.max(0, grossBalanceMeter - crimpLossMeter);
+
+      // Effective daily production (Average from actual logs, fallback to run.daily_production)
+      let dailyProd = parseSafeFloat(run.daily_production, 150);
+      if (loomLogs.length > 0) {
+        const validLogs = loomLogs.filter(log => parseSafeFloat(log.produced_meter, 0) > 0);
+        if (validLogs.length > 0) {
+          dailyProd = Math.round(actualProduced / validLogs.length);
+        }
+      }
+      if (dailyProd <= 0) dailyProd = 150;
+
       const balanceDays = dailyProd > 0 ? Math.round(netBalanceMeter / dailyProd) : 0;
-      
       const expectedRunoutDate = new Date(today.getTime() + balanceDays * 24 * 3600 * 1000);
       
       let statusCode = 'Green';
@@ -157,6 +206,8 @@ async function getDashboardData(filters = {}) {
         unit: l.unit || 'Unit I',
         currentDesign: run.design_no_sp_no || 'D-STD',
         expectedRunoutDate: expectedRunoutDate.toISOString().split('T')[0],
+        totalProducedMeter: Math.round(actualProduced),
+        crimpLossMeter,
         netBalanceMeter: Math.round(netBalanceMeter),
         balanceDays,
         statusCode,
@@ -170,12 +221,12 @@ async function getDashboardData(filters = {}) {
 
   // 3. BEAM KPIS
   const totalBeams = beams.length;
-  const availableBeams = beams.filter(b => b.beamStatus === 'AVAILABLE' || b.beamStatus === 'READY' || b.beamStatus === 'NOT_PLANNED').length;
-  const reservedBeams = beams.filter(b => b.beamStatus === 'RESERVED' || b.beamStatus === 'PLANNED').length;
-  const runningBeams = beams.filter(b => b.beamStatus === 'RUNNING').length;
-  const sizingRunningBeams = beams.filter(b => b.sizingStatus === 'RUNNING' || b.beamStatus === 'SIZING_RUNNING').length;
-  const sizingCompletedBeams = beams.filter(b => b.sizingStatus === 'COMPLETED' || b.beamStatus === 'SIZING_COMPLETED').length;
-  const beamReadyBeams = beams.filter(b => b.beamStatus === 'READY' || b.sizingStatus === 'READY').length;
+  const availableBeams = beams.filter(b => b.status === 'Available' || b.status === 'AVAILABLE' || b.status === 'READY' || b.beamStatus === 'AVAILABLE' || b.beamStatus === 'READY').length;
+  const reservedBeams = beams.filter(b => b.status === 'Reserved' || b.status === 'RESERVED' || b.status === 'Allocated' || b.beamStatus === 'RESERVED' || b.beamStatus === 'PLANNED').length;
+  const runningBeams = beams.filter(b => b.status === 'Running' || b.status === 'RUNNING' || b.beamStatus === 'RUNNING').length;
+  const sizingRunningBeams = beams.filter(b => b.location === 'At Sizing' || b.status === 'SIZING_RUNNING' || b.sizingStatus === 'RUNNING').length;
+  const sizingCompletedBeams = beams.filter(b => b.status === 'SIZING_COMPLETED' || b.sizingStatus === 'COMPLETED').length;
+  const beamReadyBeams = beams.filter(b => b.status === 'READY' || b.status === 'Available' || b.beamStatus === 'READY').length;
 
   let totalBeamMeter = 0;
   let reservedBeamMeter = 0;

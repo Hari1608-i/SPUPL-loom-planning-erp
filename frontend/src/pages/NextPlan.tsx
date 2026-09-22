@@ -63,14 +63,17 @@ export default function NextPlan() {
 
   // Search Results for Order Selection Dropdown
   const searchedOrders = useMemo(() => {
-    if (!orderSearchTerm.trim()) return activeOrders;
-    const q = orderSearchTerm.toLowerCase();
+    const q = (orderSearchTerm || '').trim().toLowerCase();
+    if (!q) return activeOrders;
     return activeOrders.filter(o =>
       (o.ibpo_no && o.ibpo_no.toLowerCase().includes(q)) ||
       (o.order_no && o.order_no.toLowerCase().includes(q)) ||
       (o.design_no_sp_no && o.design_no_sp_no.toLowerCase().includes(q)) ||
       (o.customer_name && o.customer_name.toLowerCase().includes(q)) ||
-      (o.construction && o.construction.toLowerCase().includes(q))
+      (o.buyer_name && o.buyer_name.toLowerCase().includes(q)) ||
+      (o.construction && o.construction.toLowerCase().includes(q)) ||
+      (o.weave_type && o.weave_type.toLowerCase().includes(q)) ||
+      (o.beam_type && o.beam_type.toLowerCase().includes(q))
     );
   }, [activeOrders, orderSearchTerm]);
 
@@ -128,12 +131,15 @@ export default function NextPlan() {
 
       if (!isDesignMatch || !isEligible) return false;
 
-      if (!beamModalSearchTerm.trim()) return true;
-      const q = beamModalSearchTerm.toLowerCase();
+      const q = (beamModalSearchTerm || '').trim().toLowerCase();
+      if (!q) return true;
       return (
         (b.beam_no || b.beamNo || '').toLowerCase().includes(q) ||
+        (b.party_beam_no || '').toLowerCase().includes(q) ||
         (b.vendor_name || b.vendorBeamNo || '').toLowerCase().includes(q) ||
-        (b.set_no || b.setNo || '').toLowerCase().includes(q) ||
+        ((b.set_no || b.setNo || '')).toString().toLowerCase().includes(q) ||
+        ((b.order_no || b.ibpo || '')).toString().toLowerCase().includes(q) ||
+        (b.customer || '').toLowerCase().includes(q) ||
         (b.beam_type || b.beamType || '').toLowerCase().includes(q)
       );
     });
@@ -151,10 +157,15 @@ export default function NextPlan() {
 
     return looms.map(loom => {
       const run = activeRuns[loom.loomNo];
-      const plan = rawNextPlans.find(p => p.loom_no === loom.loomNo && p.status !== 'CANCELLED' && p.status !== 'COMPLETED');
+      // Only count plans that have a valid next_design as real plans
+      const plan = rawNextPlans.find(p =>
+        p.loom_no === loom.loomNo &&
+        p.status !== 'CANCELLED' && p.status !== 'COMPLETED' &&
+        (p.next_design || '').trim() !== ''
+      );
       const isAlreadyAssignedToOrder = plan && (
-        (plan.order_no || '').trim().toLowerCase() === (selectedOrder.ibpo_no || '').trim().toLowerCase() ||
-        (plan.next_design || '').trim().toLowerCase() === (selectedOrder.design_no_sp_no || '').trim().toLowerCase()
+        // Match only by IBPO/order_no — never match by design number alone
+        (plan.order_no || '').trim().toLowerCase() === (selectedOrder.ibpo_no || selectedOrder.order_no || '').trim().toLowerCase()
       );
       const isAssignedToOtherPlan = !!plan && !isAlreadyAssignedToOrder;
       const comp = checkLoomCompatibility(selectedOrder, loom);
@@ -616,11 +627,14 @@ export default function NextPlan() {
               .filter(p => {
                 const st = (p.status || '').toUpperCase();
                 if (st === 'CANCELLED' || st === 'COMPLETED') return false;
+                // MUST have a valid next_design — plans with empty next_design are stale/ghost records
+                const pDes = (p.next_design || '').trim();
+                if (!pDes) return false;
+                // Match ONLY by IBPO/order_no — never match by design number alone
+                // (same design number can appear in multiple different orders)
                 const pIbpo = (p.order_no || '').trim().toLowerCase();
-                const pDes = (p.next_design || '').trim().toLowerCase();
                 const tIbpo = (selectedOrder.ibpo_no || selectedOrder.order_no || '').trim().toLowerCase();
-                const tDes = (selectedOrder.design_no_sp_no || '').trim().toLowerCase();
-                return (pIbpo && pIbpo === tIbpo) || (pDes && pDes === tDes);
+                return pIbpo && tIbpo && pIbpo === tIbpo;
               })
               .map(plan => {
                 const isBeamAllocated = !!(plan.reserved_beam_no || plan.reserved_beam_id || plan.beam_status === 'BEAM ALLOCATED');
@@ -632,14 +646,7 @@ export default function NextPlan() {
                 if (activeRunForLoom && activeRunForLoom.designNo) {
                   currentRunDesign = activeRunForLoom.designNo;
                   const runDesign = designs.find(d => d.designNo === activeRunForLoom.designNo);
-                  const rCalc = calculateLoomRun({
-                    loomStartDate: new Date(activeRunForLoom.loomStartDate || new Date()),
-                    warpedMeter: Number(activeRunForLoom.warpedMeter || 0),
-                    dailyProduction: Number(activeRunForLoom.dailyProduction || 0),
-                    rpm: activeRunForLoom.rpm ? Number(activeRunForLoom.rpm) : 600,
-                    efficiency: activeRunForLoom.efficiency ? Number(activeRunForLoom.efficiency) : 60,
-                    crimpPercent: runDesign ? runDesign.crimpPercent : 0,
-                  });
+                  const rCalc = calculateLoomRun(activeRunForLoom as any);
                   if (rCalc && rCalc.expectedRunoutDate && rCalc.balanceDays !== 999999) {
                     currentRunoutText = `${format(rCalc.expectedRunoutDate, 'dd-MM-yyyy')} (${rCalc.balanceDays.toFixed(1)}d bal)`;
                   }
@@ -771,15 +778,7 @@ export default function NextPlan() {
                         let runoutCalc = null;
                         if (item.run) {
                           try {
-                            runoutCalc = calculateLoomRun({
-                              loomStartDate: new Date(item.run.loomStartDate || new Date()),
-                              warpedMeter: Number(item.run.warpedMeter || 10000),
-                              dailyProduction: Number(item.run.dailyProduction || 300),
-                              rpm: Number(item.run.rpm || 720),
-                              efficiency: Number(item.run.efficiency || 92),
-                              crimpPercent: 0.05,
-                              actualProductionHistory: (item.run as any).actualProductionHistory || []
-                            });
+                            runoutCalc = calculateLoomRun(item.run as any);
                           } catch(e) {}
                         }
 
@@ -849,15 +848,7 @@ export default function NextPlan() {
                       const selItem = compatibleAvailableLooms.find(i => i.loom.loomNo === assignLoomNo);
                       if (!selItem || !selItem.run) return null;
                       try {
-                        const rCalc = calculateLoomRun({
-                          loomStartDate: new Date(selItem.run.loomStartDate || new Date()),
-                          warpedMeter: Number(selItem.run.warpedMeter || 10000),
-                          dailyProduction: Number(selItem.run.dailyProduction || 300),
-                          rpm: Number(selItem.run.rpm || 720),
-                          efficiency: Number(selItem.run.efficiency || 92),
-                          crimpPercent: 0.05,
-                          actualProductionHistory: (selItem.run as any).actualProductionHistory || []
-                        });
+                        const rCalc = calculateLoomRun(selItem.run as any);
                         if (!rCalc || !rCalc.expectedRunoutDate || rCalc.balanceDays === 999999) return null;
                         const rDateStr = format(rCalc.expectedRunoutDate, 'dd-MM-yyyy');
                         return (

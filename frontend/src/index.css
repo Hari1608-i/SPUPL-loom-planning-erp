@@ -246,11 +246,13 @@ input, select, textarea {
 @media print {
   @page {
     size: auto;
-    margin: 8mm;
+    margin: 8mm 10mm;
   }
 
   /* Reset background & text colors for high-contrast print */
   *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
     box-shadow: none !important;
     text-shadow: none !important;
     transition: none !important;
@@ -258,16 +260,30 @@ input, select, textarea {
 
   html, body {
     background: #ffffff !important;
-    color: #0f172a !important;
-    font-size: 11px !important;
-    line-height: 1.3 !important;
+    color: #000000 !important;
+    font-size: 10px !important;
+    line-height: 1.35 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     width: 100% !important;
     height: auto !important;
+    min-height: 0 !important;
     overflow: visible !important;
     margin: 0 !important;
     padding: 0 !important;
+  }
+
+  /* Dark mode override: always print black text on white paper */
+  .dark, html.dark, body.dark, .dark body, [class*="dark:bg-"] {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .dark [class*="dark:text-"] {
+    color: #000000 !important;
+  }
+  .dark [class*="dark:border-"] {
+    border-color: #94a3b8 !important;
   }
 
   /* Completely disable watermark logo to prevent right-top overlap */
@@ -276,18 +292,22 @@ input, select, textarea {
   }
 
   /* Hide screen-only navigation, headers, sidebars, controls, search, action buttons */
+  header,
+  header.app-header,
   aside, 
-  header, 
   nav, 
   .no-print, 
   .print\:hidden,
-  button:not(.print-keep), 
+  .print-hide,
   input[type="search"], 
   .search-bar, 
   .action-buttons, 
   .action-column, 
   .no-print-area,
-  .pagination-controls {
+  .pagination-controls,
+  .screen-only,
+  button.print\:hidden,
+  div.print\:hidden {
     display: none !important;
   }
 
@@ -299,10 +319,33 @@ input, select, textarea {
     display: block !important;
   }
 
-  /* Ensure containers do not scroll or cut off content */
+  .print\:inline {
+    display: inline !important;
+  }
+
+  .print\:inline-block {
+    display: inline-block !important;
+  }
+
+  .print\:table-row {
+    display: table-row !important;
+  }
+
+  .print\:table-header-group {
+    display: table-header-group !important;
+  }
+
+  /* Ensure containers do not scroll or cut off content in multi-page print */
   main, 
   #root, 
+  #root > div,
+  body > div,
+  .app-container,
   .flex-1, 
+  [class*="h-screen"],
+  [class*="h-full"],
+  [class*="overflow-"],
+  .overflow-hidden,
   .overflow-auto, 
   .overflow-x-auto, 
   .overflow-y-auto {
@@ -310,29 +353,50 @@ input, select, textarea {
     height: auto !important;
     min-height: 0 !important;
     max-height: none !important;
+    position: static !important;
     padding: 0 !important;
     margin: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
+    border-radius: 0 !important;
   }
 
-  /* Global Printable Table & Column Auto-Fitting */
-  table {
+  /* Hide layout chrome during print */
+  aside,
+  header,
+  nav,
+  .print-watermark-logo {
+    display: none !important;
+  }
+
+  /* Global Printable Table & Column Auto-Fitting (excludes daily-report print engine) */
+  table:not(.daily-report-print-root table) {
     width: 100% !important;
     max-width: 100% !important;
     table-layout: auto !important;
     border-collapse: collapse !important;
     page-break-inside: auto !important;
-    font-size: 10px !important;
+    break-inside: auto !important;
+    font-size: 9px !important;
     margin-bottom: 12px !important;
   }
 
   thead {
     display: table-header-group !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   tbody {
     display: table-row-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   tr {
@@ -340,18 +404,111 @@ input, select, textarea {
     page-break-inside: avoid !important;
   }
 
-  th, td {
+  th:not(.daily-report-print-root th),
+  td:not(.daily-report-print-root td) {
     word-break: break-word !important;
     overflow-wrap: break-word !important;
     white-space: normal !important;
     padding: 4px 6px !important;
-    border: 1px solid #cbd5e1 !important;
+    border: 1px solid #94a3b8 !important;
+    color: #000000 !important;
+    vertical-align: middle !important;
   }
 
-  th {
+  /* High-contrast, bold, fully visible table headers (excluding the special print header row & daily report) */
+  thead:not(.daily-report-print-root thead) tr:not(.print-header-row) th,
+  th.table-header,
+  .print-topic,
+  .print-header {
     background-color: #f1f5f9 !important;
-    color: #0f172a !important;
+    color: #000000 !important;
     font-weight: 800 !important;
+    font-size: 9px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.025em !important;
+    border: 1px solid #475569 !important;
+    border-bottom: 2px solid #000000 !important;
+    opacity: 1 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Dedicated repeating logo & report title header row inside thead */
+  tr.print-header-row,
+  tr.print-header-row th,
+  th.print-header-cell {
+    background: #ffffff !important;
+    border: none !important;
+    border-bottom: 2px solid #000000 !important;
+    padding: 0 0 6px 0 !important;
+    color: #000000 !important;
+    font-weight: normal !important;
+    text-transform: none !important;
+  }
+
+  tr.print-header-row th *,
+  th.print-header-cell *,
+  .print-header-content * {
+    background: transparent !important;
+    border: none !important;
+  }
+
+  .print-logo {
+    max-height: 48px !important;
+    max-width: 240px !important;
+    height: 48px !important;
+    width: auto !important;
+    object-fit: contain !important;
+  }
+
+  /* Ensure loom pills wrap cleanly and remain visible */
+  .print-keep,
+  .data-badge,
+  .loom-pill {
+    display: inline-block !important;
+    background: #f8fafc !important;
+    color: #000000 !important;
+    border: 1px solid #64748b !important;
+    border-radius: 3px !important;
+    padding: 1px 4px !important;
+    font-size: 8.5px !important;
+    font-weight: 700 !important;
+    box-shadow: none !important;
+    margin: 1px !important;
+    white-space: nowrap !important;
+  }
+
+  /* Expand truncated text so full data is visible in print */
+  .truncate,
+  [class*="truncate"],
+  .line-clamp-1,
+  .line-clamp-2 {
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+    max-width: none !important;
+    display: block !important;
+  }
+
+  /* Section headers (like Unit I, Unit II) */
+  .print-section-header,
+  [data-print-section] {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    background-color: #f8fafc !important;
+    color: #000000 !important;
+    border: 1px solid #475569 !important;
+  }
+
+  /* All titles, topics, and headings in print */
+  h1, h2, h3, h4, h5, h6, .report-title, .print-title {
+    color: #000000 !important;
+    font-weight: 900 !important;
+    opacity: 1 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   /* Flatten form controls in print mode */

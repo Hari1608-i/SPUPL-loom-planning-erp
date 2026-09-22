@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+    import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Package, Search, Plus, Download, Trash2, Save, Printer,
   Calendar, CheckCircle2, AlertCircle, RefreshCw, Copy, Layers, Filter, CheckCircle, AlertTriangle, Eye, X, Edit2
@@ -6,7 +6,7 @@ import {
 import { format, differenceInDays } from 'date-fns';
 import { API_BASE_URL } from '../config';
 import * as XLSX from 'xlsx';
-import { CompanyPrintHeader } from '../components/common/CompanyPrintHeader';
+import { CompanyPrintHeader, PrintTableHeaderRow } from '../components/common/CompanyPrintHeader';
 import { useAppContext } from '../context/AppProvider';
 import { triggerPrint } from '../utils/printManager';
 
@@ -16,6 +16,8 @@ export interface BeamRowState {
   design_no: string;
   vendor_name: string;
   party_beam_no: string;
+  order_no?: string;
+  ibpo?: string;
   set_no: string;
   beam_no: string;
   beam_type: string;
@@ -38,7 +40,7 @@ const FIELDS_ORDER: (keyof BeamRowState)[] = [
 ];
 
 const BEAM_STATUSES = [
-  'Available', 'ALLOCATED', 'RUNNING', 'RESERVED', 'READY', 'UNDER PREPARATION', 'COMPLETED', 'EMPTY', 'SCRAP'
+  'Available', 'READY', 'UNDER PREPARATION', 'CUT BEAM'
 ];
 
 export default function BeamStock() {
@@ -78,20 +80,96 @@ export default function BeamStock() {
     remarks: ''
   });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  // Active running loom numbers
+  const activeLoomNos = useMemo(() => {
+    const set = new Set<number>();
+    Object.values(activeRuns || {}).forEach((r: any) => {
+      const lNo = Number(r.loomNo || r.loom_no);
+      if (lNo) set.add(lNo);
+    });
+    return set;
+  }, [activeRuns]);
+
+  // Collect all running beam numbers from Main Entry (activeRuns)
+  const runningBeamNos = useMemo(() => {
+    const set = new Set<string>();
+    Object.values(activeRuns || {}).forEach((r: any) => {
+      const rBeamNo = (r.currentBeamNo || r.beam_no || '').trim().toUpperCase();
+      if (rBeamNo && rBeamNo !== 'NOT ALLOCATED' && rBeamNo !== '—') {
+        set.add(rBeamNo);
+      }
+    });
+    return set;
+  }, [activeRuns]);
+
+  // Collect all running beam IDs from Main Entry (activeRuns)
+  const runningBeamIds = useMemo(() => {
+    const set = new Set<number>();
+    Object.values(activeRuns || {}).forEach((r: any) => {
+      const bId = Number(r.beamId || r.beam_id);
+      if (bId) set.add(bId);
+    });
+    return set;
+  }, [activeRuns]);
+
+  // Collect all plan allocated beam numbers from rawNextPlans
+  const planAllocatedBeamNos = useMemo(() => {
+    const set = new Set<string>();
+    (rawNextPlans || []).forEach((p: any) => {
+      const pBeamNo = (p.reserved_beam_no || '').trim().toUpperCase();
+      if (pBeamNo && p.status !== 'CANCELLED' && p.status !== 'COMPLETED') {
+        set.add(pBeamNo);
+      }
+    });
+    return set;
+  }, [rawNextPlans]);
+
+  // Collect all plan allocated beam IDs from rawNextPlans
+  const planAllocatedBeamIds = useMemo(() => {
+    const set = new Set<number>();
+    (rawNextPlans || []).forEach((p: any) => {
+      const id = Number(p.reserved_beam_id);
+      if (id && p.status !== 'CANCELLED' && p.status !== 'COMPLETED') {
+        set.add(id);
+      }
+    });
+    return set;
+  }, [rawNextPlans]);
 
   const fetchData = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/beam-stock`);
       if (!res.ok) throw new Error('Failed to fetch beam stock');
       const data = await res.json();
-      
-      setDbBeamCount(data.length);
 
       if (Array.isArray(data) && data.length > 0) {
-        const mapped: BeamRowState[] = data.map((b: any, idx: number) => {
+        // Physical beam stock page: exclude any beams that are running on looms, allocated to plans, or completed
+        const stockOnly = data.filter((b: any) => {
+          const norm = (b.status || b.beam_status || '').trim().toUpperCase();
+          const bNo = (b.beam_no || '').trim().toUpperCase();
+          const bId = Number(b.id);
+
+          const isLoomRunning = 
+            norm === 'RUNNING' || norm === 'IN USE' || norm === 'ON LOOM' || 
+            (Boolean(b.loom_no_assigned) && Number(b.loom_no_assigned) > 0 && activeLoomNos.has(Number(b.loom_no_assigned))) ||
+            (bNo && runningBeamNos.has(bNo) && norm !== 'AVAILABLE' && norm !== 'READY') ||
+            (bId && runningBeamIds.has(bId) && norm !== 'AVAILABLE' && norm !== 'READY');
+
+          const isPlanAllocated = 
+            norm === 'ALLOCATED' || norm === 'RESERVED' || norm === 'ASSIGNED' || 
+            (bNo && planAllocatedBeamNos.has(bNo)) || 
+            (bId && planAllocatedBeamIds.has(bId)) ||
+            Boolean(b.loom_no_assigned && Number(b.loom_no_assigned) > 0) ||
+            Boolean(b.reserved_for && String(b.reserved_for).trim() !== '' && String(b.reserved_for).trim().toUpperCase() !== 'NULL');
+
+          const isCompleted = norm === 'COMPLETED' || norm === 'EMPTY' || norm === 'SCRAP' || norm === 'ARCHIVED';
+
+          return !isLoomRunning && !isPlanAllocated && !isCompleted;
+        });
+
+        setDbBeamCount(stockOnly.length);
+
+        const mapped: BeamRowState[] = stockOnly.map((b: any, idx: number) => {
           let formattedDate = format(new Date(), 'yyyy-MM-dd');
           try {
             if (b.date) formattedDate = format(new Date(b.date), 'yyyy-MM-dd');
@@ -103,20 +181,14 @@ export default function BeamStock() {
             orders.find(o => o.ibpo_no === b.party_beam_no || o.order_no === b.party_beam_no || (b.remarks && b.remarks.includes(o.ibpo_no)))?.design_no_sp_no || 
             '';
 
-          let derivedStatus = b.status || 'Available';
-          if (b.loom_no_assigned || b.reserved_for) {
-            const norm = (derivedStatus || '').trim().toUpperCase();
-            if (norm === 'AVAILABLE' || norm === 'READY' || !norm) {
-              derivedStatus = 'ALLOCATED';
-            }
-          }
-
           return {
             id: b.id || `existing-${idx}`,
             date: formattedDate,
             design_no: designNoVal,
             vendor_name: b.vendor_name || b.party || '',
             party_beam_no: b.party_beam_no || b.vendor_beam_no || '',
+            order_no: b.order_no || b.party_beam_no || '',
+            ibpo: b.ibpo || b.party_beam_no || '',
             set_no: b.set_no || b.warping_batch_no || '',
             beam_no: b.beam_no || '',
             beam_type: b.beam_type || '',
@@ -126,7 +198,7 @@ export default function BeamStock() {
             warp_meter: b.total_warped_meter !== null && b.total_warped_meter !== undefined ? b.total_warped_meter : (b.available_meter || ''),
             age_of_beam: ageDays >= 0 ? ageDays : 0,
             location: b.location || '',
-            beam_status: derivedStatus,
+            beam_status: b.status || 'Available',
             remarks: b.remarks || '',
             loom_no_assigned: b.loom_no_assigned || null,
             reserved_for: b.reserved_for || null
@@ -134,6 +206,7 @@ export default function BeamStock() {
         });
         setRows(mapped);
       } else {
+        setDbBeamCount(0);
         // Initialize 15 blank rows ready for Excel copy-paste
         const emptyRows: BeamRowState[] = Array.from({ length: 15 }).map((_, idx) => ({
           id: `blank-${idx}`,
@@ -160,28 +233,14 @@ export default function BeamStock() {
     }
   };
 
+  useEffect(() => {
+    fetchData();
+  }, [runningBeamNos, planAllocatedBeamNos, runningBeamIds, planAllocatedBeamIds]);
+
   // Order-Wise Beam Requirement Summaries (SSOT — 13 Required Columns)
   const activeOrderRequirements = useMemo(() => {
     // Helper: normalize status string for case-insensitive comparison
     const normStatus = (s: string) => (s || '').trim().toUpperCase();
-
-    // Collect all running beam numbers from Main Entry (activeRuns)
-    const runningBeamNos = new Set<string>();
-    Object.values(activeRuns || {}).forEach((r: any) => {
-      const rBeamNo = (r.currentBeamNo || r.beam_no || '').trim().toUpperCase();
-      if (rBeamNo && rBeamNo !== 'NOT ALLOCATED' && rBeamNo !== '—') {
-        runningBeamNos.add(rBeamNo);
-      }
-    });
-
-    // Collect all plan allocated beam numbers from rawNextPlans
-    const planAllocatedBeamNos = new Set<string>();
-    (rawNextPlans || []).forEach((p: any) => {
-      const pBeamNo = (p.reserved_beam_no || '').trim().toUpperCase();
-      if (pBeamNo && p.status !== 'CANCELLED' && p.status !== 'COMPLETED') {
-        planAllocatedBeamNos.add(pBeamNo);
-      }
-    });
 
     return orders
       .filter(o => {
@@ -223,40 +282,31 @@ export default function BeamStock() {
           } catch(e) {}
         }
 
-        // ── BEAM COUNTS — design-specific, case-insensitive status matching ──
+        // ── BEAM COUNTS — design-specific and order-specific matching ──
         const seenBeamNos = new Set<string>();
         const matchingBeams = rows.filter(r => {
           const rDesign = (r.design_no || '').trim().toLowerCase();
+          const rParty = (r.party_beam_no || r.ibpo || r.order_no || '').trim().toLowerCase();
           const rBeamNo = (r.beam_no || '').trim();
-          if (rDesign !== designNo.trim().toLowerCase()) return false;
           if (!rBeamNo) return false;
+          const isMatch = (rDesign && designNo && (rDesign === designNo.trim().toLowerCase() || rDesign.includes(designNo.trim().toLowerCase()) || designNo.trim().toLowerCase().includes(rDesign))) ||
+                          (rParty && ibpo && (rParty === ibpo.trim().toLowerCase() || rParty.includes(ibpo.trim().toLowerCase()) || ibpo.trim().toLowerCase().includes(rParty)));
+          if (!isMatch) return false;
           if (seenBeamNos.has(rBeamNo.toUpperCase())) return false;
           seenBeamNos.add(rBeamNo.toUpperCase());
           return true;
         });
 
-        // AVAILABLE: physical beams in stock NOT yet allocated or assigned or running
-        const availableStatuses = new Set(['AVAILABLE', 'READY']);
-        const allocatedStatuses = new Set(['RESERVED', 'ALLOCATED', 'RUNNING', 'CONFIRMED', 'IN USE', 'ASSIGNED']);
-
-        // Count allocations from rawNextPlans for this order/design
-        const planAllocatedCount = rawNextPlans.filter(p => {
-          const st = (p.status || '').toUpperCase();
-          if (st === 'CANCELLED' || st === 'COMPLETED') return false;
-          const pIbpo = (p.order_no || '').trim().toLowerCase();
-          const pDes = (p.next_design || '').trim().toLowerCase();
-          const tIbpo = (ibpo || '').trim().toLowerCase();
-          const tDes = (designNo || '').trim().toLowerCase();
-          const isMatch = (pIbpo && pIbpo === tIbpo) || (pDes && pDes === tDes);
-          return isMatch && (p.reserved_beam_id || p.reserved_beam_no || p.beam_status === 'BEAM ALLOCATED');
-        }).length;
+        // AVAILABLE: physical beams currently in stock and ready
+        const availableStatuses = new Set(['AVAILABLE', 'READY', 'CUT BEAM']);
 
         const availablePhysicalBeamsList = matchingBeams.filter(b => {
           const st = normStatus(b.beam_status);
           const bNo = (b.beam_no || '').trim().toUpperCase();
-          const isRunning = runningBeamNos.has(bNo) || st === 'RUNNING' || st === 'IN USE';
-          const isAssigned = !!b.loom_no_assigned || (b.remarks && b.remarks.includes('Reserved')) || planAllocatedBeamNos.has(bNo);
-          return availableStatuses.has(st) && !isRunning && !isAssigned;
+          const bId = typeof b.id === 'number' ? b.id : null;
+          const isRunning = runningBeamNos.has(bNo) || (bId !== null && runningBeamIds.has(bId)) || st === 'RUNNING' || st === 'IN USE';
+          const isAssigned = (!!b.loom_no_assigned && Number(b.loom_no_assigned) > 0) || (b.remarks && b.remarks.includes('Reserved')) || (b.reserved_for && String(b.reserved_for).trim() !== '') || planAllocatedBeamNos.has(bNo) || (bId !== null && planAllocatedBeamIds.has(bId));
+          return (availableStatuses.has(st) || !st) && !isRunning && !isAssigned;
         });
 
         const availableBeams = availablePhysicalBeamsList.length;
@@ -267,21 +317,37 @@ export default function BeamStock() {
           return sum + mtr;
         }, 0);
 
-        // WARP BALANCE = REQUIRED WARP MTR - USABLE AVAILABLE BEAM WARP MTR
-        const warpBalance = finalWarpMtr - availableWarpMtr;
-
-        const physAllocatedCount = matchingBeams.filter(b => {
-          const st = normStatus(b.beam_status);
-          const bNo = (b.beam_no || '').trim().toUpperCase();
-          const isRunning = runningBeamNos.has(bNo);
-          const isAssigned = !!b.loom_no_assigned || (b.remarks && b.remarks.includes('Reserved')) || planAllocatedBeamNos.has(bNo);
-          return allocatedStatuses.has(st) || isAssigned || isRunning;
+        // Active running looms weaving this design or order
+        const runningLoomCountForOrder = Object.values(activeRuns || {}).filter((r: any) => {
+          if (!r) return false;
+          const rDes = (r.designNo || r.design_no_sp_no || '').trim().toLowerCase();
+          const rOrd = (r.orderNo || r.order_no || r.customerName || '').trim().toLowerCase();
+          const tDes = designNo.trim().toLowerCase();
+          const tOrd = ibpo.trim().toLowerCase();
+          return (rDes && (rDes === tDes || rDes.includes(tDes) || tDes.includes(rDes))) ||
+                 (rOrd && (rOrd === tOrd || rOrd.includes(tOrd) || tOrd.includes(rOrd)));
         }).length;
 
-        const allocatedBeams = Math.max(physAllocatedCount, planAllocatedCount);
+        // Count allocations from rawNextPlans for this order/design
+        const planAllocatedCount = rawNextPlans.filter(p => {
+          const st = (p.status || '').toUpperCase();
+          if (st === 'CANCELLED' || st === 'COMPLETED') return false;
+          const pIbpo = (p.order_no || '').trim().toLowerCase();
+          const pDes = (p.next_design || '').trim().toLowerCase();
+          const tIbpo = (ibpo || '').trim().toLowerCase();
+          const tDes = (designNo || '').trim().toLowerCase();
+          const isMatch = (pIbpo && (pIbpo === tIbpo || pIbpo.includes(tIbpo) || tIbpo.includes(pIbpo))) ||
+                          (pDes && (pDes === tDes || pDes.includes(tDes) || tDes.includes(pDes)));
+          return isMatch && (p.reserved_beam_id || p.reserved_beam_no || p.beam_status === 'BEAM ALLOCATED' || st === 'CONFIRMED');
+        }).length;
+
+        const allocatedBeams = runningLoomCountForOrder + planAllocatedCount;
 
         // BALANCE BEAMS: Net outstanding required beams = MAX(Required Beams - Allocated Beams, 0)
         const balanceBeams = Math.max(0, requiredBeams - allocatedBeams);
+
+        // WARP BALANCE = If all beams allocated, balance is 0; otherwise outstanding warp meters minus available stock
+        const warpBalance = balanceBeams === 0 ? 0 : Math.max(0, (balanceBeams * Math.round(finalWarpMtr / Math.max(1, requiredBeams))) - availableWarpMtr);
 
         return {
           ord,
@@ -303,11 +369,11 @@ export default function BeamStock() {
           balanceBeams
         };
       });
-  }, [orders, designs, rows, rawNextPlans, activeRuns, manualWarpOverrides]);
+  }, [orders, designs, rows, rawNextPlans, activeRuns, manualWarpOverrides, runningBeamNos, runningBeamIds, planAllocatedBeamNos, planAllocatedBeamIds]);
 
   // Filtered Order Requirements for Display
   const displayedOrderRequirements = useMemo(() => {
-    let list = showAllOrders ? activeOrderRequirements : activeOrderRequirements.filter(r => r.balanceBeams > 0);
+    let list = showAllOrders ? activeOrderRequirements : activeOrderRequirements.filter(r => r.balanceBeams > 0 || r.allocatedBeams > 0 || r.requiredBeams > 0);
     if (!orderReqSearchTerm.trim()) return list;
     const q = orderReqSearchTerm.trim().toLowerCase();
     return list.filter(r =>
@@ -325,9 +391,14 @@ export default function BeamStock() {
     const totalBeamsRequired = activeOrderRequirements.reduce((sum, r) => sum + r.requiredBeams, 0);
     const totalMetersRequired = activeOrderRequirements.reduce((sum, r) => sum + r.finalWarpMtr, 0);
     const totalPhysicalAvailable = rows.filter(r => {
+      const bNo = (r.beam_no || '').trim().toUpperCase();
+      if (!bNo) return false;
       const st = (r.beam_status || '').trim().toUpperCase();
-      const isAssigned = !!(r as any).loom_no_assigned || (r.remarks && r.remarks.includes('Reserved'));
-      return (st === 'AVAILABLE' || st === 'READY') && !isAssigned && (r.beam_no || '').trim() !== '';
+      const rId = typeof r.id === 'number' ? r.id : null;
+      const isLoomRunning = st === 'RUNNING' || st === 'IN USE' || runningBeamNos.has(bNo) || (rId !== null && runningBeamIds.has(rId));
+      const isAllocated = st === 'ALLOCATED' || st === 'RESERVED' || planAllocatedBeamNos.has(bNo) || (rId !== null && planAllocatedBeamIds.has(rId)) || Boolean(r.loom_no_assigned && Number(r.loom_no_assigned) > 0) || Boolean(r.reserved_for && String(r.reserved_for).trim() !== '');
+      const isCompleted = st === 'COMPLETED' || st === 'EMPTY' || st === 'SCRAP' || st === 'ARCHIVED';
+      return (st === 'AVAILABLE' || st === 'READY' || st === 'CUT BEAM' || !st) && !isLoomRunning && !isAllocated && !isCompleted;
     }).length;
 
     return {
@@ -336,7 +407,7 @@ export default function BeamStock() {
       totalMetersRequired,
       totalPhysicalAvailable
     };
-  }, [activeOrderRequirements, rows]);
+  }, [activeOrderRequirements, rows, runningBeamNos, runningBeamIds, planAllocatedBeamNos, planAllocatedBeamIds]);
 
   // Open Manual Warp Override Modal
   const handleOpenWarpOverrideModal = (req: any) => {
@@ -406,6 +477,8 @@ export default function BeamStock() {
       design_no: quickAddOrderModal.designNo,
       vendor_name: quickForm.vendor_name,
       party_beam_no: quickForm.party_beam_no,
+      order_no: quickAddOrderModal.ibpo,
+      ibpo: quickAddOrderModal.ibpo,
       set_no: quickForm.set_no,
       beam_no: quickForm.beam_no.trim(),
       beam_type: quickForm.beam_type,
@@ -443,10 +516,10 @@ export default function BeamStock() {
     }
   };
 
-  const handleRowChange = (index: number, field: keyof BeamRowState, value: any) => {
-    setRows(prev => {
-      const newRows = [...prev];
-      const updatedRow = { ...newRows[index], [field]: value };
+  const handleRowChange = (rowId: string | number, field: keyof BeamRowState, value: any) => {
+    setRows(prev => prev.map(row => {
+      if (row.id !== rowId) return row;
+      const updatedRow = { ...row, [field]: value };
       
       if (field === 'date' && value) {
         try {
@@ -457,15 +530,14 @@ export default function BeamStock() {
         } catch(e) {}
       }
 
-      newRows[index] = updatedRow;
-      return newRows;
-    });
+      return updatedRow;
+    }));
   };
 
   // Excel paste handler
   const handlePaste = (
     e: React.ClipboardEvent<HTMLInputElement | HTMLSelectElement>,
-    startRowIndex: number,
+    startRowId: string | number,
     startField: keyof BeamRowState
   ) => {
     e.preventDefault();
@@ -477,6 +549,9 @@ export default function BeamStock() {
 
     const startFieldIndex = FIELDS_ORDER.indexOf(startField);
     if (startFieldIndex === -1) return;
+
+    const startRowIndex = rows.findIndex(r => r.id === startRowId);
+    if (startRowIndex === -1) return;
 
     const isTabSeparated = rawLines[0].includes('\t');
 
@@ -584,6 +659,8 @@ export default function BeamStock() {
         design_no: r.design_no || '',
         vendor_name: r.vendor_name || '',
         party_beam_no: r.party_beam_no || '',
+        order_no: r.order_no || r.party_beam_no || '',
+        ibpo: r.ibpo || r.party_beam_no || '',
         set_no: r.set_no || '',
         beam_no: String(r.beam_no).trim(),
         beam_type: r.beam_type || '',
@@ -665,8 +742,9 @@ export default function BeamStock() {
   };
 
   // Safe Deletion Safeguard
-  const handleDeleteRow = async (index: number) => {
-    const target = rows[index];
+  const handleDeleteRow = async (rowId: string | number) => {
+    const target = rows.find(r => r.id === rowId);
+    if (!target) return;
 
     // Check allocation safeguard
     const statusUpper = (target.beam_status || '').toUpperCase();
@@ -687,13 +765,13 @@ export default function BeamStock() {
         console.error(e);
       }
     }
-    setRows(prev => prev.filter((_, idx) => idx !== index));
+    setRows(prev => prev.filter(r => r.id !== rowId));
     setSuccessMsg(`Beam #${target.beam_no || 'Row'} deleted.`);
     setTimeout(() => setSuccessMsg(null), 3000);
   };
 
   const handleExportExcel = () => {
-    const exportData = rows
+    const exportData = filteredRows
       .filter(r => r.beam_no !== '')
       .map(r => ({
         'Date': r.date,
@@ -720,17 +798,57 @@ export default function BeamStock() {
   };
 
   const filteredRows = rows.filter(r => {
-    const normSt = (r.beam_status || '').toUpperCase();
+    const bNo = (r.beam_no || '').trim().toUpperCase();
+    const normSt = (r.beam_status || '').trim().toUpperCase();
+    const rId = typeof r.id === 'number' ? r.id : null;
 
-    const matchesSearch = !searchTerm || 
-      (r.beam_no || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-      (r.design_no || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (r.vendor_name || '').toLowerCase().includes(searchTerm.toLowerCase());
+    // Blank template rows (e.g. for Excel paste) stay visible in ALL view
+    if (!bNo) return statusFilter === 'ALL';
 
-    // Beams running on looms are active on the loom floor and must NOT be shown in stock inventory view unless specifically filtered
-    const matchesStatus = statusFilter === 'ALL'
-      ? normSt !== 'RUNNING' && normSt !== 'IN USE'
-      : normSt === statusFilter.toUpperCase();
+    const isLoomRunning = 
+      normSt === 'RUNNING' || normSt === 'IN USE' || normSt === 'ON LOOM' || 
+      runningBeamNos.has(bNo) || 
+      (rId !== null && runningBeamIds.has(rId)) ||
+      (Boolean(r.loom_no_assigned) && Number(r.loom_no_assigned) > 0 && activeLoomNos.has(Number(r.loom_no_assigned)));
+
+    const isAllocated = 
+      normSt === 'ALLOCATED' || normSt === 'RESERVED' || normSt === 'ASSIGNED' || 
+      planAllocatedBeamNos.has(bNo) || 
+      (rId !== null && planAllocatedBeamIds.has(rId)) ||
+      Boolean(r.loom_no_assigned && Number(r.loom_no_assigned) > 0) ||
+      Boolean(r.reserved_for && String(r.reserved_for).trim() !== '' && String(r.reserved_for).trim().toUpperCase() !== 'NULL');
+
+    const isCompleted = normSt === 'COMPLETED' || normSt === 'EMPTY' || normSt === 'SCRAP' || normSt === 'ARCHIVED';
+
+    // IN BEAM STOCK PAGE: Beams that are running on a loom, allocated, or completed MUST NEVER stay in this page
+    if (isLoomRunning || isAllocated || isCompleted) {
+      return false;
+    }
+
+    const q = (searchTerm || '').trim().toLowerCase();
+    const matchesSearch = !q || 
+      (r.beam_no || '').toLowerCase().includes(q) || 
+      (r.party_beam_no || '').toLowerCase().includes(q) || 
+      (r.order_no || '').toLowerCase().includes(q) || 
+      (r.ibpo || '').toLowerCase().includes(q) || 
+      (r.design_no || '').toLowerCase().includes(q) ||
+      (r.set_no || '').toLowerCase().includes(q) ||
+      (r.vendor_name || '').toLowerCase().includes(q) ||
+      (r.remarks || '').toLowerCase().includes(q) ||
+      (r.location || '').toLowerCase().includes(q) ||
+      ((r as any).party || '').toLowerCase().includes(q) ||
+      ((r as any).customer || '').toLowerCase().includes(q) ||
+      (r.beam_type || '').toLowerCase().includes(q) ||
+      (r.loom_no_assigned && r.loom_no_assigned.toString().includes(q));
+
+    let matchesStatus = false;
+    if (statusFilter === 'ALL') {
+      matchesStatus = true;
+    } else if (statusFilter === 'Available') {
+      matchesStatus = normSt === 'AVAILABLE' || normSt === 'READY' || !normSt;
+    } else {
+      matchesStatus = normSt === statusFilter.toUpperCase();
+    }
 
     return matchesSearch && matchesStatus;
   });
@@ -759,6 +877,13 @@ export default function BeamStock() {
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center"
           >
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh Requirements & Stock
+          </button>
+          <button
+            onClick={() => triggerPrint({ orientation: 'landscape', title: 'Beam Stock & Requirement Control' })}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center"
+            title="Print / Save PDF"
+          >
+            <Download className="w-4 h-4 mr-2" /> PDF
           </button>
         </div>
       </div>
@@ -857,23 +982,28 @@ export default function BeamStock() {
         </div>
 
         {/* Requirements Table — All 14 Columns Fit On Screen */}
-        <div className="overflow-x-auto custom-scrollbar">
+        <div className="overflow-x-auto custom-scrollbar print:overflow-visible">
           <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
             <thead>
-              <tr className="bg-slate-950 text-slate-400 uppercase text-[9.5px] font-black border-b border-slate-800">
+              <PrintTableHeaderRow 
+                title="Beam Stock & Requirement Control" 
+                subtitle="Physical Beam Inventory & Loom Allocation Report" 
+                colSpan={14} 
+              />
+              <tr className="bg-slate-950 text-slate-400 uppercase text-[9.5px] font-black border-b border-slate-800 print:bg-slate-100 print:text-black">
                 <th className="py-2 px-1 text-center">#</th>
-                <th className="py-2 px-1.5 text-blue-300">IBPO / ORDER NO</th>
+                <th className="py-2 px-1.5 text-blue-300 print:text-black">IBPO / ORDER NO</th>
                 <th className="py-2 px-1.5">DESIGN NO</th>
                 <th className="py-2 px-1.5 text-right">ORDER MTR</th>
-                <th className="py-2 px-1.5 text-right text-purple-300">WARP MTR</th>
+                <th className="py-2 px-1.5 text-right text-purple-300 print:text-black">WARP MTR</th>
                 <th className="py-2 px-1 text-center">PLANNED LOOMS</th>
-                <th className="py-2 px-1.5 text-center text-cyan-300">PLANNED SIZING DATE</th>
-                <th className="py-2 px-1.5 text-center text-indigo-300">LOOM START DATE</th>
+                <th className="py-2 px-1.5 text-center text-cyan-300 print:text-black">PLANNED SIZING DATE</th>
+                <th className="py-2 px-1.5 text-center text-indigo-300 print:text-black">LOOM START DATE</th>
                 <th className="py-2 px-1 text-center">REQ BEAMS</th>
-                <th className="py-2 px-1 text-center text-emerald-400">AVAIL BEAMS</th>
-                <th className="py-2 px-1 text-center text-purple-400">ALLOC BEAMS</th>
-                <th className="py-2 px-1.5 text-center text-amber-300 font-black">BAL BEAMS</th>
-                <th className="py-2 px-1.5 text-center text-pink-300 font-black">BAL WARP MTR</th>
+                <th className="py-2 px-1 text-center text-emerald-400 print:text-black">AVAIL BEAMS</th>
+                <th className="py-2 px-1 text-center text-purple-400 print:text-black">ALLOC BEAMS</th>
+                <th className="py-2 px-1.5 text-center text-amber-300 font-black print:text-black">BAL BEAMS</th>
+                <th className="py-2 px-1.5 text-center text-pink-300 font-black print:text-black">BAL WARP MTR</th>
                 <th className="py-2 px-1 text-center">ACTION</th>
               </tr>
             </thead>
@@ -1030,7 +1160,7 @@ export default function BeamStock() {
                 <th className="p-2 min-w-[110px]">Date *</th>
                 <th className="p-2 min-w-[130px] text-blue-300">Design No</th>
                 <th className="p-2 min-w-[120px]">Vendor Name</th>
-                <th className="p-2 min-w-[110px]">Party Beam No</th>
+                <th className="p-2 min-w-[110px]">Party / IBPO No</th>
                 <th className="p-2 min-w-[100px]">Set No</th>
                 <th className="p-2 min-w-[110px] text-amber-300">Beam No *</th>
                 <th className="p-2 min-w-[110px]">Beam Type</th>
@@ -1056,8 +1186,8 @@ export default function BeamStock() {
                       <input
                         type="date"
                         value={row.date}
-                        onChange={e => handleRowChange(index, 'date', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'date')}
+                        onChange={e => handleRowChange(row.id, 'date', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'date')}
                         className="w-full p-1.5 border border-slate-300 rounded font-semibold text-xs outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </td>
@@ -1067,8 +1197,8 @@ export default function BeamStock() {
                         type="text"
                         placeholder="SP26/..."
                         value={row.design_no}
-                        onChange={e => handleRowChange(index, 'design_no', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'design_no')}
+                        onChange={e => handleRowChange(row.id, 'design_no', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'design_no')}
                         className="w-full p-1.5 border border-slate-300 rounded font-bold text-xs text-blue-900 outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </td>
@@ -1078,8 +1208,8 @@ export default function BeamStock() {
                         type="text"
                         placeholder="Vendor"
                         value={row.vendor_name}
-                        onChange={e => handleRowChange(index, 'vendor_name', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'vendor_name')}
+                        onChange={e => handleRowChange(row.id, 'vendor_name', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'vendor_name')}
                         className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </td>
@@ -1087,10 +1217,10 @@ export default function BeamStock() {
                     <td className="p-1">
                       <input
                         type="text"
-                        placeholder="Party No"
+                        placeholder="Party / IBPO No"
                         value={row.party_beam_no}
-                        onChange={e => handleRowChange(index, 'party_beam_no', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'party_beam_no')}
+                        onChange={e => handleRowChange(row.id, 'party_beam_no', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'party_beam_no')}
                         className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </td>
@@ -1100,8 +1230,8 @@ export default function BeamStock() {
                         type="text"
                         placeholder="Set No"
                         value={row.set_no}
-                        onChange={e => handleRowChange(index, 'set_no', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'set_no')}
+                        onChange={e => handleRowChange(row.id, 'set_no', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'set_no')}
                         className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </td>
@@ -1111,8 +1241,8 @@ export default function BeamStock() {
                         type="text"
                         placeholder="BM-..."
                         value={row.beam_no}
-                        onChange={e => handleRowChange(index, 'beam_no', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'beam_no')}
+                        onChange={e => handleRowChange(row.id, 'beam_no', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'beam_no')}
                         className="w-full p-1.5 border border-amber-300 bg-amber-50/50 rounded font-black text-xs text-slate-900 outline-none focus:ring-1 focus:ring-amber-500"
                       />
                     </td>
@@ -1122,8 +1252,8 @@ export default function BeamStock() {
                         type="text"
                         placeholder="Standard"
                         value={row.beam_type}
-                        onChange={e => handleRowChange(index, 'beam_type', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'beam_type')}
+                        onChange={e => handleRowChange(row.id, 'beam_type', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'beam_type')}
                         className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </td>
@@ -1133,8 +1263,8 @@ export default function BeamStock() {
                         type="number"
                         placeholder="800"
                         value={row.beam_dia}
-                        onChange={e => handleRowChange(index, 'beam_dia', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'beam_dia')}
+                        onChange={e => handleRowChange(row.id, 'beam_dia', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'beam_dia')}
                         className="w-full p-1.5 border border-slate-300 rounded text-xs text-right outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </td>
@@ -1144,8 +1274,8 @@ export default function BeamStock() {
                         type="number"
                         placeholder="68"
                         value={row.beam_width}
-                        onChange={e => handleRowChange(index, 'beam_width', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'beam_width')}
+                        onChange={e => handleRowChange(row.id, 'beam_width', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'beam_width')}
                         className="w-full p-1.5 border border-slate-300 rounded text-xs text-right outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </td>
@@ -1155,8 +1285,8 @@ export default function BeamStock() {
                         type="number"
                         placeholder="4648"
                         value={row.total_ends}
-                        onChange={e => handleRowChange(index, 'total_ends', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'total_ends')}
+                        onChange={e => handleRowChange(row.id, 'total_ends', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'total_ends')}
                         className="w-full p-1.5 border border-slate-300 rounded text-xs text-right outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </td>
@@ -1166,8 +1296,8 @@ export default function BeamStock() {
                         type="number"
                         placeholder="5000"
                         value={row.warp_meter}
-                        onChange={e => handleRowChange(index, 'warp_meter', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'warp_meter')}
+                        onChange={e => handleRowChange(row.id, 'warp_meter', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'warp_meter')}
                         className="w-full p-1.5 border border-emerald-300 bg-emerald-50/50 rounded font-bold text-xs text-right text-emerald-950 outline-none focus:ring-1 focus:ring-emerald-500"
                       />
                     </td>
@@ -1181,8 +1311,8 @@ export default function BeamStock() {
                         type="text"
                         placeholder="Location"
                         value={row.location}
-                        onChange={e => handleRowChange(index, 'location', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'location')}
+                        onChange={e => handleRowChange(row.id, 'location', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'location')}
                         className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </td>
@@ -1190,12 +1320,10 @@ export default function BeamStock() {
                     <td className="p-1">
                       <select
                         value={BEAM_STATUSES.find(s => s.toUpperCase() === (row.beam_status || '').toUpperCase()) || row.beam_status || 'Available'}
-                        onChange={e => handleRowChange(index, 'beam_status', e.target.value)}
+                        onChange={e => handleRowChange(row.id, 'beam_status', e.target.value)}
                         className={`w-full p-1.5 border rounded font-bold text-xs outline-none ${
-                          (row.beam_status || '').toUpperCase() === 'ALLOCATED' || (row.beam_status || '').toUpperCase() === 'RESERVED'
-                            ? 'border-purple-400 bg-purple-50 text-purple-900 font-extrabold'
-                            : (row.beam_status || '').toUpperCase() === 'RUNNING'
-                            ? 'border-blue-400 bg-blue-50 text-blue-900 font-extrabold'
+                          (row.beam_status || '').toUpperCase() === 'CUT BEAM'
+                            ? 'border-amber-500 bg-amber-100 text-amber-950 font-black ring-2 ring-amber-400'
                             : 'border-slate-300 bg-white text-slate-900'
                         }`}
                       >
@@ -1208,15 +1336,15 @@ export default function BeamStock() {
                         type="text"
                         placeholder="Remarks"
                         value={row.remarks}
-                        onChange={e => handleRowChange(index, 'remarks', e.target.value)}
-                        onPaste={e => handlePaste(e, index, 'remarks')}
+                        onChange={e => handleRowChange(row.id, 'remarks', e.target.value)}
+                        onPaste={e => handlePaste(e, row.id, 'remarks')}
                         className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </td>
 
                     <td className="p-2 text-center print:hidden">
                       <button
-                        onClick={() => handleDeleteRow(index)}
+                        onClick={() => handleDeleteRow(row.id)}
                         className="text-red-500 hover:text-red-700 font-bold text-xs p-1"
                         title="Delete Row"
                       >

@@ -12,13 +12,7 @@ export default function Alerts() {
   const alertData = useMemo(() => {
     return Object.values(activeRuns)
       .map(run => {
-        const design = designs.find(d => d.designNo === run.designNo);
-        const calc = calculateLoomRun({
-          loomStartDate: new Date(run.loomStartDate),
-          warpedMeter: run.warpedMeter,
-          dailyProduction: run.dailyProduction,
-          crimpPercent: design?.crimpPercent || 0,
-        });
+        const calc = calculateLoomRun(run as any);
         return { ...run, ...calc };
       })
       // Spec: balanceDays <= 15 AND next plan is NOT assigned
@@ -30,10 +24,17 @@ export default function Alerts() {
       .sort((a, b) => a.expectedRunoutDate.getTime() - b.expectedRunoutDate.getTime());
   }, [activeRuns, designs, nextPlans]);
 
-  const filteredData = alertData.filter(d => 
-    d.loomNo.toString().includes(searchTerm) || 
-    (d.designNo || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredData = alertData.filter(d => {
+    const q = (searchTerm || '').trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (d.loomNo || '').toString().toLowerCase().includes(q) || 
+      (d.designNo || '').toLowerCase().includes(q) ||
+      ((d as any).setNo || (d as any).set_no || '').toString().toLowerCase().includes(q) ||
+      ((d as any).currentBeamNo || (d as any).beam_no || '').toString().toLowerCase().includes(q) ||
+      ((d as any).orderNo || (d as any).order_no || '').toString().toLowerCase().includes(q)
+    );
+  });
 
   const getStatusColor = (days: number) => {
     if (days <= 2) return 'bg-red-100 text-red-700 border border-red-200';

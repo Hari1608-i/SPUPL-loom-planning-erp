@@ -1,12 +1,10 @@
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "debian-openssl-3.0.x"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 model AllocationAuditLog {
@@ -713,6 +711,42 @@ model DelayRecord {
   status           String    @default("OPEN")
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+}
+
+model DailyReportEntry {
+  id               Int      @id @default(autoincrement())
+  report_date      String
+  department_code  String
+  metric_code      String
+  metric_name      String
+  raw_value        String?
+  calculated_value String?
+  target_value     Float?
+  actual_value     Float?
+  diff_value       Float?
+  pct_value        Float?
+  department_head  String?
+  mentor           String?
+  performance_mark String?
+  remarks          String?
+  entered_by       String?  @default("ADMIN")
+  status           String   @default("SUBMITTED")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([report_date, department_code, metric_code])
+  @@index([report_date])
+  @@index([department_code])
+  @@index([report_date, department_code])
+}
+
+model DepartmentMasterInfo {
+  department_code String   @id
+  department_name String
+  department_head String
+  mentor          String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 

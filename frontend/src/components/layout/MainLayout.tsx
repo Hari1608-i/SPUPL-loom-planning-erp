@@ -6,11 +6,12 @@ import {
   Calendar, History as HistoryIcon, PieChart, AlertCircle, ListTodo, Activity,
   ListOrdered, Cpu, Package, Palette, Users, LogOut, Search, Bell, Moon, Sun,
   User as UserIcon, ClipboardList, ChevronDown, Layers, CheckCircle,
-  ShieldAlert, AlertTriangle, X, ArrowUpRight, RefreshCw
+  ShieldAlert, AlertTriangle, X, ArrowUpRight, RefreshCw, FileSpreadsheet
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../../config';
 import { COMPANY_LOGO_DATA_URL } from '../../assets/logoDataUrl';
+import { useAppContext } from '../../context/AppProvider';
 
 /* ─── Sidebar helpers ─────────────────────────────────────────────── */
 
@@ -117,9 +118,10 @@ function NotificationBell() {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          // Sort: CRITICAL first, then HIGH, then others; only OPEN
+          // Sort: CRITICAL first, then HIGH, then others; only OPEN, exclude DELIVERY
+          const ALLOWED_DEPTS = ['PLANNING', 'SIZING', 'REED', 'WEAVING', 'RUNOUT'];
           const sorted = data
-            .filter((a: AlertItem) => a.status === 'OPEN')
+            .filter((a: AlertItem) => a.status === 'OPEN' && a.department?.toUpperCase() !== 'DELIVERY' && ALLOWED_DEPTS.includes(a.department?.toUpperCase()))
             .sort((a: AlertItem, b: AlertItem) => {
               const rank = (p: string) =>
                 p.includes('CRITICAL') ? 0 : p.includes('HIGH') ? 1 : p.includes('MEDIUM') ? 2 : 3;
@@ -147,10 +149,10 @@ function NotificationBell() {
     }
   };
 
-  // Auto-fetch on mount and every 20s
+  // Auto-fetch on mount and every 5s
   useEffect(() => {
     fetchAlerts();
-    const interval = setInterval(fetchAlerts, 20000);
+    const interval = setInterval(fetchAlerts, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -391,6 +393,11 @@ function NotificationBell() {
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const { activeRuns, designs, orders, beams } = useAppContext();
+  const [headerSearch, setHeaderSearch] = useState('');
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem('spuTheme') === 'dark' ||
@@ -400,6 +407,69 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [openAlertCount, setOpenAlertCount] = useState<number>(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const searchResults = React.useMemo(() => {
+    const q = (headerSearch || '').trim().toLowerCase();
+    if (!q) return { looms: [], designs: [], orders: [], beams: [], total: 0 };
+
+    const matchedLooms = Object.values(activeRuns || {})
+      .filter((r: any) => 
+        (r.loomNo || '').toString().toLowerCase().includes(q) ||
+        (r.designNo || '').toLowerCase().includes(q) ||
+        ((r.setNo || r.set_no || '')).toString().toLowerCase().includes(q) ||
+        ((r.currentBeamNo || r.beam_no || '')).toString().toLowerCase().includes(q) ||
+        ((r.orderNo || r.order_no || '')).toString().toLowerCase().includes(q)
+      )
+      .slice(0, 5);
+
+    const matchedDesigns = (designs || [])
+      .filter((d: any) =>
+        (d.design_no_sp_no || d.designNo || '').toLowerCase().includes(q) ||
+        (d.construction || '').toLowerCase().includes(q)
+      )
+      .slice(0, 4);
+
+    const matchedOrders = (orders || [])
+      .filter((o: any) =>
+        (o.ibpo_no || '').toLowerCase().includes(q) ||
+        (o.order_no || '').toLowerCase().includes(q) ||
+        (o.customer_name || '').toLowerCase().includes(q) ||
+        (o.design_no_sp_no || '').toLowerCase().includes(q)
+      )
+      .slice(0, 4);
+
+    const matchedBeams = (beams || [])
+      .filter((b: any) =>
+        (b.beam_no || '').toLowerCase().includes(q) ||
+        ((b.set_no || '')).toString().toLowerCase().includes(q) ||
+        (b.party_beam_no || '').toLowerCase().includes(q) ||
+        (b.design_no || '').toLowerCase().includes(q)
+      )
+      .slice(0, 4);
+
+    return {
+      looms: matchedLooms,
+      designs: matchedDesigns,
+      orders: matchedOrders,
+      beams: matchedBeams,
+      total: matchedLooms.length + matchedDesigns.length + matchedOrders.length + matchedBeams.length
+    };
+  }, [headerSearch, activeRuns, designs, orders, beams]);
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = (headerSearch || '').trim();
+    if (!q) return;
+
+    setShowSearchDropdown(false);
+    if (searchResults.orders.length > 0 && searchResults.looms.length === 0) {
+      navigate('/orders');
+    } else if (searchResults.beams.length > 0 && searchResults.looms.length === 0 && searchResults.designs.length === 0) {
+      navigate('/beam-stock');
+    } else {
+      navigate('/runout');
+    }
+  };
+
   /* Fetch Open Critical + High Alerts count for sidebar badge */
   useEffect(() => {
     const fetchBadge = async () => {
@@ -408,7 +478,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         if (res.ok) {
           const alerts = await res.json();
           if (Array.isArray(alerts)) {
-            const urgentCount = alerts.filter((a: any) => a.status === 'OPEN' && (a.priority.includes('CRITICAL') || a.priority.includes('HIGH'))).length;
+            const ALLOWED_DEPTS = ['PLANNING', 'SIZING', 'REED', 'WEAVING', 'RUNOUT'];
+            const urgentCount = alerts.filter((a: any) => 
+              a.status === 'OPEN' && 
+              a.department?.toUpperCase() !== 'DELIVERY' &&
+              ALLOWED_DEPTS.includes(a.department?.toUpperCase()) &&
+              (a.priority.includes('CRITICAL') || a.priority.includes('HIGH'))
+            ).length;
             setOpenAlertCount(urgentCount);
           }
         }
@@ -417,7 +493,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       }
     };
     fetchBadge();
-    const interval = setInterval(fetchBadge, 20000);
+    const interval = setInterval(fetchBadge, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -433,11 +509,14 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     }
   }, [isDarkMode]);
 
-  /* Close dropdown on outside click */
+  /* Close dropdowns on outside click */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setShowUserDropdown(false);
+      }
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setShowSearchDropdown(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -483,11 +562,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           </SidebarGroup>
 
           <SidebarGroup title="Planning" isCollapsed={isCollapsed}>
-            <SidebarItem to="/orders"        icon={ClipboardList} label="Order Management"    menuName="Order Management"    isCollapsed={isCollapsed} />
-            <SidebarItem to="/plan"          icon={HistoryIcon}   label="Loom Planning Setup"  menuName="Loom Planning Setup" isCollapsed={isCollapsed} />
-            <SidebarItem to="/erp-alerts"    icon={AlertCircle}   label="Alert Center"         menuName="Alert Center"        isCollapsed={isCollapsed} badgeCount={openAlertCount} />
-            <SidebarItem to="/runout-monitor" icon={Activity}     label="Runout Monitor"       menuName="Runout Monitor"      isCollapsed={isCollapsed} />
-            <SidebarItem to="/planned-looms" icon={ListTodo}      label="Next Planned Looms"   menuName="Next Planned Looms"  isCollapsed={isCollapsed} />
+            <SidebarItem to="/orders"         icon={ClipboardList}    label="Order Management"           menuName="Order Management"                   isCollapsed={isCollapsed} />
+            <SidebarItem to="/order-tracking" icon={Activity}         label="Order Tracking & Analytics" menuName="Order Tracking & Planning Analytics" isCollapsed={isCollapsed} />
+            <SidebarItem to="/daily-report"   icon={FileSpreadsheet}  label="Daily & Monthly Reports"    menuName="Daily & Monthly Reports"             isCollapsed={isCollapsed} />
+            <SidebarItem to="/plan"           icon={HistoryIcon}      label="Loom Planning Setup"         menuName="Loom Planning Setup"                isCollapsed={isCollapsed} />
+            <SidebarItem to="/erp-alerts"     icon={AlertCircle}      label="Alert Center"                menuName="Alert Center"                       isCollapsed={isCollapsed} badgeCount={openAlertCount} />
+            <SidebarItem to="/runout-monitor" icon={Activity}         label="Runout Monitor"              menuName="Runout Monitor"                     isCollapsed={isCollapsed} />
+            <SidebarItem to="/planned-looms"  icon={ListTodo}         label="Next Planned Looms"          menuName="Next Planned Looms"                 isCollapsed={isCollapsed} />
           </SidebarGroup>
 
           <SidebarGroup title="History & Completion" isCollapsed={isCollapsed}>
@@ -558,19 +639,153 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
 
         {/* Top header */}
-        <header className="h-16 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-6 shadow-sm z-20 flex-shrink-0 bg-white dark:bg-slate-800 transition-colors">
+        <header className="h-16 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-6 shadow-sm z-20 flex-shrink-0 bg-white dark:bg-slate-800 transition-colors print:hidden">
 
           <div className="flex items-center flex-1 gap-6">
             <div className="hidden md:flex items-center">
               <img src="/logo.png" alt="Santhi Processing Unit Logo" className="h-10 w-auto object-contain bg-white p-1 rounded-xl shadow-sm border border-slate-200" />
             </div>
-            <div className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-colors max-w-md w-full ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-600 focus-within:border-spu-secondary'}`}>
-              <Search className="w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search looms, designs, beams..."
-                className="bg-transparent border-none outline-none text-sm w-full font-medium"
-              />
+            <div ref={searchContainerRef} className="relative max-w-md w-full">
+              <form onSubmit={handleSearchSubmit} className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-colors w-full ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-600 focus-within:border-spu-secondary'}`}>
+                <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Search looms, designs, orders, beams, sets..."
+                  value={headerSearch}
+                  onFocus={() => setShowSearchDropdown(true)}
+                  onChange={e => {
+                    setHeaderSearch(e.target.value);
+                    setShowSearchDropdown(true);
+                  }}
+                  className="bg-transparent border-none outline-none text-sm w-full font-medium"
+                />
+                {headerSearch && (
+                  <button
+                    type="button"
+                    onClick={() => { setHeaderSearch(''); setShowSearchDropdown(false); }}
+                    className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full text-slate-400"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </form>
+
+              {/* Floating Live Results Dropdown */}
+              {showSearchDropdown && headerSearch.trim().length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden z-50 max-h-[420px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
+                  {searchResults.total === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-500 font-medium">
+                      No matching records found for "{headerSearch}".
+                    </div>
+                  ) : (
+                    <>
+                      {/* Matching Looms */}
+                      {searchResults.looms.length > 0 && (
+                        <div className="p-2">
+                          <div className="px-2 py-1 text-[10px] font-black uppercase text-slate-400 tracking-wider">Running Looms</div>
+                          {searchResults.looms.map((l: any) => (
+                            <button
+                              key={l.loomNo}
+                              type="button"
+                              onClick={() => {
+                                setShowSearchDropdown(false);
+                                setHeaderSearch('');
+                                navigate('/runout');
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-left hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors group"
+                            >
+                              <div>
+                                <span className="font-black text-sm text-slate-900 dark:text-white">Loom {l.loomNo}</span>
+                                <span className="ml-2 text-xs font-semibold text-spu-secondary dark:text-blue-400">{l.designNo}</span>
+                                <div className="text-[11px] text-slate-400">
+                                  Set: {l.setNo || l.set_no || '—'} • Beam: {l.currentBeamNo || l.beam_no || '—'}
+                                </div>
+                              </div>
+                              <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-spu-secondary opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Matching Orders */}
+                      {searchResults.orders.length > 0 && (
+                        <div className="p-2">
+                          <div className="px-2 py-1 text-[10px] font-black uppercase text-slate-400 tracking-wider">Orders & IBPOs</div>
+                          {searchResults.orders.map((o: any) => (
+                            <button
+                              key={o.id || o.order_no}
+                              type="button"
+                              onClick={() => {
+                                setShowSearchDropdown(false);
+                                setHeaderSearch('');
+                                navigate('/orders');
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-left hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors group"
+                            >
+                              <div>
+                                <span className="font-black text-xs text-blue-600 dark:text-blue-400">IBPO: {o.ibpo_no || o.order_no}</span>
+                                <span className="ml-2 text-xs text-slate-600 dark:text-slate-300 font-medium">{o.customer_name}</span>
+                                <div className="text-[11px] text-slate-400">Design: {o.design_no_sp_no}</div>
+                              </div>
+                              <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Matching Designs */}
+                      {searchResults.designs.length > 0 && (
+                        <div className="p-2">
+                          <div className="px-2 py-1 text-[10px] font-black uppercase text-slate-400 tracking-wider">Designs</div>
+                          {searchResults.designs.map((d: any, idx: number) => (
+                            <button
+                              key={d.id || idx}
+                              type="button"
+                              onClick={() => {
+                                setShowSearchDropdown(false);
+                                setHeaderSearch('');
+                                navigate('/runout');
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-left hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors group"
+                            >
+                              <div>
+                                <span className="font-black text-xs text-slate-900 dark:text-white">{d.design_no_sp_no || d.designNo}</span>
+                                <span className="ml-2 text-[11px] text-slate-500">{d.construction}</span>
+                              </div>
+                              <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Matching Beams */}
+                      {searchResults.beams.length > 0 && (
+                        <div className="p-2">
+                          <div className="px-2 py-1 text-[10px] font-black uppercase text-slate-400 tracking-wider">Beams & Sets</div>
+                          {searchResults.beams.map((b: any, idx: number) => (
+                            <button
+                              key={b.id || idx}
+                              type="button"
+                              onClick={() => {
+                                setShowSearchDropdown(false);
+                                setHeaderSearch('');
+                                navigate('/beam-stock');
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-left hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors group"
+                            >
+                              <div>
+                                <span className="font-black text-xs text-emerald-600 dark:text-emerald-400">Beam {b.beam_no}</span>
+                                <span className="ml-2 text-[11px] text-slate-500">Set: {b.set_no || '—'} • {b.party_beam_no || b.vendor_name || ''}</span>
+                              </div>
+                              <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

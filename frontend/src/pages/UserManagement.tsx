@@ -26,6 +26,7 @@ const screens = [
   "Availability Board",
   "Smart Recommendation",
   "Order Management",
+  "Order Tracking & Planning Analytics",
   "Loom Planning Setup",
   "Alert Center",
   "Runout Monitor",
@@ -63,7 +64,7 @@ const getDefaultRolePermissions = (role: string) => {
     if (roleUpper === 'ADMINISTRATOR' || roleUpper === 'ADMIN' || roleUpper === 'SYSTEM ADMINISTRATOR') {
       actions.forEach(a => perms[screen][a] = true);
     } else if (roleUpper === 'PLANNING' || roleUpper === 'PLANNING_MANAGER') {
-      const allowedScreens = ["Executive Dashboard", "Analytics", "Design-Wise Loom Running", "Loom Runout", "Design Runout", "Main Entry", "Availability Board", "Smart Recommendation", "Order Management", "Loom Planning Setup", "Alert Center", "Runout Monitor", "Next Planned Looms", "Order Completion & History", "Completed Warp History", "Completed Warp Analysis", "Loom Master", "Design Master", "Reed Stock", "Beam Stock", "Sizing Dashboard"];
+      const allowedScreens = ["Executive Dashboard", "Analytics", "Design-Wise Loom Running", "Loom Runout", "Design Runout", "Main Entry", "Availability Board", "Smart Recommendation", "Order Management", "Order Tracking & Planning Analytics", "Loom Planning Setup", "Alert Center", "Runout Monitor", "Next Planned Looms", "Order Completion & History", "Completed Warp History", "Completed Warp Analysis", "Loom Master", "Design Master", "Reed Stock", "Beam Stock", "Sizing Dashboard"];
       if (allowedScreens.includes(screen)) {
         perms[screen].view = true;
         perms[screen].create = true;
@@ -74,7 +75,7 @@ const getDefaultRolePermissions = (role: string) => {
         perms[screen].excel = true;
       }
     } else if (roleUpper === 'SIZING') {
-      const allowedScreens = ["Executive Dashboard", "Sizing Dashboard", "Beam Stock", "Reed Stock", "Alert Center", "Runout Monitor", "Main Entry", "Availability Board"];
+      const allowedScreens = ["Executive Dashboard", "Sizing Dashboard", "Beam Stock", "Reed Stock", "Alert Center", "Runout Monitor", "Main Entry", "Availability Board", "Order Tracking & Planning Analytics"];
       if (allowedScreens.includes(screen)) {
         perms[screen].view = true;
         perms[screen].create = true;
@@ -84,7 +85,7 @@ const getDefaultRolePermissions = (role: string) => {
         perms[screen].excel = true;
       }
     } else if (roleUpper === 'WEAVING') {
-      const allowedScreens = ["Executive Dashboard", "Main Entry", "Availability Board", "Loom Runout", "Design Runout", "Loom Master", "Design Master"];
+      const allowedScreens = ["Executive Dashboard", "Main Entry", "Availability Board", "Loom Runout", "Design Runout", "Loom Master", "Design Master", "Order Tracking & Planning Analytics"];
       if (allowedScreens.includes(screen)) {
         perms[screen].view = true;
         perms[screen].create = true;
@@ -94,7 +95,7 @@ const getDefaultRolePermissions = (role: string) => {
         perms[screen].excel = true;
       }
     } else if (roleUpper === 'MANAGEMENT') {
-      const allowedScreens = ["Executive Dashboard", "Analytics", "Design-Wise Loom Running", "Loom Runout", "Design Runout", "Order Completion & History", "Completed Warp History", "Completed Warp Analysis", "Order Management"];
+      const allowedScreens = ["Executive Dashboard", "Analytics", "Design-Wise Loom Running", "Loom Runout", "Design Runout", "Order Completion & History", "Completed Warp History", "Completed Warp Analysis", "Order Management", "Order Tracking & Planning Analytics"];
       if (allowedScreens.includes(screen)) {
         perms[screen].view = true;
         perms[screen].export = true;
@@ -102,7 +103,7 @@ const getDefaultRolePermissions = (role: string) => {
         perms[screen].excel = true;
       }
     } else if (roleUpper === 'MERCH') {
-      const allowedScreens = ["Executive Dashboard", "Analytics", "Order Management", "Order Completion & History", "Design Master"];
+      const allowedScreens = ["Executive Dashboard", "Analytics", "Order Management", "Order Completion & History", "Design Master", "Order Tracking & Planning Analytics"];
       if (allowedScreens.includes(screen)) {
         perms[screen].view = true;
         perms[screen].create = true;
@@ -112,7 +113,7 @@ const getDefaultRolePermissions = (role: string) => {
         perms[screen].excel = true;
       }
     } else if (roleUpper === 'VIEWER') {
-      const allowedScreens = ["Executive Dashboard", "Analytics", "Design-Wise Loom Running", "Availability Board"];
+      const allowedScreens = ["Executive Dashboard", "Analytics", "Design-Wise Loom Running", "Availability Board", "Order Tracking & Planning Analytics"];
       if (allowedScreens.includes(screen)) {
         perms[screen].view = true;
       }

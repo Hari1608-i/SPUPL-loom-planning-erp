@@ -35,3 +35,8 @@ backend/prisma/dev.db
 backend/.env
 .vercel
 .env*
+
+backend/backups/
+*.db
+*.backup_*
+backend/scratch/

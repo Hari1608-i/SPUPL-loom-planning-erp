@@ -1,18 +1,20 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { calculateLoomRun, CalculatedLoomRun } from '../utils/calculations';
+import { calculateLoomRun, CalculatedLoomRun, isMatchingDesign } from '../utils/calculations';
 import { 
-  AlertCircle, Save, Zap, Info, Lock, Layers, Building2, Package, CheckCircle2, 
+  AlertCircle, Save, Zap, Info, Lock, Unlock, Layers, Building2, Package, CheckCircle2, 
   XCircle, ChevronDown, ChevronRight, ExternalLink, RefreshCw, AlertTriangle, ShieldCheck,
   Search, Filter, ShoppingBag, FileText, Calendar, Clock, Activity, ListTodo,
-  Plus, Edit3, Trash2, CheckCircle, X, Download, Play
+  Plus, Edit3, Trash2, CheckCircle, X, Download, Play, FileSpreadsheet, Printer
 } from 'lucide-react';
 import { format, addDays } from 'date-fns';
+import * as XLSX from 'xlsx';
 import { useAppContext } from '../context/AppProvider';
+import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
-import { CompanyPrintHeader } from '../components/common/CompanyPrintHeader';
+import { CompanyPrintHeader, PrintTableHeaderRow } from '../components/common/CompanyPrintHeader';
 import { triggerPrint } from '../utils/printManager';
-import { Printer } from 'lucide-react';
+import { LoomRow } from '../components/mainEntry/LoomRow';
 
 interface EntryState {
   designNo: string;
@@ -43,8 +45,25 @@ const TRANSACTION_FIELDS_ORDER: (keyof EntryState)[] = [
 
 export default function MainEntry() {
   const location = useLocation();
+  const { user, token } = useAuth();
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'ADMINISTRATOR' || user?.username?.toLowerCase() === 'admin';
   const { activeRuns, setActiveRuns, looms, designs, beams, reeds, orders, nextPlans, rawNextPlans, refreshData } = useAppContext();
   const [entries, setEntries] = useState<Record<number, EntryState>>({});
+  const [unlockedLoomDates, setUnlockedLoomDates] = useState<Record<number, boolean>>({});
+  const [adminUnlockModal, setAdminUnlockModal] = useState<{
+    isOpen: boolean;
+    loomNo: number | null;
+    password: string;
+    error: string | null;
+    isVerifying: boolean;
+  }>({
+    isOpen: false,
+    loomNo: null,
+    password: '',
+    error: null,
+    isVerifying: false
+  });
+  const [isSavingAll, setIsSavingAll] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
@@ -173,6 +192,15 @@ export default function MainEntry() {
 
   // Track dirty looms so active edits aren't overwritten during polling
   const dirtyLoomsRef = useRef<Set<number>>(new Set());
+  const prevDateRef = useRef<string>(selectedProductionDate);
+
+  // Clear dirty looms whenever user navigates or selects a different date
+  useEffect(() => {
+    if (prevDateRef.current !== selectedProductionDate) {
+      dirtyLoomsRef.current.clear();
+      prevDateRef.current = selectedProductionDate;
+    }
+  }, [selectedProductionDate]);
 
   // Fetch production logs from API
   const fetchLogs = async () => {
@@ -190,6 +218,121 @@ export default function MainEntry() {
   useEffect(() => {
     fetchLogs();
   }, []);
+
+  // Helper for consistent date string comparison (YYYY-MM-DD)
+  const getLogDateStr = (l: any): string => {
+    if (!l) return '';
+    if (l._dateStr) return l._dateStr;
+    if (typeof l.date === 'string' && l.date.length >= 10) return l.date.substring(0, 10);
+    try {
+      return format(new Date(l.date || l.createdAt || new Date()), 'yyyy-MM-dd');
+    } catch {
+      return '';
+    }
+  };
+
+  // High-performance indexed maps to eliminate lag/freezing
+  const logsByLoom = useMemo(() => {
+    const map = new Map<number, (ProductionLogItem & { _dateStr?: string })[]>();
+    for (let i = 0; i < productionLogs.length; i++) {
+      const l = productionLogs[i];
+      let list = map.get(l.loom_no);
+      if (!list) {
+        list = [];
+        map.set(l.loom_no, list);
+      }
+      const dateStr = (typeof l.date === 'string' && l.date.length >= 10)
+        ? l.date.substring(0, 10)
+        : format(new Date(l.date || l.createdAt || new Date()), 'yyyy-MM-dd');
+      list.push({ ...l, _dateStr: dateStr });
+    }
+    return map;
+  }, [productionLogs]);
+
+  const designsMap = useMemo(() => {
+    const map = new Map<string, any>();
+    for (let i = 0; i < designs.length; i++) {
+      const d = designs[i];
+      const dNo = (d.designNo || d.design_no_sp_no || '').trim().toLowerCase();
+      if (dNo && !map.has(dNo)) map.set(dNo, d);
+    }
+    return map;
+  }, [designs]);
+
+  const ordersMap = useMemo(() => {
+    const map = new Map<string, any>();
+    for (let i = 0; i < orders.length; i++) {
+      const o = orders[i];
+      const dNo = (o.design_no_sp_no || '').trim().toLowerCase();
+      if (dNo && !map.has(dNo)) map.set(dNo, o);
+      const ibpo = (o.ibpo_no || '').trim().toLowerCase();
+      if (ibpo && !map.has(ibpo)) map.set(ibpo, o);
+      const ordNo = (o.order_no || '').trim().toLowerCase();
+      if (ordNo && !map.has(ordNo)) map.set(ordNo, o);
+    }
+    return map;
+  }, [orders]);
+
+  const beamsMap = useMemo(() => {
+    const map = new Map<string, any>();
+    for (let i = 0; i < beams.length; i++) {
+      const b = beams[i];
+      if (b.beamNo) map.set(b.beamNo.toString().trim().toLowerCase(), b);
+      if (b.vendorBeamNo) map.set(b.vendorBeamNo.toString().trim().toLowerCase(), b);
+      if (b.beam_no) map.set(b.beam_no.toString().trim().toLowerCase(), b);
+    }
+    return map;
+  }, [beams]);
+
+  // Synchronous Date Change Handler: isolates date-wise production and clears carryover
+  const changeSelectedDate = (newDateStr: string) => {
+    if (!newDateStr) return;
+    dirtyLoomsRef.current.clear();
+    setSelectedProductionDate(newDateStr);
+
+    setEntries(prevEntries => {
+      const nextEntries = { ...prevEntries };
+      looms.forEach(loom => {
+        const activeRun = activeRuns[loom.loomNo];
+        const runningDesignClean = (activeRun?.designNo || '').trim().toLowerCase();
+        
+        const loomLogsList = logsByLoom.get(loom.loomNo) || [];
+        let dateLog = loomLogsList.find(l => {
+          const lDate = getLogDateStr(l);
+          return lDate === newDateStr && (!runningDesignClean || !l.design_no || isMatchingDesign(l.design_no, runningDesignClean));
+        });
+        if (!dateLog) {
+          dateLog = loomLogsList.find(l => getLogDateStr(l) === newDateStr);
+        }
+
+        if (activeRun) {
+          nextEntries[loom.loomNo] = {
+            designNo: activeRun.designNo || '',
+            currentBeamNo: (activeRun as any).currentBeamNo || '',
+            loomStartDate: activeRun.loomStartDate || format(new Date(), 'yyyy-MM-dd'),
+            warpedMeter: activeRun.warpedMeter || '',
+            // Exclusively load saved production, rpm, and efficiency for newDateStr; leave blank '' if not yet entered for this date
+            dailyProduction: (dateLog && dateLog.produced_meter !== undefined && dateLog.produced_meter !== null) ? dateLog.produced_meter : '',
+            rpm: (dateLog && dateLog.rpm !== undefined && dateLog.rpm !== null) ? dateLog.rpm : '',
+            efficiency: (dateLog && dateLog.efficiency !== undefined && dateLog.efficiency !== null) ? dateLog.efficiency : '',
+            remarks: (activeRun as any).remarks || ''
+          };
+        } else {
+          nextEntries[loom.loomNo] = {
+            designNo: '',
+            currentBeamNo: '',
+            loomStartDate: format(new Date(), 'yyyy-MM-dd'),
+            warpedMeter: '',
+            dailyProduction: '',
+            rpm: '',
+            efficiency: '',
+            remarks: ''
+          };
+        }
+      });
+      return nextEntries;
+    });
+  };
 
   // Filter active designs (excluding completed order designs unless active)
   const activeDesigns = useMemo(() => {
@@ -217,11 +360,6 @@ export default function MainEntry() {
     setEntries(prevEntries => {
       const newEntries = { ...prevEntries };
 
-      const completedDesignNos = new Set(
-        orders
-          .filter(o => o.status === 'ORDER COMPLETED' || o.status === 'Completed' || o.order_completion_status === 'COMPLETED')
-          .map(o => (o.design_no_sp_no || '').trim().toLowerCase())
-      );
       const completedOrderNos = new Set(
         orders
           .filter(o => o.status === 'ORDER COMPLETED' || o.status === 'Completed' || o.order_completion_status === 'COMPLETED')
@@ -233,19 +371,22 @@ export default function MainEntry() {
 
         // If active run is associated with a completed order/design, ignore it
         if (activeRun) {
-          const runDesign = (activeRun.designNo || '').trim().toLowerCase();
           const runOrder = ((activeRun as any).orderNo || '').trim().toLowerCase();
-
-          if (completedDesignNos.has(runDesign) || (runOrder && completedOrderNos.has(runOrder))) {
+          if (runOrder && completedOrderNos.has(runOrder)) {
             activeRun = undefined as any;
           }
         }
 
-        // Find date-wise production log for this loom on selectedProductionDate
-        const dateLog = productionLogs.find(
-          l => l.loom_no === loom.loomNo && 
-          format(new Date(l.date || l.createdAt || new Date()), 'yyyy-MM-dd') === selectedProductionDate
+        // Find date-wise production log for this loom on selectedProductionDate against current design
+        const runningDesignClean = (activeRun?.designNo || '').trim().toLowerCase();
+        const loomLogsList = logsByLoom.get(loom.loomNo) || [];
+        let dateLog = loomLogsList.find(
+          l => getLogDateStr(l) === selectedProductionDate &&
+          (!runningDesignClean || !l.design_no || isMatchingDesign(l.design_no, runningDesignClean))
         );
+        if (!dateLog) {
+          dateLog = loomLogsList.find(l => getLogDateStr(l) === selectedProductionDate);
+        }
 
         // Only update if not dirty
         if (!dirtyLoomsRef.current.has(loom.loomNo)) {
@@ -255,9 +396,9 @@ export default function MainEntry() {
               currentBeamNo: (activeRun as any).currentBeamNo || '',
               loomStartDate: activeRun.loomStartDate || format(new Date(), 'yyyy-MM-dd'),
               warpedMeter: activeRun.warpedMeter || '',
-              dailyProduction: dateLog ? dateLog.produced_meter : (activeRun.dailyProduction || ''),
-              rpm: dateLog?.rpm || activeRun.rpm || '',
-              efficiency: dateLog?.efficiency || activeRun.efficiency || '',
+              dailyProduction: (dateLog && dateLog.produced_meter !== undefined && dateLog.produced_meter !== null) ? dateLog.produced_meter : '',
+              rpm: (dateLog && dateLog.rpm !== undefined && dateLog.rpm !== null) ? dateLog.rpm : '',
+              efficiency: (dateLog && dateLog.efficiency !== undefined && dateLog.efficiency !== null) ? dateLog.efficiency : '',
               remarks: (activeRun as any).remarks || ''
             };
           } else {
@@ -266,7 +407,7 @@ export default function MainEntry() {
               currentBeamNo: '',
               loomStartDate: format(new Date(), 'yyyy-MM-dd'),
               warpedMeter: '',
-              dailyProduction: dateLog ? dateLog.produced_meter : '',
+              dailyProduction: '',
               rpm: '',
               efficiency: '',
               remarks: ''
@@ -277,20 +418,32 @@ export default function MainEntry() {
 
       return newEntries;
     });
-  }, [activeRuns, looms, designs, nextPlans, orders, selectedProductionDate, productionLogs]);
+  }, [activeRuns, looms, designs, nextPlans, orders, selectedProductionDate, productionLogs, logsByLoom]);
 
   // ── Build 5-plan queue per loom from rawNextPlans ──
   // Each loom gets an ordered array of up to 5 active (non-cancelled/completed) plans
   const loomNextPlansMap = useMemo(() => {
     const map: Record<number, any[]> = {};
     const activePlans = rawNextPlans.filter(
-      p => p.status !== 'CANCELLED' && p.status !== 'COMPLETED'
+      p => {
+        const st = (p.status || '').toUpperCase();
+        const rSt = (p.readiness_status || '').toUpperCase();
+        if (st === 'CANCELLED' || st === 'COMPLETED' || rSt === 'RUNNING IN MAIN ENTRY') return false;
+
+        const lNo = Number(p.loom_no);
+        const currentRun = (activeRuns as any)[lNo] || (activeRuns as any)[String(lNo)];
+        const runningDes = (currentRun?.designNo || currentRun?.design_no_sp_no || '').trim().toLowerCase();
+        const pDes = (p.next_design || '').trim().toLowerCase();
+
+        if (st === 'CONFIRMED' && runningDes && pDes === runningDes) return false;
+        return true;
+      }
     );
     // Sort: by planned_sequence ASC first, then by id ASC as tiebreaker
     activePlans.sort(
       (a, b) =>
-        (Number(a.planned_sequence) || Number(a.id) || 0) -
-        (Number(b.planned_sequence) || Number(b.id) || 0)
+        (Number(a.planned_sequence || a.sequence) || Number(a.id) || 0) -
+        (Number(b.planned_sequence || b.sequence) || Number(b.id) || 0)
     );
     activePlans.forEach(p => {
       const lNo = Number(p.loom_no);
@@ -298,7 +451,7 @@ export default function MainEntry() {
       if (map[lNo].length < 5) map[lNo].push(p);
     });
     return map;
-  }, [rawNextPlans]);
+  }, [rawNextPlans, activeRuns]);
 
   // Unique list of Units for dropdown
   const availableUnits = useMemo(() => {
@@ -309,20 +462,93 @@ export default function MainEntry() {
     return Array.from(set).sort();
   }, [looms]);
 
+  // Request Admin unlock for Loom Start Date
+  const handleRequestUnlockStartDate = useCallback((loomNo: number) => {
+    // If already unlocked, clicking toggles back to locked
+    if (unlockedLoomDates[loomNo]) {
+      setUnlockedLoomDates(prev => ({ ...prev, [loomNo]: false }));
+      return;
+    }
+    if (!isAdmin) {
+      setErrorMsg(`Loom L-${loomNo}: Only Administrator ID can unlock and modify Loom Start Date.`);
+      setTimeout(() => setErrorMsg(null), 4000);
+      return;
+    }
+    setAdminUnlockModal({
+      isOpen: true,
+      loomNo,
+      password: '',
+      error: null,
+      isVerifying: false
+    });
+  }, [unlockedLoomDates, isAdmin]);
+
+  // Verify Admin password to unlock Start Date
+  const handleVerifyAdminPassword = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!adminUnlockModal.loomNo || !adminUnlockModal.password) {
+      setAdminUnlockModal(prev => ({ ...prev, error: 'Please enter Administrator Password' }));
+      return;
+    }
+
+    setAdminUnlockModal(prev => ({ ...prev, isVerifying: true, error: null }));
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/verify-admin-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          password: adminUnlockModal.password,
+          username: user?.username || 'ADMIN'
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const targetLoom = adminUnlockModal.loomNo;
+        setUnlockedLoomDates(prev => ({ ...prev, [targetLoom]: true }));
+        setAdminUnlockModal({ isOpen: false, loomNo: null, password: '', error: null, isVerifying: false });
+        setSuccessMsg(`Loom L-${targetLoom} Start Date unlocked! Modify the date and click SAVE to lock it.`);
+        setTimeout(() => setSuccessMsg(null), 4000);
+      } else {
+        setAdminUnlockModal(prev => ({ ...prev, isVerifying: false, error: data.error || 'Incorrect Administrator Password. Please try again.' }));
+      }
+    } catch (err: any) {
+      setAdminUnlockModal(prev => ({ ...prev, isVerifying: false, error: 'Connection error while verifying password.' }));
+    }
+  };
+
   // Handle entry changes with strict Master validation
-  const handleEntryChange = (loomNo: number, field: keyof EntryState, value: string | number) => {
-    dirtyLoomsRef.current.add(loomNo);
+  const handleEntryChange = useCallback((loomNo: number, field: keyof EntryState, value: string | number) => {
+    // Start Date cannot be changed once set for an active run, UNLESS unlocked via Admin Password
+    if (field === 'loomStartDate' && activeRuns[loomNo]?.loomStartDate && !unlockedLoomDates[loomNo]) {
+      setErrorMsg(`Loom L-${loomNo}: Loom Start Date is locked. Click the Lock button and enter Admin Password to unlock.`);
+      setTimeout(() => setErrorMsg(null), 4000);
+      return;
+    }
+
     setEntries(prev => {
-      const currentEntry = prev[loomNo] || {
+      const prevEntry = prev[loomNo] || {
         designNo: '', currentBeamNo: '', loomStartDate: format(new Date(), 'yyyy-MM-dd'),
         warpedMeter: '', dailyProduction: '', rpm: '', efficiency: '', remarks: ''
       };
-      const updatedEntry = { ...currentEntry, [field]: value };
+
+      // If loom is not allocated (no running design), ignore production, rpm, and efficiency entry
+      if ((field === 'dailyProduction' || field === 'rpm' || field === 'efficiency') && (!prevEntry.designNo || prevEntry.designNo.trim() === '')) {
+        setErrorMsg(`Loom L-${loomNo}: Cannot enter production for a non-allocated loom. Please allocate a design first.`);
+        setTimeout(() => setErrorMsg(null), 3500);
+        return prev;
+      }
+
+      dirtyLoomsRef.current.add(loomNo);
+      const updatedEntry = { ...prevEntry, [field]: value };
 
       // 1. Design & Loom Capability Validation
       if (field === 'designNo' && typeof value === 'string' && value.trim() !== '') {
         const loom = looms.find(l => l.loomNo === loomNo);
-        const design = designs.find(d => d.designNo === value);
+        const design = designsMap.get(value.trim().toLowerCase());
         
         if (loom && design) {
           if (design.frames > (loom.installedLever || 0)) {
@@ -341,11 +567,7 @@ export default function MainEntry() {
         const targetDesignNo = field === 'designNo' ? String(value) : updatedEntry.designNo;
 
         if (targetBeamNo.trim() !== '' && targetDesignNo.trim() !== '') {
-          const matchedBeam = beams.find(b => 
-            (b.beamNo && b.beamNo.toString().toLowerCase() === targetBeamNo.trim().toLowerCase()) ||
-            (b.vendorBeamNo && b.vendorBeamNo.toString().toLowerCase() === targetBeamNo.trim().toLowerCase()) ||
-            (b.beam_no && b.beam_no.toString().toLowerCase() === targetBeamNo.trim().toLowerCase())
-          );
+          const matchedBeam = beamsMap.get(targetBeamNo.trim().toLowerCase());
 
           if (matchedBeam) {
             const beamDesign = matchedBeam.designNo || matchedBeam.design_no || matchedBeam.design;
@@ -362,77 +584,148 @@ export default function MainEntry() {
         [loomNo]: updatedEntry
       };
     });
-  };
+  }, [activeRuns, isAdmin, looms, designsMap, beamsMap]);
 
-  // Excel Bulk Copy / Paste Handler
+  // Excel Bulk Copy / Paste Handler with Smart Column & Loom Matching
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement | HTMLSelectElement>, startLoomNo: number, startField: keyof EntryState) => {
     e.preventDefault();
     const clipboardData = e.clipboardData.getData('Text');
     if (!clipboardData) return;
 
-    const rows = clipboardData.split(/\r?\n/).filter(r => r.trim() !== '');
-    const startLoomIndex = looms.findIndex(l => l.loomNo === startLoomNo);
-    const startFieldIndex = TRANSACTION_FIELDS_ORDER.indexOf(startField);
+    const rows = clipboardData.split(/\r?\n/).map(r => r.trim()).filter(r => r !== '');
+    if (rows.length === 0) return;
 
-    if (startLoomIndex === -1 || startFieldIndex === -1) return;
+    // Start row from currently filtered and displayed looms
+    const startLoomIndex = filteredLooms.findIndex(l => l.loomNo === startLoomNo);
+    if (startLoomIndex === -1) return;
 
     setEntries(prev => {
       const newEntries = { ...prev };
       let warnings: string[] = [];
 
       rows.forEach((rowStr, rowIndex) => {
-        const cells = rowStr.split('\t');
-        const targetLoomIndex = startLoomIndex + rowIndex;
-        
-        if (targetLoomIndex < looms.length) {
-          const loom = looms[targetLoomIndex];
-          const loomNo = loom.loomNo;
-          dirtyLoomsRef.current.add(loomNo);
-          let updatedEntry = { ...newEntries[loomNo] };
+        const rawCells = rowStr.split('\t').map(c => c.trim());
+        if (rawCells.length === 0) return;
 
+        // Check if cell 0 represents Loom No (e.g., "1", "L-1", "Loom 1")
+        let targetLoom: any = null;
+        let cells = [...rawCells];
+
+        const firstCellLoomNum = parseInt(cells[0].replace(/^[^\d]*/, ''), 10);
+        const matchesExistingLoom = !isNaN(firstCellLoomNum) && looms.some(l => l.loomNo === firstCellLoomNum);
+
+        if (matchesExistingLoom && cells.length > 1) {
+          targetLoom = looms.find(l => l.loomNo === firstCellLoomNum);
+          cells = cells.slice(1);
+        } else {
+          const targetIndex = startLoomIndex + rowIndex;
+          if (targetIndex < filteredLooms.length) {
+            targetLoom = filteredLooms[targetIndex];
+          }
+        }
+
+        if (!targetLoom) return;
+        const loomNo = targetLoom.loomNo;
+        let updatedEntry = { ...newEntries[loomNo] };
+        const isLoomAllocated = !!(updatedEntry.designNo && updatedEntry.designNo.trim() !== '');
+
+        // If loom is not allocated, ignore production/rpm/efficiency paste
+        if (!isLoomAllocated && (startField === 'dailyProduction' || startField === 'rpm' || startField === 'efficiency')) {
+          return;
+        }
+
+        dirtyLoomsRef.current.add(loomNo);
+
+        // Handle pasting into Daily Production (Col 13)
+        if (startField === 'dailyProduction') {
+          if (cells.length === 1) {
+            const num = Number(cells[0].replace(/,/g, ''));
+            if (!isNaN(num)) updatedEntry.dailyProduction = num;
+          } else if (cells.length === 2) {
+            const pNum = Number(cells[0].replace(/,/g, ''));
+            if (!isNaN(pNum)) updatedEntry.dailyProduction = pNum;
+
+            const c1 = cells[1].replace(/,/g, '').replace(/%/g, '');
+            const num1 = Number(c1);
+            if (!isNaN(num1)) {
+              if (num1 > 100) updatedEntry.rpm = num1;
+              else updatedEntry.efficiency = num1;
+            }
+          } else if (cells.length === 3) {
+            // [Prod, RPM, Eff%]
+            const pNum = Number(cells[0].replace(/,/g, ''));
+            if (!isNaN(pNum)) updatedEntry.dailyProduction = pNum;
+
+            const rNum = Number(cells[1].replace(/,/g, ''));
+            if (!isNaN(rNum)) updatedEntry.rpm = rNum;
+
+            const eNum = Number(cells[2].replace(/,/g, '').replace(/%/g, ''));
+            if (!isNaN(eNum)) updatedEntry.efficiency = eNum;
+          } else if (cells.length >= 4) {
+            // Check if cell 1 looks like crimp (<= 15) and cell 2 looks like RPM (> 100)
+            const pNum = Number(cells[0].replace(/,/g, ''));
+            if (!isNaN(pNum)) updatedEntry.dailyProduction = pNum;
+
+            const c1Num = Number(cells[1].replace(/,/g, '').replace(/%/g, ''));
+            const c2Num = Number(cells[2].replace(/,/g, ''));
+
+            if (c2Num > 100) {
+              updatedEntry.rpm = c2Num;
+              const c3Num = Number(cells[3].replace(/,/g, '').replace(/%/g, ''));
+              if (!isNaN(c3Num)) updatedEntry.efficiency = c3Num;
+            } else {
+              if (!isNaN(c1Num)) updatedEntry.rpm = c1Num;
+              if (!isNaN(c2Num)) updatedEntry.efficiency = c2Num;
+            }
+          }
+        } else if (startField === 'rpm') {
+          const rNum = Number(cells[0].replace(/,/g, ''));
+          if (!isNaN(rNum)) updatedEntry.rpm = rNum;
+          if (cells.length > 1) {
+            const eNum = Number(cells[1].replace(/,/g, '').replace(/%/g, ''));
+            if (!isNaN(eNum)) updatedEntry.efficiency = eNum;
+          }
+        } else if (startField === 'efficiency') {
+          const eNum = Number(cells[0].replace(/,/g, '').replace(/%/g, ''));
+          if (!isNaN(eNum)) updatedEntry.efficiency = eNum;
+        } else if (startField === 'loomStartDate') {
+          // Never overwrite start date if loom has active run, UNLESS unlocked via Admin Password
+          if (!activeRuns[loomNo]?.loomStartDate || unlockedLoomDates[loomNo]) {
+            const parsedDate = new Date(cells[0]);
+            if (!isNaN(parsedDate.getTime())) {
+              updatedEntry.loomStartDate = format(parsedDate, 'yyyy-MM-dd');
+            } else if (/^\d{4}-\d{2}-\d{2}$/.test(cells[0])) {
+              updatedEntry.loomStartDate = cells[0];
+            }
+          }
+        } else {
+          // Standard mapping via TRANSACTION_FIELDS_ORDER
+          const startFieldIndex = TRANSACTION_FIELDS_ORDER.indexOf(startField);
           cells.forEach((cellStr, cellIndex) => {
             const targetFieldIndex = startFieldIndex + cellIndex;
             if (targetFieldIndex < TRANSACTION_FIELDS_ORDER.length) {
               const field = TRANSACTION_FIELDS_ORDER[targetFieldIndex];
-              const valueStr = cellStr.trim();
-              
-              if (field === 'designNo') {
-                updatedEntry[field] = valueStr;
-              } else if (field === 'loomStartDate') {
-                const parsedDate = new Date(valueStr);
-                if (!isNaN(parsedDate.getTime())) {
-                  updatedEntry[field] = format(parsedDate, 'yyyy-MM-dd');
-                } else if (/^\d{4}-\d{2}-\d{2}$/.test(valueStr)) {
-                  updatedEntry[field] = valueStr;
+              if (field === 'loomStartDate') {
+                if (!activeRuns[loomNo]?.loomStartDate || unlockedLoomDates[loomNo]) {
+                  const parsedDate = new Date(cellStr);
+                  if (!isNaN(parsedDate.getTime())) updatedEntry.loomStartDate = format(parsedDate, 'yyyy-MM-dd');
+                  else if (/^\d{4}-\d{2}-\d{2}$/.test(cellStr)) updatedEntry.loomStartDate = cellStr;
                 }
-              } else if (field === 'rpm' || field === 'efficiency') {
-                if (valueStr === '') {
-                  updatedEntry[field] = '';
-                } else {
-                  const cleanStr = valueStr.replace(/,/g, '').replace(/%/g, '');
-                  const num = Number(cleanStr);
-                  if (!isNaN(num)) {
-                    if (field === 'efficiency' && (num < 0 || num > 100)) {
-                      warnings.push(`Loom ${loomNo}: Efficiency must be between 0% and 100%.`);
-                    } else {
-                      updatedEntry[field] = num;
-                    }
-                  }
+              } else if (field === 'designNo' || field === 'currentBeamNo' || field === 'remarks') {
+                updatedEntry[field] = cellStr;
+              } else if (field === 'warpedMeter' || field === 'dailyProduction' || field === 'rpm' || field === 'efficiency') {
+                if ((field === 'dailyProduction' || field === 'rpm' || field === 'efficiency') && !isLoomAllocated) {
+                  return;
                 }
-              } else if (field === 'warpedMeter' || field === 'dailyProduction') {
-                const cleanStr = valueStr.replace(/,/g, '');
-                const num = Number(cleanStr);
-                if (!isNaN(num)) {
-                  updatedEntry[field] = num;
-                }
-              } else if (field === 'currentBeamNo' || field === 'remarks') {
-                updatedEntry[field] = valueStr;
+                const clean = cellStr.replace(/,/g, '').replace(/%/g, '');
+                const num = Number(clean);
+                if (!isNaN(num)) updatedEntry[field] = num;
               }
             }
           });
-
-          newEntries[loomNo] = updatedEntry;
         }
+
+        newEntries[loomNo] = updatedEntry;
       });
 
       if (warnings.length > 0) {
@@ -463,26 +756,9 @@ export default function MainEntry() {
       if (matchedBeam) {
         const beamDesign = matchedBeam.designNo || matchedBeam.design_no || matchedBeam.design;
         if (beamDesign && beamDesign.trim().toLowerCase() !== entry.designNo.trim().toLowerCase()) {
-          setErrorMsg(`Allocation Blocked: Beam ${entry.currentBeamNo} belongs to design "${beamDesign}", mismatching "${entry.designNo}".`);
-          setTimeout(() => setErrorMsg(null), 6000);
-          return;
+          console.warn(`Loom ${loomNo}: Beam ${entry.currentBeamNo} belongs to design "${beamDesign}", running "${entry.designNo}".`);
         }
       }
-    }
-
-    // Check if Total Production >= Original Warp Meter -> Show Runout Confirmation Modal
-    const prodMtr = Number(entry.dailyProduction || 0);
-    const warpMtr = Number(entry.warpedMeter || 0);
-    if (warpMtr > 0 && prodMtr >= warpMtr) {
-      const nextPlanList = loomNextPlansMap[loomNo] || [];
-      const queuedPlan = nextPlanList[0];
-      setTransitionPromptPlan({
-        loom: { loomNo },
-        run: entry,
-        plan: queuedPlan ? queuedPlan : { loom_no: loomNo, next_design: 'AVAILABLE (No Plan Queued)' },
-        calc: { producedMeter: prodMtr, warpedMeter: warpMtr }
-      });
-      return;
     }
 
     dirtyLoomsRef.current.delete(loomNo);
@@ -498,7 +774,7 @@ export default function MainEntry() {
       dailyProduction: Number(entry.dailyProduction || 0),
       rpm: entry.rpm ? Number(entry.rpm) : null,
       efficiency: entry.efficiency ? Number(entry.efficiency) : null,
-      crimpPercent: design ? design.crimpPercent * 100 : 5,
+      crimpPercent: design && Number(design.crimpPercent) > 0 ? (design.crimpPercent > 1 ? design.crimpPercent / 100 : design.crimpPercent) : 0.05,
       remarks: entry.remarks
     };
 
@@ -509,8 +785,8 @@ export default function MainEntry() {
         body: JSON.stringify([runPayload])
       });
 
-      // Also log daily production entry if dailyProduction > 0
-      if (Number(entry.dailyProduction || 0) > 0) {
+      // Also log daily production entry if dailyProduction is entered (including 0)
+      if (entry.dailyProduction !== '' && entry.dailyProduction !== undefined && entry.dailyProduction !== null) {
         await fetch(`${API_BASE_URL}/api/production-logs`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -518,8 +794,8 @@ export default function MainEntry() {
             loomNo,
             designNo: entry.designNo,
             producedMeter: Number(entry.dailyProduction),
-            rpm: entry.rpm ? Number(entry.rpm) : null,
-            efficiency: entry.efficiency ? Number(entry.efficiency) : null,
+            rpm: (entry.rpm !== '' && entry.rpm !== null && entry.rpm !== undefined) ? Number(entry.rpm) : null,
+            efficiency: (entry.efficiency !== '' && entry.efficiency !== null && entry.efficiency !== undefined) ? Number(entry.efficiency) : null,
             remarks: entry.remarks || 'Daily production update',
             date: selectedProductionDate
           })
@@ -528,6 +804,8 @@ export default function MainEntry() {
       }
 
       await refreshData();
+      // Auto-relock Loom Start Date after saving
+      setUnlockedLoomDates(prev => ({ ...prev, [loomNo]: false }));
       setSuccessMsg(`Loom ${loomNo} production entry for ${format(new Date(selectedProductionDate), 'dd-MMM-yyyy')} saved!`);
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (e) {
@@ -538,21 +816,20 @@ export default function MainEntry() {
 
   // Save All Transactions to Backend
   const saveAllPlans = async () => {
+    if (isSavingAll) return;
+    setIsSavingAll(true);
     let savedCount = 0;
     const runsArray: any[] = [];
     const consumedPlansArray: any[] = [];
     let validationErrors: string[] = [];
+    let skippedBeforeStart = 0;
 
-    // Pre-validate all entries
+    // Pre-validate all entries using indexed maps
     Object.entries(entries).forEach(([key, entry]) => {
       const loomNo = Number(key);
       if (entry.designNo && entry.designNo.trim() !== '') {
         if (entry.currentBeamNo && entry.currentBeamNo.trim() !== '') {
-          const matchedBeam = beams.find(b => 
-            (b.beamNo && b.beamNo.toString().toLowerCase() === entry.currentBeamNo.trim().toLowerCase()) ||
-            (b.vendorBeamNo && b.vendorBeamNo.toString().toLowerCase() === entry.currentBeamNo.trim().toLowerCase()) ||
-            (b.beam_no && b.beam_no.toString().toLowerCase() === entry.currentBeamNo.trim().toLowerCase())
-          );
+          const matchedBeam = beamsMap.get(entry.currentBeamNo.trim().toLowerCase());
           if (matchedBeam) {
             const beamDesign = matchedBeam.designNo || matchedBeam.design_no || matchedBeam.design;
             if (beamDesign && beamDesign.trim().toLowerCase() !== entry.designNo.trim().toLowerCase()) {
@@ -561,17 +838,20 @@ export default function MainEntry() {
           }
         }
 
-        const design = designs.find(d => d.designNo === entry.designNo);
+        const hasDailyInput = entry.dailyProduction !== '' && entry.dailyProduction !== undefined && entry.dailyProduction !== null;
+        const design = designsMap.get(entry.designNo.trim().toLowerCase());
         const run = {
           loomNo,
           designNo: entry.designNo,
           currentBeamNo: entry.currentBeamNo,
           loomStartDate: entry.loomStartDate,
           warpedMeter: Number(entry.warpedMeter || 0),
-          dailyProduction: Number(entry.dailyProduction || 0),
+          dailyProduction: hasDailyInput ? Number(entry.dailyProduction) : Number(activeRuns[loomNo]?.dailyProduction || 0),
+          hasDailyInput,
+          rawDailyProduction: entry.dailyProduction,
           rpm: entry.rpm !== '' ? Number(entry.rpm) : null,
           efficiency: entry.efficiency !== '' ? Number(entry.efficiency) : null,
-          crimpPercent: design ? design.crimpPercent * 100 : 5,
+          crimpPercent: design && Number(design.crimpPercent) > 0 ? (design.crimpPercent > 1 ? design.crimpPercent / 100 : design.crimpPercent) : 0.05,
           remarks: entry.remarks
         };
         runsArray.push(run);
@@ -584,9 +864,7 @@ export default function MainEntry() {
     });
 
     if (validationErrors.length > 0) {
-      setErrorMsg(`Save Blocked - Beam Design Mismatch Errors: ${validationErrors.join(' | ')}`);
-      setTimeout(() => setErrorMsg(null), 8000);
-      return;
+      console.warn(`Beam Design Mismatch Warnings: ${validationErrors.join(' | ')}`);
     }
 
     dirtyLoomsRef.current.clear();
@@ -599,23 +877,25 @@ export default function MainEntry() {
           body: JSON.stringify(runsArray)
         });
 
-        // Log daily production date-wise for each loom with production > 0
-        for (const run of runsArray) {
-          if (run.dailyProduction > 0) {
-            await fetch(`${API_BASE_URL}/api/production-logs`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                loomNo: run.loomNo,
-                designNo: run.designNo,
-                producedMeter: run.dailyProduction,
-                rpm: run.rpm,
-                efficiency: run.efficiency,
-                remarks: run.remarks || 'Daily production update',
-                date: selectedProductionDate
-              })
-            });
-          }
+        // Batch save daily production logs for this date (ONLY if entered for this date)
+        const validLogPayloads = runsArray
+          .filter(run => run.hasDailyInput)
+          .map(run => ({
+            loomNo: run.loomNo,
+            designNo: run.designNo,
+            producedMeter: Number(run.rawDailyProduction),
+            rpm: run.rpm,
+            efficiency: run.efficiency,
+            remarks: run.remarks || 'Daily production update',
+            date: selectedProductionDate
+          }));
+
+        if (validLogPayloads.length > 0) {
+          await fetch(`${API_BASE_URL}/api/production-logs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(validLogPayloads)
+          });
         }
       }
 
@@ -627,13 +907,18 @@ export default function MainEntry() {
         });
       }
 
-      await refreshData();
-      await fetchLogs();
-      setSuccessMsg(`Successfully saved daily production entries for ${format(new Date(selectedProductionDate), 'dd-MMM-yyyy')} across ${savedCount} looms!`);
-      setTimeout(() => setSuccessMsg(null), 4000);
+      await Promise.all([refreshData(), fetchLogs()]);
+      // Auto-relock all start dates after saving
+      setUnlockedLoomDates({});
+      const skipNote = skippedBeforeStart > 0 ? ` (${skippedBeforeStart} looms skipped: entry date is prior to their start date)` : '';
+      const warnNote = validationErrors.length > 0 ? ` (Note: ${validationErrors.length} beam design mismatch warning${validationErrors.length > 1 ? 's' : ''} logged)` : '';
+      setSuccessMsg(`Successfully saved daily production entries for ${format(new Date(selectedProductionDate), 'dd-MMM-yyyy')} across ${savedCount} looms!${skipNote}${warnNote}`);
+      setTimeout(() => setSuccessMsg(null), 5000);
     } catch (err) {
       console.error('Error saving active runs:', err);
       setErrorMsg('Failed to save entries to backend.');
+    } finally {
+      setIsSavingAll(false);
     }
   };
 
@@ -720,64 +1005,197 @@ export default function MainEntry() {
     }
   };
 
-  const toggleRowExpand = (loomNo: number) => {
+  const toggleRowExpand = useCallback((loomNo: number) => {
     setExpandedRows(prev => ({
       ...prev,
       [loomNo]: !prev[loomNo]
     }));
-  };
+  }, []);
 
-  // Filtered looms list
+  // Filtered looms list - Optimized to avoid any lag or recalculation when no search/filters active
   const filteredLooms = useMemo(() => {
+    const hasSearch = searchTerm.trim() !== '';
+    const hasUnitFilter = selectedUnit !== 'ALL';
+    const hasRunoutFilter = selectedRunoutFilter !== 'ALL';
+
+    if (!hasSearch && !hasUnitFilter && !hasRunoutFilter) {
+      return looms;
+    }
+
+    const q = searchTerm.toLowerCase().trim();
+
     return looms.filter(loom => {
-      if (selectedUnit !== 'ALL' && loom.unit !== selectedUnit) return false;
+      if (hasUnitFilter && loom.unit !== selectedUnit) return false;
 
-      const entry = entries[loom.loomNo] || { designNo: '', currentBeamNo: '' };
+      const entry = entries[loom.loomNo] || { designNo: '', currentBeamNo: '', loomStartDate: '' };
       const cleanDesignNo = (entry.designNo || '').trim().toLowerCase();
-      const design = designs.find(d => (d.designNo || d.design_no_sp_no || '').trim().toLowerCase() === cleanDesignNo);
-      const matchedOrder = orders.find(o => 
-        (o.design_no_sp_no || '').trim().toLowerCase() === cleanDesignNo ||
-        (o.ibpo_no || '').trim().toLowerCase() === cleanDesignNo ||
-        (o.order_no || '').trim().toLowerCase() === cleanDesignNo
-      );
+      const design = cleanDesignNo ? designsMap.get(cleanDesignNo) : null;
+      const matchedOrder = cleanDesignNo ? ordersMap.get(cleanDesignNo) : null;
 
-      if (searchTerm.trim() !== '') {
-        const q = searchTerm.toLowerCase().trim();
+      if (hasSearch) {
         const matchesLoom = loom.loomNo.toString().includes(q);
-        const matchesDesign = entry.designNo.toLowerCase().includes(q);
-        const matchesBeam = entry.currentBeamNo.toLowerCase().includes(q);
+        const matchesDesign = (entry.designNo || '').toLowerCase().includes(q);
+        const matchesBeam = (entry.currentBeamNo || '').toLowerCase().includes(q);
+        const matchesSet = ((entry as any).setNo || (entry as any).set_no || '').toLowerCase().includes(q);
         const matchesUnit = (loom.unit || '').toLowerCase().includes(q);
         const matchesConst = ((design?.construction || matchedOrder?.construction) || '').toLowerCase().includes(q);
 
-        const matchesOrder = matchedOrder ? (matchedOrder.order_no || '').toLowerCase().includes(q) || (matchedOrder.customer_name || '').toLowerCase().includes(q) : false;
+        const matchesOrder = matchedOrder ? (
+          (matchedOrder.ibpo_no || '').toLowerCase().includes(q) ||
+          (matchedOrder.order_no || '').toLowerCase().includes(q) ||
+          (matchedOrder.customer_name || '').toLowerCase().includes(q)
+        ) : false;
 
-        if (!matchesLoom && !matchesDesign && !matchesBeam && !matchesUnit && !matchesConst && !matchesOrder) {
+        if (!matchesLoom && !matchesDesign && !matchesBeam && !matchesSet && !matchesUnit && !matchesConst && !matchesOrder) {
           return false;
         }
       }
 
-      if (selectedRunoutFilter !== 'ALL') {
-        const loomLogs = productionLogs.filter(l => l.loom_no === loom.loomNo).map(l => l.produced_meter);
+      if (hasRunoutFilter) {
+        const currentDesignClean = (cleanDesignNo || '').toLowerCase();
+        const startDateStr = entry.loomStartDate || '';
+
+        const loomLogsList = logsByLoom.get(loom.loomNo) || [];
+        const effectiveStartDateStr = startDateStr;
+
+        const loomLogs = loomLogsList.filter(l => {
+          if (currentDesignClean && l.design_no && !isMatchingDesign(l.design_no, currentDesignClean)) return false;
+          const logDateStr = getLogDateStr(l);
+          if (effectiveStartDateStr && logDateStr < effectiveStartDateStr) return false;
+          if (selectedProductionDate && logDateStr > selectedProductionDate) return false;
+          return true;
+        }).map(l => l.produced_meter);
+
+        const totalCumulative = loomLogs.reduce((sum, val) => sum + (val || 0), 0);
         const effectivePick = design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick;
         const calc = calculateLoomRun({
-          loomStartDate: entry.loomStartDate ? new Date(entry.loomStartDate) : new Date(),
+          loomStartDate: effectiveStartDateStr ? new Date(effectiveStartDateStr) : (entry.loomStartDate ? new Date(entry.loomStartDate) : new Date()),
           warpedMeter: typeof entry.warpedMeter === 'number' ? entry.warpedMeter : 0,
-          dailyProduction: typeof entry.dailyProduction === 'number' ? entry.dailyProduction : 0,
-          crimpPercent: design?.crimpPercent || 0.05,
-          rpm: entry.rpm,
-          efficiency: entry.efficiency,
+          dailyProduction: totalCumulative > 0 ? totalCumulative : (typeof entry.dailyProduction === 'number' ? entry.dailyProduction : 0),
+          crimpPercent: design && Number(design.crimpPercent) > 0 ? (design.crimpPercent > 1 ? design.crimpPercent / 100 : design.crimpPercent) : 0.05,
+          rpm: entry.rpm !== '' && entry.rpm !== null && entry.rpm !== undefined ? Number(entry.rpm) : null,
+          efficiency: entry.efficiency !== '' && entry.efficiency !== null && entry.efficiency !== undefined ? Number(entry.efficiency) : null,
           pick: effectivePick,
           actualProductionHistory: loomLogs
-        });
+        }, selectedProductionDate ? new Date(selectedProductionDate) : new Date());
 
         if (selectedRunoutFilter === 'URGENT' && calc.balanceDays > 2) return false;
         if (selectedRunoutFilter === 'ALERT' && (calc.balanceDays <= 2 || calc.balanceDays > 5)) return false;
-        if (selectedRunoutFilter === 'NORMAL' && calc.balanceDays <= 5) return false;
+        return true;
       }
 
       return true;
     });
-  }, [looms, entries, designs, orders, searchTerm, selectedUnit, selectedRunoutFilter, productionLogs]);
+  }, [looms, entries, designsMap, ordersMap, searchTerm, selectedUnit, selectedRunoutFilter, logsByLoom]);
+
+  // Excel Download for Main Entry Screen
+  const handleExportExcel = () => {
+    const rows = filteredLooms.map((loom, index) => {
+      const entry = entries[loom.loomNo] || {
+        designNo: '', currentBeamNo: '', loomStartDate: format(new Date(), 'yyyy-MM-dd'),
+        warpedMeter: '', dailyProduction: '', rpm: '', efficiency: '', remarks: ''
+      };
+      const isLoomAllocated = !!(entry.designNo && entry.designNo.trim() !== '');
+      const design = designs.find(d => d.designNo === entry.designNo);
+      const matchedOrder = orders.find(o => 
+        (o.design_no_sp_no && entry.designNo && o.design_no_sp_no.trim().toLowerCase() === entry.designNo.trim().toLowerCase())
+      );
+      
+      const currentDesignClean = (entry.designNo || '').trim().toLowerCase();
+      const startDateStr = entry.loomStartDate ? format(new Date(entry.loomStartDate), 'yyyy-MM-dd') : '';
+      const startDateDisplay = startDateStr ? format(new Date(entry.loomStartDate), 'dd-MMM-yyyy') : '';
+
+      const loomLogsList = logsByLoom.get(loom.loomNo) || [];
+      const effectiveStartDateStr = startDateStr;
+
+      const loomLogs = loomLogsList
+        .filter(l => {
+          if (currentDesignClean && l.design_no && !isMatchingDesign(l.design_no, currentDesignClean)) return false;
+          const logDateStr = getLogDateStr(l);
+          if (effectiveStartDateStr && logDateStr < effectiveStartDateStr) return false;
+          if (selectedProductionDate && logDateStr > selectedProductionDate) return false;
+          return true;
+        })
+        .map(l => l.produced_meter);
+      const totalCumulativeProducedMtr = loomLogs.reduce((sum, val) => sum + (val || 0), 0);
+
+      const beamInfo = beams.find(b => 
+        (b.beamNo && entry.currentBeamNo && b.beamNo.toString().toLowerCase() === entry.currentBeamNo.trim().toLowerCase()) ||
+        (b.vendorBeamNo && entry.currentBeamNo && b.vendorBeamNo.toString().toLowerCase() === entry.currentBeamNo.trim().toLowerCase()) ||
+        (b.beam_no && entry.currentBeamNo && b.beam_no.toString().toLowerCase() === entry.currentBeamNo.trim().toLowerCase())
+      );
+
+      const effectiveWarpMtr =
+        typeof entry.warpedMeter === 'number' && entry.warpedMeter > 0
+          ? entry.warpedMeter
+          : (beamInfo?.available_meter || beamInfo?.beamLength || 0);
+
+      const rawDesignCrimp = Number(design?.crimpPercent ?? design?.crimp_percent ?? matchedOrder?.crimp_percent ?? 0);
+      const effectiveCrimp = rawDesignCrimp > 0 ? (rawDesignCrimp > 1 ? rawDesignCrimp / 100 : rawDesignCrimp) : 0.05;
+      const effectivePick = design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick;
+      const effectiveProducedMtr = totalCumulativeProducedMtr > 0
+        ? totalCumulativeProducedMtr
+        : (typeof entry.dailyProduction === 'number' ? entry.dailyProduction : 0);
+
+      const actualWarpConsumed = (entry as any).actualWarpConsumed ?? (
+        beamInfo && beamInfo.total_warped_meter > 0 && beamInfo.current_balance_meter !== undefined && beamInfo.current_balance_meter !== null && beamInfo.current_balance_meter > 0 && beamInfo.current_balance_meter < beamInfo.total_warped_meter
+          ? beamInfo.total_warped_meter - beamInfo.current_balance_meter
+          : null
+      );
+
+      const calc = isLoomAllocated ? calculateLoomRun({
+        loomStartDate: effectiveStartDateStr ? new Date(effectiveStartDateStr) : (entry.loomStartDate ? new Date(entry.loomStartDate) : new Date()),
+        warpedMeter: effectiveWarpMtr,
+        dailyProduction: effectiveProducedMtr,
+        crimpPercent: effectiveCrimp,
+        rpm: entry.rpm !== '' && entry.rpm !== null && entry.rpm !== undefined ? Number(entry.rpm) : null,
+        efficiency: entry.efficiency !== '' && entry.efficiency !== null && entry.efficiency !== undefined ? Number(entry.efficiency) : null,
+        pick: effectivePick,
+        actualProductionHistory: loomLogs,
+        actualWarpConsumed
+      } as any, selectedProductionDate ? new Date(selectedProductionDate) : new Date()) : null;
+
+      const crimpDisplayStr = isLoomAllocated
+        ? (calc?.actualCrimpPercent !== null && calc?.actualCrimpPercent !== undefined
+            ? `${calc.actualCrimpPercent.toFixed(1)}% (Actual)`
+            : `${(calc?.standardCrimpPercent ?? (effectiveCrimp * 100)).toFixed(1)}%`)
+        : '—';
+
+      return {
+        'S.No': index + 1,
+        'Loom No': `L-${loom.loomNo}`,
+        'Unit': loom.unit || '—',
+        'Loom Type': loom.loomType || '—',
+        'Running Design / SP No': entry.designNo || 'Not Allocated',
+        'Construction': design?.construction || matchedOrder?.construction || '—',
+        'Reed': design?.reedCount || matchedOrder?.reed || '—',
+        'Pick (PPI)': design?.pick || matchedOrder?.pick || '—',
+        'Width (Inch)': design?.greigeWidth || matchedOrder?.width || '—',
+        'Set No': beamInfo?.setNo || beamInfo?.set_no || '—',
+        'Beam No': entry.currentBeamNo || '—',
+        'Start Date': isLoomAllocated ? startDateDisplay : '—',
+        'Warp Length (M)': effectiveWarpMtr > 0 ? effectiveWarpMtr : '—',
+        'Daily Prod (M)': (isLoomAllocated && entry.dailyProduction !== '') ? entry.dailyProduction : '—',
+        'Crimp %': crimpDisplayStr,
+        'RPM': (isLoomAllocated && entry.rpm !== '') ? entry.rpm : (loom.rpm || '—'),
+        'Eff %': (isLoomAllocated && entry.efficiency !== '') ? `${entry.efficiency}%` : '—',
+        'Produced Fabric (M)': isLoomAllocated ? (Math.round(calc?.producedMeter ?? 0)) : '—',
+        'Avg Prod/Day (M)': isLoomAllocated ? (Math.round(calc?.avgProduction ?? 0)) : '—',
+        'Gross Bal (M)': isLoomAllocated ? (Math.round(calc?.warpBalanceGross ?? 0)) : '—',
+        'Crimp Loss (M)': isLoomAllocated ? (Math.round(calc?.crimpLossMeter ?? 0)) : '—',
+        'Net Bal (M)': isLoomAllocated ? (Math.round(calc?.netBalanceMeter ?? 0)) : '—',
+        'Balance Days': isLoomAllocated ? (calc?.balanceDays ?? '—') : '—',
+        'Expected Runout': isLoomAllocated && calc?.expectedRunoutDate ? format(calc.expectedRunoutDate, 'dd-MMM-yyyy') : '—',
+        'Status': isLoomAllocated ? 'Active Run' : 'Available',
+        'Remarks': entry.remarks || '—'
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Live Main Entry');
+    XLSX.writeFile(workbook, `SPUPL_Main_Entry_Register_${selectedProductionDate || format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-[1920px] mx-auto pb-24 font-sans">
@@ -802,7 +1220,16 @@ export default function MainEntry() {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => triggerPrint()}
+            onClick={handleExportExcel}
+            title="Download Excel Report"
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-700 text-white hover:bg-emerald-800 rounded-xl text-xs font-black transition-all shadow-md active:scale-95"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Excel Download</span>
+          </button>
+
+          <button
+            onClick={() => triggerPrint({ orientation: 'landscape', title: 'Main Production Entry & Live Loom Runout Register' })}
             title="Print Report"
             className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 text-white hover:bg-slate-900 rounded-xl text-xs font-black transition-all shadow-md active:scale-95"
           >
@@ -812,10 +1239,20 @@ export default function MainEntry() {
 
           <button
             onClick={saveAllPlans}
-            className="flex items-center gap-2 px-6 py-2.5 bg-spu-primary text-white hover:bg-slate-900 rounded-xl text-xs font-black transition-all shadow-md active:scale-95"
+            disabled={isSavingAll}
+            className="flex items-center gap-2 px-6 py-2.5 bg-spu-primary text-white hover:bg-slate-900 rounded-xl text-xs font-black transition-all shadow-md active:scale-95 disabled:opacity-75 disabled:cursor-wait"
           >
-            <Save className="w-4 h-4" />
-            <span>Save All Transactions</span>
+            {isSavingAll ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Saving All ({Object.keys(entries).length} Looms)...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>Save All Transactions</span>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -862,7 +1299,7 @@ export default function MainEntry() {
             type="button"
             onClick={() => {
               const prev = addDays(new Date(selectedProductionDate), -1);
-              setSelectedProductionDate(format(prev, 'yyyy-MM-dd'));
+              changeSelectedDate(format(prev, 'yyyy-MM-dd'));
             }}
             className="px-3 py-1.5 bg-emerald-800 hover:bg-emerald-700 text-emerald-100 rounded-lg text-xs font-bold transition-all active:scale-95"
           >
@@ -875,7 +1312,7 @@ export default function MainEntry() {
               type="date"
               value={selectedProductionDate}
               max={format(new Date(), 'yyyy-MM-dd')}
-              onChange={e => setSelectedProductionDate(e.target.value)}
+              onChange={e => changeSelectedDate(e.target.value)}
               className="bg-transparent text-xs font-black text-slate-900 focus:outline-none"
             />
           </div>
@@ -886,7 +1323,7 @@ export default function MainEntry() {
               const next = addDays(new Date(selectedProductionDate), 1);
               const todayStr = format(new Date(), 'yyyy-MM-dd');
               if (format(next, 'yyyy-MM-dd') <= todayStr) {
-                setSelectedProductionDate(format(next, 'yyyy-MM-dd'));
+                changeSelectedDate(format(next, 'yyyy-MM-dd'));
               }
             }}
             disabled={selectedProductionDate >= format(new Date(), 'yyyy-MM-dd')}
@@ -955,12 +1392,17 @@ export default function MainEntry() {
       </div>
 
       {/* ── Main Production Grid Table (High-Speed Excel Grid with all 30 columns) ── */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden print:overflow-visible print:border-none print:shadow-none">
+        <div className="overflow-x-auto max-h-[calc(100vh-210px)] overflow-y-auto custom-scrollbar print:overflow-visible print:max-h-none print:h-auto">
           <table className="w-full text-left border-collapse text-xs">
-            <thead>
+            <thead className="bg-slate-900 text-white font-bold sticky top-0 z-30 shadow-md print:static print:shadow-none">
+              <PrintTableHeaderRow 
+                title="Main Production Entry & Live Loom Runout Register" 
+                subtitle="Operational Live Weaving Master Audit Log" 
+                colSpan={30} 
+              />
               {/* Category Grouping Header Row */}
-              <tr className="bg-slate-900 text-white uppercase text-[10px] font-black tracking-wider border-b border-slate-800">
+              <tr className="bg-slate-900 text-white uppercase text-[10px] font-black tracking-wider border-b border-slate-800 print:bg-slate-200 print:text-black">
                 <th colSpan={3} className="p-2.5 bg-slate-900 border-r border-slate-800 sticky left-0 z-20">
                   <span className="text-amber-400 flex items-center gap-1">
                     <Building2 className="w-3.5 h-3.5" /> 1. LOOM MASTER
@@ -1050,69 +1492,124 @@ export default function MainEntry() {
 
                 const isExpanded = !!expandedRows[loom.loomNo];
                 const cleanDesignNo = (entry.designNo || '').trim().toLowerCase();
-                const design = designs.find(d => (d.designNo || d.design_no_sp_no || '').trim().toLowerCase() === cleanDesignNo);
-                const matchedOrder = orders.find(o => 
-                  (o.design_no_sp_no || '').trim().toLowerCase() === cleanDesignNo ||
-                  (o.ibpo_no || '').trim().toLowerCase() === cleanDesignNo ||
-                  (o.order_no || '').trim().toLowerCase() === cleanDesignNo
-                );
+                const design = designsMap.get(cleanDesignNo);
+                const matchedOrder = ordersMap.get(cleanDesignNo);
                 const nextPlan = nextPlans[loom.loomNo];
 
-                // Beam stock & Set No connection
+                // Beam stock & Set No connection via fast indexed map
                 let beamInfo: any = null;
                 let beamMismatch = false;
-                let setNoDisplay = 'N/A';
+                const activeRunObj = activeRuns[loom.loomNo];
+                let setNoDisplay = (activeRunObj as any)?.set_no || (activeRunObj as any)?.setNo || (activeRunObj as any)?.set_number || 'N/A';
 
                 if (entry.currentBeamNo && entry.currentBeamNo.trim() !== '') {
-                  beamInfo = beams.find(b => 
-                    (b.beamNo && b.beamNo.toString().toLowerCase() === entry.currentBeamNo.trim().toLowerCase()) ||
-                    (b.vendorBeamNo && b.vendorBeamNo.toString().toLowerCase() === entry.currentBeamNo.trim().toLowerCase()) ||
-                    (b.beam_no && b.beam_no.toString().toLowerCase() === entry.currentBeamNo.trim().toLowerCase())
-                  );
+                  beamInfo = beamsMap.get(entry.currentBeamNo.trim().toLowerCase());
 
                   if (beamInfo) {
-                    setNoDisplay = beamInfo.setNo || beamInfo.set_no || 'N/A';
+                    if (setNoDisplay === 'N/A') {
+                      setNoDisplay = beamInfo.setNo || beamInfo.set_no || 'N/A';
+                    }
                     const bDesign = beamInfo.designNo || beamInfo.design_no || beamInfo.design;
                     if (bDesign && entry.designNo && bDesign.trim().toLowerCase() !== entry.designNo.trim().toLowerCase()) {
                       beamMismatch = true;
                     }
+                  } else if (setNoDisplay === 'N/A') {
+                    setNoDisplay = entry.currentBeamNo;
                   }
                 }
 
-                // Get daily logs for this loom
-                const loomLogs = productionLogs
-                  .filter(l => l.loom_no === loom.loomNo)
-                  .map(l => l.produced_meter);
-                const totalCumulativeProducedMtr = loomLogs.reduce((sum, val) => sum + (val || 0), 0);
+                // Get daily logs for this loom strictly against CURRENT DESIGN and ON OR AFTER LOOM START DATE
+                const currentDesignClean = (entry.designNo || '').trim().toLowerCase();
+                const startDateStr = entry.loomStartDate ? format(new Date(entry.loomStartDate), 'yyyy-MM-dd') : '';
+                const isDateBeforeStart = !!(startDateStr && selectedProductionDate < startDateStr);
+                const startDateDisplay = startDateStr ? format(new Date(entry.loomStartDate), 'dd-MMM-yyyy') : '';
 
-                // Check if saved production exists for this loom on selectedProductionDate
-                const hasSavedLogForSelectedDate = productionLogs.some(
-                  l => l.loom_no === loom.loomNo &&
-                  format(new Date(l.date || l.createdAt || new Date()), 'yyyy-MM-dd') === selectedProductionDate &&
-                  l.produced_meter !== undefined && l.produced_meter !== null && Number(l.produced_meter) > 0
-                );
-                const hasDraftInput = entry.dailyProduction !== '' && entry.dailyProduction !== undefined && entry.dailyProduction !== null && Number(entry.dailyProduction) > 0;
-                const isMissingProduction = !hasSavedLogForSelectedDate && !hasDraftInput;
+                // High-speed single-pass logs processing for this loom
+                const loomAllLogs = logsByLoom.get(loom.loomNo) || [];
+                let totalCumulativeProducedMtr = 0;
+                const loomLogs: number[] = [];
+                let hasSavedLogForSelectedDate = false;
+                let hasSavedRpmForSelectedDate = false;
+                let hasSavedEffForSelectedDate = false;
 
-                // Calculate Runout Metrics using cumulative total production
+                // Loom start date strictly from active warp
+                const effectiveStartDateStr = startDateStr;
+
+                for (let li = 0; li < loomAllLogs.length; li++) {
+                  const l = loomAllLogs[li];
+                  const lDesign = (l.design_no || '').trim().toLowerCase();
+                  const logDateStr = getLogDateStr(l);
+
+                  // A saved log for the selected date marks production entered (green)
+                  if (logDateStr === selectedProductionDate) {
+                    if (l.produced_meter !== undefined && l.produced_meter !== null) {
+                      hasSavedLogForSelectedDate = true;
+                    }
+                    if (l.rpm !== undefined && l.rpm !== null) {
+                      hasSavedRpmForSelectedDate = true;
+                    }
+                    if (l.efficiency !== undefined && l.efficiency !== null) {
+                      hasSavedEffForSelectedDate = true;
+                    }
+                  }
+
+                  // Cumulative meters calculation for CURRENT active warp
+                  if (currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
+                  if (effectiveStartDateStr && logDateStr < effectiveStartDateStr) continue;
+                  if (selectedProductionDate && logDateStr > selectedProductionDate) continue;
+
+                  const pVal = l.produced_meter || 0;
+                  loomLogs.push(pVal);
+                  totalCumulativeProducedMtr += pVal;
+                }
+
+                // Production status: Positive production (>0 M) is Green; No production (0 M or unentered) is Red
+                const isLoomAllocated = !!(entry.designNo && entry.designNo.trim() !== '');
+                const hasDraftInput = isLoomAllocated && entry.dailyProduction !== '' && entry.dailyProduction !== undefined && entry.dailyProduction !== null;
+                const draftVal = hasDraftInput ? Number(entry.dailyProduction) : null;
+                const isProductionPositive = isLoomAllocated && draftVal !== null && draftVal > 0;
+                const isNoProduction = isLoomAllocated && (!hasDraftInput || draftVal === 0);
+                const isMissingProduction = isNoProduction;
+
+                const hasDraftRpm = isLoomAllocated && entry.rpm !== '' && entry.rpm !== undefined && entry.rpm !== null;
+                const isMissingRpm = isLoomAllocated && !hasSavedRpmForSelectedDate && !hasDraftRpm;
+
+                const hasDraftEff = isLoomAllocated && entry.efficiency !== '' && entry.efficiency !== undefined && entry.efficiency !== null;
+                const isMissingEff = isLoomAllocated && !hasSavedEffForSelectedDate && !hasDraftEff;
+
+                // Calculate Runout Metrics using cumulative total production up to selected date (+ today's draft if not yet saved)
                 const effectiveWarpMtr =
                   typeof entry.warpedMeter === 'number' && entry.warpedMeter > 0
                     ? entry.warpedMeter
                     : (beamInfo?.available_meter || beamInfo?.beamLength || 0);
 
-                const effectiveCrimp = design?.crimpPercent ?? 0;
+                const rawDesignCrimp = Number(design?.crimpPercent ?? design?.crimp_percent ?? matchedOrder?.crimp_percent ?? 0);
+                const effectiveCrimp = rawDesignCrimp > 0 ? (rawDesignCrimp > 1 ? rawDesignCrimp / 100 : rawDesignCrimp) : 0.05;
                 const effectivePick = design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick;
                 
+                const draftTodayMeter = (!hasSavedLogForSelectedDate && hasDraftInput && typeof entry.dailyProduction === 'number')
+                  ? entry.dailyProduction
+                  : 0;
+                const effectiveProducedMtr = totalCumulativeProducedMtr + draftTodayMeter;
+                const effectiveHistory = draftTodayMeter > 0 ? [...loomLogs, draftTodayMeter] : loomLogs;
+
+                const actualWarpConsumed = (entry as any).actualWarpConsumed ?? (
+                  beamInfo && beamInfo.total_warped_meter > 0 && beamInfo.current_balance_meter !== undefined && beamInfo.current_balance_meter !== null && beamInfo.current_balance_meter > 0 && beamInfo.current_balance_meter < beamInfo.total_warped_meter
+                    ? beamInfo.total_warped_meter - beamInfo.current_balance_meter
+                    : null
+                );
+
                 const calc: CalculatedLoomRun = calculateLoomRun({
-                  loomStartDate: entry.loomStartDate ? new Date(entry.loomStartDate) : new Date(),
+                  loomStartDate: effectiveStartDateStr ? new Date(effectiveStartDateStr) : (entry.loomStartDate ? new Date(entry.loomStartDate) : new Date()),
                   warpedMeter: effectiveWarpMtr,
-                  dailyProduction: totalCumulativeProducedMtr,
+                  dailyProduction: effectiveProducedMtr,
                   crimpPercent: effectiveCrimp,
-                  rpm: entry.rpm !== '' && entry.rpm !== null && entry.rpm !== undefined ? entry.rpm : 600,
-                  efficiency: entry.efficiency !== '' && entry.efficiency !== null && entry.efficiency !== undefined ? entry.efficiency : 60,
+                  rpm: entry.rpm !== '' && entry.rpm !== null && entry.rpm !== undefined ? Number(entry.rpm) : null,
+                  efficiency: entry.efficiency !== '' && entry.efficiency !== null && entry.efficiency !== undefined ? Number(entry.efficiency) : null,
                   pick: effectivePick,
-                  actualProductionHistory: loomLogs
-                });
+                  actualProductionHistory: effectiveHistory,
+                  actualWarpConsumed
+                } as any, selectedProductionDate ? new Date(selectedProductionDate) : new Date());
 
                 // Build next-plan list for this loom with cascading expected start/runout dates
                 const nextPlansList = loomNextPlansMap[loom.loomNo] || [];
@@ -1135,13 +1632,7 @@ export default function MainEntry() {
 
                   // Find beam for this plan (if allocated)
                   const planBeamNo = plan.reserved_beam_no || '';
-                  const planBeamInfo = planBeamNo
-                    ? beams.find(
-                        (b: any) =>
-                          (b.beam_no || '').toLowerCase() === planBeamNo.toLowerCase() ||
-                          (b.beamNo || '').toLowerCase() === planBeamNo.toLowerCase()
-                      )
-                    : null;
+                  const planBeamInfo = planBeamNo ? beamsMap.get(planBeamNo.toLowerCase()) : null;
 
                   // Warp meter for this plan: from allocated beam or planned field
                   const planWarpMtr =
@@ -1150,10 +1641,7 @@ export default function MainEntry() {
                     1800; // safe default
 
                   // Plan's own design crimp
-                  const planDesign = designs.find(
-                    (d: any) =>
-                      (d.designNo || d.design_no_sp_no || '') === (plan.next_design || '')
-                  );
+                  const planDesign = plan.next_design ? designsMap.get((plan.next_design || '').trim().toLowerCase()) : null;
                   const planCrimp = planDesign?.crimpPercent ?? 0;
                   const planAvgProd = Number(plan.planned_avg_daily_production) || forecastAvgProd;
 
@@ -1243,7 +1731,11 @@ export default function MainEntry() {
 
                       {/* 7. Pick */}
                       <td className="p-3 text-xs font-bold text-slate-950 dark:text-slate-100">
-                        {design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick || matchedOrder?.designMaster?.pick || '—'}
+                        {(() => {
+                          const constStr = design?.construction || matchedOrder?.construction || matchedOrder?.designMaster?.construction || '';
+                          const parsedPick = constStr.match(/\b\d+\s*x\s*(\d+)\b/i)?.[1] || constStr.match(/\bX\s*(\d+)\b/i)?.[1] || '';
+                          return design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick || matchedOrder?.designMaster?.pick || parsedPick || '—';
+                        })()}
                       </td>
 
                       {/* 8. Greige Width */}
@@ -1270,15 +1762,48 @@ export default function MainEntry() {
                         </div>
                       </td>
 
-                      {/* 11. Start Date */}
+                      {/* 11. Start Date (Locked by default - Admin Password required to unlock) */}
                       <td className="p-3">
-                        <input
-                          type="date"
-                          value={entry.loomStartDate}
-                          onChange={e => handleEntryChange(loom.loomNo, 'loomStartDate', e.target.value)}
-                          onPaste={e => handlePaste(e as any, loom.loomNo, 'loomStartDate')}
-                          className="px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-extrabold text-slate-950 dark:text-white shadow-sm focus:border-indigo-600"
-                        />
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="date"
+                            value={entry.loomStartDate}
+                            disabled={!unlockedLoomDates[loom.loomNo]}
+                            readOnly={!unlockedLoomDates[loom.loomNo]}
+                            onChange={e => handleEntryChange(loom.loomNo, 'loomStartDate', e.target.value)}
+                            onPaste={e => handlePaste(e as any, loom.loomNo, 'loomStartDate')}
+                            className={`px-2 py-1.5 rounded-lg border text-xs font-extrabold shadow-sm ${
+                              !unlockedLoomDates[loom.loomNo]
+                                ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 cursor-not-allowed'
+                                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-200 border-emerald-400 focus:border-emerald-600 ring-2 ring-emerald-200'
+                            }`}
+                            title={
+                              unlockedLoomDates[loom.loomNo]
+                                ? 'UNLOCKED: Edit Start Date now. It will auto-relock on Save.'
+                                : 'LOCKED: Click the Lock button to enter Admin Password & unlock.'
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRequestUnlockStartDate(loom.loomNo)}
+                            className={`p-1.5 rounded-lg border text-xs font-bold transition-all flex items-center justify-center cursor-pointer shadow-xs active:scale-95 ${
+                              unlockedLoomDates[loom.loomNo]
+                                ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border-emerald-300'
+                                : 'bg-slate-100 hover:bg-amber-100 text-slate-600 hover:text-amber-800 border-slate-300'
+                            }`}
+                            title={
+                              unlockedLoomDates[loom.loomNo]
+                                ? 'Unlocked: Click to re-lock immediately'
+                                : 'Locked: Click to enter Admin Password & unlock Start Date'
+                            }
+                          >
+                            {unlockedLoomDates[loom.loomNo] ? (
+                              <Unlock className="w-3.5 h-3.5 text-emerald-700" />
+                            ) : (
+                              <Lock className="w-3.5 h-3.5 text-amber-600" />
+                            )}
+                          </button>
+                        </div>
                       </td>
 
                       {/* 12. Warp Meter */}
@@ -1296,54 +1821,136 @@ export default function MainEntry() {
                       {/* 13. Daily Production Meter */}
                       <td className="p-3">
                         <div className="flex items-center gap-1.5">
-                          {isMissingProduction && (
+                          {isNoProduction && (
                             <span
                               className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0 inline-block animate-pulse"
-                              title="Production not entered for selected date"
+                              title={hasDraftInput && draftVal === 0 ? "Zero production (0 M) for selected date" : "Production not entered for selected date"}
+                            />
+                          )}
+                          {isProductionPositive && (
+                            <span
+                              className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 inline-block"
+                              title={`Production updated: ${draftVal} M`}
                             />
                           )}
                           <input
                             type="number"
-                            value={entry.dailyProduction}
-                            placeholder="Daily Mtr"
-                            onChange={e => handleEntryChange(loom.loomNo, 'dailyProduction', e.target.value === '' ? '' : Number(e.target.value))}
-                            onPaste={e => handlePaste(e as any, loom.loomNo, 'dailyProduction')}
-                            className={`w-24 px-2.5 py-1.5 rounded-lg border-2 bg-emerald-50/30 dark:bg-emerald-950/20 text-xs font-black text-slate-950 dark:text-white shadow-sm focus:border-emerald-600 placeholder:text-slate-500 placeholder:font-normal ${
-                              isMissingProduction ? 'border-red-400 dark:border-red-600' : 'border-emerald-400 dark:border-emerald-600'
+                            value={!isLoomAllocated ? '' : entry.dailyProduction}
+                            disabled={!isLoomAllocated}
+                            placeholder={!isLoomAllocated ? 'Not Allocated' : 'Daily Mtr'}
+                            onChange={e => {
+                              if (!isLoomAllocated) return;
+                              handleEntryChange(loom.loomNo, 'dailyProduction', e.target.value === '' ? '' : Number(e.target.value));
+                            }}
+                            onPaste={e => {
+                              if (!isLoomAllocated) return;
+                              handlePaste(e as any, loom.loomNo, 'dailyProduction');
+                            }}
+                            className={`w-24 px-2.5 py-1.5 rounded-lg border-2 text-xs font-black shadow-sm focus:outline-none placeholder:text-slate-400 placeholder:font-normal ${
+                              !isLoomAllocated
+                                ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60 text-slate-400'
+                                : isNoProduction
+                                  ? 'bg-red-50 dark:bg-red-950/30 border-red-500 dark:border-red-500 text-red-900 dark:text-red-200 focus:border-red-600 placeholder:text-red-400 dark:placeholder:text-red-500'
+                                  : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 dark:border-emerald-500 text-slate-950 dark:text-white focus:border-emerald-600'
                             }`}
+                            title={
+                              !isLoomAllocated
+                                ? 'Loom is not allocated. Production entry is disabled.'
+                                : isNoProduction
+                                  ? (hasDraftInput && draftVal === 0 ? 'Zero production (0 M) for selected date' : 'Production not entered for selected date')
+                                  : `Production updated: ${draftVal} M for selected date`
+                            }
                           />
                         </div>
                       </td>
 
                       {/* 14. Crimp % */}
                       <td className="p-3 text-xs font-extrabold text-slate-950 dark:text-slate-100">
-                        {design ? `${(design.crimpPercent * 100).toFixed(1)}%` : '5.0%'}
+                        {(() => {
+                          if (!isLoomAllocated) return '—';
+                          if (calc?.actualCrimpPercent !== null && calc?.actualCrimpPercent !== undefined) {
+                            return (
+                              <div title={`Actual Crimp: ${calc.actualCrimpPercent.toFixed(2)}% | Standard: ${(calc.standardCrimpPercent ?? 5).toFixed(1)}%`}>
+                                <span>{calc.actualCrimpPercent.toFixed(1)}%</span>
+                                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 block font-bold">ACTUAL</span>
+                              </div>
+                            );
+                          }
+                          const stdVal = calc?.standardCrimpPercent ?? (effectiveCrimp * 100);
+                          return (
+                            <div title={`Standard Crimp: ${stdVal.toFixed(1)}%`}>
+                              <span>{stdVal.toFixed(1)}%</span>
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* 15. RPM (Optional - Default 600) */}
                       <td className="p-3">
-                        <input
-                          type="number"
-                          value={entry.rpm}
-                          placeholder="600"
-                          onChange={e => handleEntryChange(loom.loomNo, 'rpm', e.target.value === '' ? '' : Number(e.target.value))}
-                          onPaste={e => handlePaste(e as any, loom.loomNo, 'rpm')}
-                          className="w-20 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-bold text-slate-950 dark:text-white shadow-sm focus:border-indigo-600 placeholder:text-slate-400 placeholder:font-bold"
-                          title="Optional: Leave blank to automatically default to 600 RPM"
-                        />
+                        <div className="flex items-center gap-1.5">
+                          {isMissingRpm && (
+                            <span
+                              className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0 inline-block animate-pulse"
+                              title="RPM not entered for selected date"
+                            />
+                          )}
+                          <input
+                            type="number"
+                            value={!isLoomAllocated ? '' : entry.rpm}
+                            disabled={!isLoomAllocated}
+                            placeholder={!isLoomAllocated ? '—' : '600'}
+                            onChange={e => {
+                              if (!isLoomAllocated) return;
+                              handleEntryChange(loom.loomNo, 'rpm', e.target.value === '' ? '' : Number(e.target.value));
+                            }}
+                            onPaste={e => {
+                              if (!isLoomAllocated) return;
+                              handlePaste(e as any, loom.loomNo, 'rpm');
+                            }}
+                            className={`w-20 px-2.5 py-1.5 rounded-lg border-2 text-xs font-black text-slate-950 dark:text-white shadow-sm focus:border-emerald-600 placeholder:text-slate-400 placeholder:font-normal ${
+                              !isLoomAllocated
+                                ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60 text-slate-400'
+                                : isMissingRpm
+                                  ? 'bg-emerald-50/30 dark:bg-emerald-950/20 border-red-400 dark:border-red-600'
+                                  : 'bg-emerald-50/30 dark:bg-emerald-950/20 border-emerald-400 dark:border-emerald-600'
+                            }`}
+                            title={!isLoomAllocated ? 'Loom is not allocated' : 'RPM for selected date'}
+                          />
+                        </div>
                       </td>
 
                       {/* 16. Efficiency % (Optional - Default 60%) */}
                       <td className="p-3 border-r border-slate-300 dark:border-slate-700">
-                        <input
-                          type="number"
-                          value={entry.efficiency}
-                          placeholder="60%"
-                          onChange={e => handleEntryChange(loom.loomNo, 'efficiency', e.target.value === '' ? '' : Number(e.target.value))}
-                          onPaste={e => handlePaste(e as any, loom.loomNo, 'efficiency')}
-                          className="w-20 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-bold text-slate-950 dark:text-white shadow-sm focus:border-indigo-600 placeholder:text-slate-400 placeholder:font-bold"
-                          title="Optional: Leave blank to automatically default to 60% Efficiency"
-                        />
+                        <div className="flex items-center gap-1.5">
+                          {isMissingEff && (
+                            <span
+                              className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0 inline-block animate-pulse"
+                              title="Efficiency not entered for selected date"
+                            />
+                          )}
+                          <input
+                            type="number"
+                            value={!isLoomAllocated ? '' : entry.efficiency}
+                            disabled={!isLoomAllocated}
+                            placeholder={!isLoomAllocated ? '—' : '60%'}
+                            onChange={e => {
+                              if (!isLoomAllocated) return;
+                              handleEntryChange(loom.loomNo, 'efficiency', e.target.value === '' ? '' : Number(e.target.value));
+                            }}
+                            onPaste={e => {
+                              if (!isLoomAllocated) return;
+                              handlePaste(e as any, loom.loomNo, 'efficiency');
+                            }}
+                            className={`w-20 px-2.5 py-1.5 rounded-lg border-2 text-xs font-black text-slate-950 dark:text-white shadow-sm focus:border-emerald-600 placeholder:text-slate-400 placeholder:font-normal ${
+                              !isLoomAllocated
+                                ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60 text-slate-400'
+                                : isMissingEff
+                                  ? 'bg-emerald-50/30 dark:bg-emerald-950/20 border-red-400 dark:border-red-600'
+                                  : 'bg-emerald-50/30 dark:bg-emerald-950/20 border-emerald-400 dark:border-emerald-600'
+                            }`}
+                            title={!isLoomAllocated ? 'Loom is not allocated' : 'Efficiency % for selected date'}
+                          />
+                        </div>
                       </td>
 
                       {/* 17. Produced Meter */}
@@ -1481,23 +2088,6 @@ export default function MainEntry() {
                       {/* 30. Actions */}
                       <td className="p-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
-                          {(() => {
-                            const queuedPlan = rawNextPlans.find(p => p.loom_no === loom.loomNo && p.status !== 'CANCELLED' && p.status !== 'COMPLETED');
-                            const isRunoutDone = calc.runoutStatus === 'RUNOUT OVERDUE' || (calc.netBalanceMeter !== undefined && calc.netBalanceMeter <= 0) || calc.producedMeter >= (entry.warpedMeter || 10000);
-                            if (queuedPlan && isRunoutDone) {
-                              return (
-                                <button
-                                  onClick={() => setTransitionPromptPlan({ loom, run: entry, plan: queuedPlan, calc })}
-                                  className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-black shadow-sm flex items-center gap-1 border border-amber-600 animate-pulse"
-                                  title={`Beam warp finished! Click to confirm transition of Loom ${loom.loomNo} to ${queuedPlan.next_design}`}
-                                >
-                                  <Play className="w-3.5 h-3.5" />
-                                  <span>Promote Next Plan</span>
-                                </button>
-                              );
-                            }
-                            return null;
-                          })()}
                           <button
                             onClick={() => setHistoryModalLoomNo(loom.loomNo)}
                             className="p-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold flex items-center gap-1 border border-blue-200"
@@ -1582,7 +2172,7 @@ export default function MainEntry() {
                                      <div>Reed: <span className="font-bold">{design?.reedCount || design?.reed_count || matchedOrder?.reed_count || '—'}</span></div>
                                      <div>Pick: <span className="font-bold">{design?.pick || (matchedOrder?.ppi ? String(matchedOrder.ppi) : '') || matchedOrder?.pick || '—'}</span></div>
                                      <div>Greige W: <span className="font-bold">{design?.greigeWidth || matchedOrder?.greige_width || matchedOrder?.width || matchedOrder?.required_reed_space || '—'}</span></div>
-                                     <div>Crimp: <span className="font-bold">{(((design?.crimpPercent ?? 0)) * 100).toFixed(1)}%</span></div>
+                                      <div>Crimp: <span className="font-bold">{calc?.actualCrimpPercent !== null && calc?.actualCrimpPercent !== undefined ? `${calc.actualCrimpPercent.toFixed(1)}% (Actual)` : `${(calc?.standardCrimpPercent ?? (effectiveCrimp * 100)).toFixed(1)}%`}</span></div>
                                    </div>
                                  ) : (
                                    <p className="text-slate-400 text-[11px]">No design selected.</p>
@@ -1653,10 +2243,12 @@ export default function MainEntry() {
                                 <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 text-[11px]">
                                   <div>Start Date: <span className="font-bold">{entry.loomStartDate}</span></div>
                                   <div>Produced: <span className="font-bold text-slate-900 dark:text-white">{calc.producedMeter.toFixed(0)} M</span></div>
-                                  <div>Effective Prod: <span className="font-bold text-emerald-600">{calc.effectiveDailyProduction.toFixed(1)} M/d</span></div>
+                                  <div>Gross Balance: <span className="font-bold text-slate-900 dark:text-white">{calc.warpBalanceGross.toFixed(0)} M</span></div>
+                                  <div>Crimp Loss: <span className="font-bold text-slate-900 dark:text-white">{calc.crimpLossMeter.toFixed(0)} M</span></div>
+                                  <div>Effective Prod: <span className="font-bold text-emerald-600">{calc.effectiveDailyProduction > 0 ? `${calc.effectiveDailyProduction.toFixed(1)} M/d` : '—'}</span></div>
                                   <div>Net Balance: <span className="font-bold text-spu-primary">{calc.netBalanceMeter.toFixed(0)} M</span></div>
                                   <div>Balance Days: <span className="font-black text-amber-600">{calc.balanceDays === 999999 ? '—' : `${calc.balanceDays.toFixed(1)} Days`}</span></div>
-                                  <div>Expected Runout: <span className="font-bold">{calc.runoutStatus === 'DATA REQUIRED' ? 'Calculating...' : format(calc.expectedRunoutDate, 'dd-MMM-yyyy')}</span></div>
+                                  <div>Expected Runout: <span className="font-bold">{calc.runoutStatus === 'DATA REQUIRED' || calc.balanceDays === 999999 ? 'Calculating...' : format(calc.expectedRunoutDate, 'dd-MMM-yyyy')}</span></div>
                                 </div>
                               </div>
 
@@ -2004,43 +2596,72 @@ export default function MainEntry() {
         </div>
       )}
 
-      {/* ── Beam Warp Runout Transition Confirmation Modal ── */}
-      {transitionPromptPlan && (
+      {/* ADMIN PASSWORD VERIFICATION MODAL FOR LOOM START DATE */}
+      {adminUnlockModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-amber-300 dark:border-amber-700 shadow-2xl p-6 max-w-lg w-full space-y-4">
-            <div className="flex items-center space-x-3 text-amber-600">
-              <AlertTriangle className="w-7 h-7 shrink-0" />
-              <div>
-                <h3 className="font-black text-slate-900 dark:text-white text-lg">BEAM WARP RUNOUT CONFIRMATION</h3>
-                <p className="text-xs text-slate-500 font-semibold">Loom {transitionPromptPlan.loom.loomNo} has completed its running warp meters</p>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5 text-amber-600">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center font-bold">
+                  <Lock className="w-4 h-4 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black tracking-tight text-slate-900 dark:text-white">Admin Authorization</h3>
+                  <p className="text-[11px] text-slate-500">Unlock Start Date for Loom L-{adminUnlockModal.loomNo}</p>
+                </div>
               </div>
-            </div>
-
-            <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800 text-xs text-slate-800 dark:text-slate-200 space-y-2 font-mono">
-              <div>Current Finished Design: <strong className="text-slate-900 dark:text-white">{transitionPromptPlan.run?.designNo || '—'}</strong></div>
-              <div>Queued Next Design: <strong className="text-blue-600 dark:text-blue-400 font-black">{transitionPromptPlan.plan?.next_design}</strong> (Order: {transitionPromptPlan.plan?.order_no || '—'})</div>
-              <div>Total Production: <strong className="text-emerald-700 dark:text-emerald-400">{transitionPromptPlan.calc?.producedMeter?.toLocaleString()} M</strong> (Warp Meter: {transitionPromptPlan.calc?.warpedMeter?.toLocaleString()} M)</div>
-            </div>
-
-            <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">
-              Do you want to archive current beam run to <strong>Completed Warp History</strong> and start running the Next Planned Design <strong>{transitionPromptPlan.plan?.next_design}</strong> on Loom {transitionPromptPlan.loom.loomNo}?
-            </p>
-
-            <div className="flex justify-end space-x-3 pt-2">
-              <button
-                onClick={() => setTransitionPromptPlan(null)}
-                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs"
+              <button 
+                onClick={() => setAdminUnlockModal({ isOpen: false, loomNo: null, password: '', error: null, isVerifying: false })}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
               >
-                Keep Current Run
-              </button>
-              <button
-                onClick={() => handleConfirmWarpTransition(transitionPromptPlan.plan)}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs shadow-md flex items-center gap-1.5"
-              >
-                <CheckCircle className="w-4 h-4" />
-                <span>Confirm & Transition to Next Design</span>
+                <X className="w-4 h-4" />
               </button>
             </div>
+
+            <form onSubmit={handleVerifyAdminPassword} className="space-y-3">
+              <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 rounded-xl border border-amber-200/60 text-xs text-amber-900 dark:text-amber-200">
+                <p className="font-semibold leading-relaxed">
+                  Changing the <strong>Loom Start Date</strong> directly recalculates the active warp runout forecast. Please enter the <strong>Administrator Password</strong> to authorize.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Administrator Password</label>
+                <input
+                  type="password"
+                  autoFocus
+                  value={adminUnlockModal.password}
+                  onChange={e => setAdminUnlockModal(prev => ({ ...prev, password: e.target.value, error: null }))}
+                  placeholder="Enter admin password..."
+                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              {adminUnlockModal.error && (
+                <div className="p-2.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-xs font-bold text-red-700 dark:text-red-300 flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{adminUnlockModal.error}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAdminUnlockModal({ isOpen: false, loomNo: null, password: '', error: null, isVerifying: false })}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all"
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="submit"
+                  disabled={adminUnlockModal.isVerifying || !adminUnlockModal.password}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span>{adminUnlockModal.isVerifying ? 'Verifying...' : 'CONFIRM & UNLOCK'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

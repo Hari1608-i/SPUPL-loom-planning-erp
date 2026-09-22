@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 import { useAppContext } from '../context/AppProvider';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
-import { CompanyPrintHeader } from '../components/common/CompanyPrintHeader';
+import { CompanyPrintHeader, PrintTableHeaderRow } from '../components/common/CompanyPrintHeader';
 import { triggerPrint } from '../utils/printManager';
 import {
   calculateOrderPlanning,
@@ -154,7 +154,7 @@ export default function OrderManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ACTIVE ORDERS');
   const [loading, setLoading] = useState(false);
-  
+
   // Single Order Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
@@ -433,13 +433,16 @@ export default function OrderManagement() {
         target.no_of_clr_weft = matched.no_of_clr_weft ?? matched.weft_colours ?? target.no_of_clr_weft ?? 1;
         target.weft_colours = matched.weft_colours ?? target.weft_colours ?? 1;
         target.reed_count = matched.reed_count || target.reed_count || '';
-        target.pick = matched.pick || parsed.pick || target.pick || '';
+        const resolvedPick = matched.pick !== undefined && matched.pick !== null ? String(matched.pick) : (matched.ppi !== undefined && matched.ppi !== null ? String(matched.ppi) : (parsed.pick || String(target.pick || '')));
+        target.pick = resolvedPick;
+        target.ppi = resolvedPick;
         target.greige_width = matched.greige_width || parsed.greigeWidth || target.greige_width || '';
         target.total_ends = matched.total_ends ?? target.total_ends ?? '';
         target.reed_space = matched.reed_space_warp_width || parsed.reedSpace || target.reed_space || '';
         target.crimp_percent = matched.crimp_percent ?? target.crimp_percent ?? '';
       } else if (constr) {
         if (!target.pick && parsed.pick) target.pick = parsed.pick;
+        if (!target.ppi && parsed.pick) target.ppi = parsed.pick;
         if (!target.greige_width && parsed.greigeWidth) target.greige_width = parsed.greigeWidth;
         if (!target.reed_space && parsed.reedSpace) target.reed_space = parsed.reedSpace;
       }
@@ -468,60 +471,121 @@ export default function OrderManagement() {
   const parsePastedDate = (val: string): string => {
     if (!val) return '';
     const s = val.trim();
-    if (!s || s === '—') return '';
-    
+    if (!s || s === '—' || s === '-' || s.toLowerCase() === 'dd-mm-yyyy' || s.toLowerCase() === 'yyyy-mm-dd' || s.toLowerCase() === 'n/a') return '';
+
     // If already yyyy-MM-dd
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-    // Try dd-MMM or dd-MMM-yy / dd-MMM-yyyy (e.g., 16-Sep, 21-Sep, 05-Oct, 16/09/2026, 16-09-2026)
+    // Check if Excel 5-digit serial number (e.g. 45000)
+    if (/^\d{5}$/.test(s)) {
+      const serial = parseInt(s, 10);
+      if (!isNaN(serial) && serial > 35000 && serial < 60000) {
+        const utcDays = serial - 25569;
+        const dateObj = new Date(utcDays * 86400 * 1000);
+        if (!isNaN(dateObj.getTime())) {
+          return format(dateObj, 'yyyy-MM-dd');
+        }
+      }
+    }
+
+    // Try dd-MMM or MMM-dd (e.g., 26-May, May-26, 26-May-2026, 26-May-26)
     const monthNames: Record<string, number> = {
-      jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11
+      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
     };
-    
-    const parts = s.split(/[-/ ]+/);
+
+    const parts = s.split(/[-/ .]+/);
     if (parts.length >= 2) {
-      const day = parseInt(parts[0], 10);
-      const monthStr = parts[1].toLowerCase().slice(0, 3);
-      const isNamedMonth = monthNames.hasOwnProperty(monthStr);
-      
-      if (!isNaN(day) && (isNamedMonth || !isNaN(parseInt(parts[1], 10)))) {
-        const monthIndex = isNamedMonth ? monthNames[monthStr] : parseInt(parts[1], 10) - 1;
+      const p0Str = parts[0].toLowerCase().slice(0, 3);
+      const p1Str = parts[1].toLowerCase().slice(0, 3);
+      const p0IsMonth = monthNames.hasOwnProperty(p0Str);
+      const p1IsMonth = monthNames.hasOwnProperty(p1Str);
+
+      if (p0IsMonth || p1IsMonth) {
+        const monthIndex = p0IsMonth ? monthNames[p0Str] : monthNames[p1Str];
+        const day = parseInt(p0IsMonth ? parts[1] : parts[0], 10);
         let year = new Date().getFullYear();
+
         if (parts[2]) {
           const yNum = parseInt(parts[2], 10);
           if (!isNaN(yNum)) {
             year = yNum < 100 ? 2000 + yNum : yNum;
           }
         }
-        if (day >= 1 && day <= 31 && monthIndex >= 0 && monthIndex <= 11) {
+
+        if (!isNaN(day) && day >= 1 && day <= 31 && monthIndex >= 0 && monthIndex <= 11 && year >= 1900 && year <= 2100) {
           const d = new Date(year, monthIndex, day);
+          if (!isNaN(d.getTime())) {
+            return format(d, 'yyyy-MM-dd');
+          }
+        }
+      }
+    }
+
+    // Try dd-mm-yyyy or dd/mm/yyyy or dd.mm.yyyy or yyyy-mm-dd or yyyy/mm/dd
+    const dmyMatch = s.match(/^(\d{1,4})[-/. ](\d{1,2})[-/. ](\d{1,4})$/);
+    if (dmyMatch) {
+      const p1 = parseInt(dmyMatch[1], 10);
+      const p2 = parseInt(dmyMatch[2], 10);
+      const p3 = parseInt(dmyMatch[3], 10);
+
+      let day = p1;
+      let month = p2;
+      let year = p3;
+
+      if (dmyMatch[1].length === 4) {
+        // YYYY-MM-DD or YYYY/MM/DD
+        year = p1;
+        month = p2;
+        day = p3;
+      } else {
+        // DD-MM-YYYY or DD-MM-YY
+        if (year < 100) year += 2000;
+      }
+
+      if (day >= 1 && day <= 31 && month >= 1 && month <= 12 && year >= 1900 && year <= 2100) {
+        const d = new Date(year, month - 1, day);
+        if (!isNaN(d.getTime())) {
           return format(d, 'yyyy-MM-dd');
         }
       }
     }
 
-    // Fallback JS Date parse
+    // Fallback JS Date parse with year validation
     const d = new Date(s);
     if (!isNaN(d.getTime())) {
-      return format(d, 'yyyy-MM-dd');
+      const y = d.getFullYear();
+      if (y >= 1900 && y <= 2100) {
+        return format(d, 'yyyy-MM-dd');
+      }
     }
 
-    return s;
+    return '';
   };
 
   const handlePasteExcel = (e: React.ClipboardEvent) => {
     const pasteData = e.clipboardData.getData('text');
     if (!pasteData) return;
 
-    const lines = pasteData.split(/\r\n|\n|\r/).filter(line => line.trim() !== '');
+    const rawLines = pasteData.split(/\r\n|\n|\r/).filter(line => line.trim() !== '');
+    if (rawLines.length === 0) return;
+
+    // Filter out header row if user copied table header
+    const lines = rawLines.filter(line => {
+      const firstCol = line.split('\t')[0]?.trim().toLowerCase();
+      return firstCol !== 'ibpo' && firstCol !== 'ibpo *' && firstCol !== '#' && firstCol !== 'ibpo no';
+    });
+
     if (lines.length === 0) return;
 
     const pastedRows: MultiOrderRowState[] = lines.map(line => {
       const cols = line.split('\t').map(c => c.trim());
 
-      // Check if this is a legacy paste with Customer Name & Buyer Name (length >= 21)
+      // Check if this is a legacy paste with Customer Name & Buyer Name
       let offset = 0;
-      if (cols.length >= 21 || (cols.length >= 20 && cols[1]?.includes(' ') && !cols[1]?.includes('/'))) {
+      const isDesignCol1 = cols[1] && (cols[1].toUpperCase().startsWith('SP') || cols[1].includes('/') || cols[1].includes('-'));
+      const isConstrCol2 = cols[2] && (cols[2].toLowerCase().includes('x') || cols[2].includes('"') || cols[2].toLowerCase().includes('plain') || cols[2].toLowerCase().includes('dobby'));
+
+      if (!isDesignCol1 && !isConstrCol2 && cols.length >= 22) {
         offset = 2; // skip Customer Name (col 0) & Buyer Name (col 1)
       }
 
@@ -540,15 +604,17 @@ export default function OrderManagement() {
       const clrWarp = cols[offset + 9] ? cols[offset + 9] : (matched?.no_of_clr_warp || 1);
       const clrWeft = cols[offset + 10] ? cols[offset + 10] : (matched?.no_of_clr_weft || matched?.weft_colours || 1);
       const rCount = cols[offset + 11] || matched?.reed_count || '';
+      const rawPpi = cols[offset + 12] || (matched?.ppi !== undefined && matched?.ppi !== null ? String(matched.ppi) : '') || (matched?.pick !== undefined && matched?.pick !== null ? String(matched.pick) : '') || parsed.pick || '';
+      const ppiVal = String(rawPpi);
 
-      const qtyVal = cols[offset + 12] || '';
-      const szPlan = parsePastedDate(cols[offset + 13]);
-      const szTarget = parsePastedDate(cols[offset + 14]);
-      const wvStart = parsePastedDate(cols[offset + 15]) || format(new Date(), 'yyyy-MM-dd');
-      const wvEnd = parsePastedDate(cols[offset + 16]);
-      const loomCnt = cols[offset + 17] ? (Number(cols[offset + 17]) || 2) : 2;
-      const avgProd = cols[offset + 18] ? (Number(cols[offset + 18]) || 250) : 250;
-      const prio = (cols[offset + 19] || 'NORMAL').toUpperCase();
+      const qtyVal = cols[offset + 13] || '';
+      const szPlan = parsePastedDate(cols[offset + 14]);
+      const szTarget = parsePastedDate(cols[offset + 15]);
+      const wvStart = parsePastedDate(cols[offset + 16]) || format(new Date(), 'yyyy-MM-dd');
+      const wvEnd = parsePastedDate(cols[offset + 17]);
+      const loomCnt = cols[offset + 18] ? (Number(cols[offset + 18]) || 2) : 2;
+      const avgProd = cols[offset + 19] ? (Number(cols[offset + 19]) || 250) : 250;
+      const prio = (cols[offset + 20] || 'NORMAL').toUpperCase();
 
       return {
         ibpo_no: ibpo,
@@ -563,14 +629,14 @@ export default function OrderManagement() {
         construction: constr,
         weave_type: wType,
         epi: matched?.epi || '',
-        ppi: matched?.ppi || parsed.pick || '',
+        ppi: ppiVal,
         beam_type: bType,
         no_of_clr_warp: clrWarp,
         no_of_clr_weft: clrWeft,
         frames: framesVal,
         weft_colours: clrWeft,
         reed_count: rCount,
-        pick: parsed.pick || matched?.pick || '',
+        pick: ppiVal,
         greige_width: gWidth,
         total_ends: endsVal,
         reed_space: wWidth,
@@ -935,9 +1001,20 @@ export default function OrderManagement() {
   };
 
   const filteredOrders = orders.filter(o => {
-    const matchesSearch =
-      (o.ibpo_no && o.ibpo_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (o.design_no_sp_no && o.design_no_sp_no.toLowerCase().includes(searchTerm.toLowerCase()));
+    const q = (searchTerm || '').trim().toLowerCase();
+    const matchesSearch = !q || (
+      (o.ibpo_no && o.ibpo_no.toLowerCase().includes(q)) ||
+      (o.order_no && o.order_no.toLowerCase().includes(q)) ||
+      (o.design_no_sp_no && o.design_no_sp_no.toLowerCase().includes(q)) ||
+      (o.customer_name && o.customer_name.toLowerCase().includes(q)) ||
+      (o.buyer_name && o.buyer_name.toLowerCase().includes(q)) ||
+      (o.construction && o.construction.toLowerCase().includes(q)) ||
+      (o.weave_type && o.weave_type.toLowerCase().includes(q)) ||
+      (o.beam_type && o.beam_type.toLowerCase().includes(q)) ||
+      (o.status && o.status.toLowerCase().includes(q)) ||
+      ((o as any).planning_status && (o as any).planning_status.toLowerCase().includes(q)) ||
+      (o.id && o.id.toString().includes(q))
+    );
 
     if (statusFilter === 'ALL') return matchesSearch;
     if (statusFilter === 'ACTIVE ORDERS') {
@@ -970,7 +1047,7 @@ export default function OrderManagement() {
         plannedLoomCount: ord.planned_loom_count || 0,
         plannedAvgProduction: ord.avg_production_per_loom || 0,
         weavingPlannedDate: ord.weaving_planned_date || ord.weaving_start_date,
-        weavingCompletionDate: ord.weaving_completion_date,
+        weavingCompletionDate: ord.weaving_completion_date || ord.expected_completion_date,
         actualLoomCount: ord.actual_loom_count,
         actualWeavingStartDate: ord.actual_weaving_start_date,
         actualAvgProduction: ord.actual_avg_production,
@@ -1045,7 +1122,7 @@ export default function OrderManagement() {
 
   return (
     <div className="space-y-6">
-      
+
       {/* Printable Header */}
       <CompanyPrintHeader title="ORDER MANAGEMENT & PLANNED FORECAST REPORT" />
 
@@ -1075,7 +1152,7 @@ export default function OrderManagement() {
 
           {canPrint && (
             <button
-              onClick={() => triggerPrint()}
+              onClick={() => triggerPrint({ orientation: 'landscape', title: 'Order Management & Master Register' })}
               className="flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl font-bold text-xs transition-colors"
             >
               <Printer className="w-4 h-4" /> Print / PDF
@@ -1155,12 +1232,17 @@ export default function OrderManagement() {
       </div>
 
       {/* Active Orders Data Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto custom-scrollbar">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden print:border-none print:shadow-none print:overflow-visible">
+        <div className="overflow-x-auto custom-scrollbar print:overflow-visible">
           <table className="w-full text-left border-collapse whitespace-nowrap">
-            <thead className="bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider sticky top-0 z-10">
-              <tr>
-                <th className="py-3.5 px-3 text-center w-10">
+            <thead className="bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider sticky top-0 z-10 print:static print:shadow-none">
+              <PrintTableHeaderRow 
+                title="Order Management & Master Register" 
+                subtitle="Planned Forecast & Live Production Registry" 
+                colSpan={22} 
+              />
+              <tr className="print:bg-slate-100 print:text-black">
+                <th className="py-3.5 px-3 text-center w-10 print:hidden">
                   <input
                     type="checkbox"
                     checked={isAllSelected}
@@ -1181,6 +1263,7 @@ export default function OrderManagement() {
                 <th className="py-3.5 px-4 text-center">Clr Warp</th>
                 <th className="py-3.5 px-4 text-center">Clr Weft</th>
                 <th className="py-3.5 px-4 text-center">Reed Count</th>
+                <th className="py-3.5 px-4 text-center">Pick (PPI)</th>
                 <th className="py-3.5 px-4 text-right">WARP Qty</th>
                 <th className="py-3.5 px-4 text-right">Produced Qty</th>
                 <th className="py-3.5 px-4 text-right">Balance Qty</th>
@@ -1211,13 +1294,13 @@ export default function OrderManagement() {
                 filteredOrders.map((ord, idx) => {
                   const isSelected = selectedOrderIds.includes(ord.id);
                   const isProdDropAlert = ord.production_drop_alert || false;
-                  
+
                   const plan = calculateOrderPlanning({
                     orderQty: ord.order_qty,
                     plannedLoomCount: ord.planned_loom_count || 0,
                     plannedAvgProduction: ord.avg_production_per_loom || 0,
                     weavingPlannedDate: ord.weaving_planned_date || ord.weaving_start_date,
-                    weavingCompletionDate: ord.weaving_completion_date,
+                    weavingCompletionDate: ord.weaving_completion_date || ord.expected_completion_date,
                     actualLoomCount: ord.actual_loom_count,
                     actualWeavingStartDate: ord.actual_weaving_start_date,
                     actualAvgProduction: ord.actual_avg_production,
@@ -1241,15 +1324,15 @@ export default function OrderManagement() {
                   const displayClrWarp = ord.no_of_clr_warp ?? (ord as any).warp_colours ?? matchedDesign?.no_of_clr_warp ?? (matchedDesign as any)?.warp_colours ?? 1;
                   const displayClrWeft = ord.no_of_clr_weft ?? ord.weft_colours ?? matchedDesign?.no_of_clr_weft ?? matchedDesign?.weft_colours ?? 1;
                   const displayReedCount = ord.reed_count || matchedDesign?.reed_count || '—';
+                  const displayPick = ord.ppi || ord.pick || matchedDesign?.ppi || matchedDesign?.pick || '—';
                   const displaySizingTargetEnd = ord.sizing_completion_date || ord.sizing_completed_date
                     ? format(new Date(ord.sizing_completion_date || ord.sizing_completed_date!), 'dd-MM-yyyy')
                     : (ord.sizing_planned_date ? format(addDays(new Date(ord.sizing_planned_date), 5), 'dd-MM-yyyy') : '—');
 
                   return (
-                    <tr key={ord.id} className={`transition-colors ${
-                      isProdDropAlert ? 'bg-red-50/70 hover:bg-red-100/50 border-l-4 border-l-red-500' :
-                      isSelected ? 'bg-indigo-50/50' : 'hover:bg-indigo-50/30'
-                    }`}>
+                    <tr key={ord.id} className={`transition-colors ${isProdDropAlert ? 'bg-red-50/70 hover:bg-red-100/50 border-l-4 border-l-red-500' :
+                        isSelected ? 'bg-indigo-50/50' : 'hover:bg-indigo-50/30'
+                      }`}>
                       <td className="py-3 px-3 text-center">
                         <input
                           type="checkbox"
@@ -1273,6 +1356,7 @@ export default function OrderManagement() {
                       <td className="py-3 px-4 text-center text-slate-600 font-medium">{displayClrWarp}</td>
                       <td className="py-3 px-4 text-center text-slate-600 font-medium">{displayClrWeft}</td>
                       <td className="py-3 px-4 text-center text-slate-600 font-medium">{displayReedCount}</td>
+                      <td className="py-3 px-4 text-center text-slate-600 font-medium">{displayPick}</td>
                       <td className="py-3 px-4 text-right font-black text-slate-900">{plan.orderQty.toLocaleString()} {ord.uom || 'M'}</td>
                       <td className="py-3 px-4 text-right font-bold text-emerald-600">{plan.producedQty.toLocaleString()}</td>
                       <td className="py-3 px-4 text-right font-bold text-amber-600">{plan.balanceQty.toLocaleString()}</td>
@@ -1284,11 +1368,10 @@ export default function OrderManagement() {
                       <td className="py-3 px-4 text-right text-slate-600">{plan.plannedAvgProduction} M</td>
                       <td className="py-3 px-4 text-center font-bold text-indigo-900">{plan.expectedCompletionDateFormatted}</td>
                       <td className="py-3 px-4 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                          plan.scheduleStatus === 'AHEAD' ? 'bg-emerald-100 text-emerald-800' :
-                          plan.scheduleStatus === 'ON TIME' ? 'bg-blue-100 text-blue-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${plan.scheduleStatus === 'AHEAD' ? 'bg-emerald-100 text-emerald-800' :
+                            plan.scheduleStatus === 'ON TIME' ? 'bg-blue-100 text-blue-800' :
+                              'bg-red-100 text-red-800'
+                          }`}>
                           {plan.varianceText}
                         </span>
                       </td>
@@ -1337,11 +1420,10 @@ export default function OrderManagement() {
                         {!isOrderCompleted && canEdit && (
                           <button
                             onClick={() => handleCompleteOrder(ord)}
-                            className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-all shadow-sm inline-flex items-center gap-1 mr-1 ${
-                              isEligibleForCompletion
+                            className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-all shadow-sm inline-flex items-center gap-1 mr-1 ${isEligibleForCompletion
                                 ? 'bg-emerald-600 text-white hover:bg-emerald-700 ring-2 ring-emerald-400/50'
                                 : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-300'
-                            }`}
+                              }`}
                             title="Confirm Order Completion"
                           >
                             <CheckCircle className="w-3.5 h-3.5" /> COMPLETE ORDER
@@ -1389,7 +1471,7 @@ export default function OrderManagement() {
             </div>
 
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-              
+
               {/* Customer Details Section */}
               {/* Design Details Section */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-4">
@@ -1546,6 +1628,17 @@ export default function OrderManagement() {
                       onChange={(e) => setFormData({ ...formData, reed_count: e.target.value })}
                     />
                   </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 uppercase block mb-1">Pick (PPI)</label>
+                    <input
+                      type="text"
+                      placeholder="PPI"
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none"
+                      value={formData.ppi || formData.pick || ''}
+                      onChange={(e) => setFormData({ ...formData, ppi: Number(e.target.value) || 0, pick: e.target.value })}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1677,7 +1770,7 @@ export default function OrderManagement() {
       {showMultiEntryModal && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-7xl max-h-[94vh] flex flex-col overflow-hidden">
-            
+
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-900 text-white">
               <div>
                 <h2 className="text-lg font-black tracking-tight flex items-center gap-2">
@@ -1737,6 +1830,7 @@ export default function OrderManagement() {
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[90px]">Clr Warp</th>
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[90px]">Clr Weft</th>
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[110px]">Reed Count</th>
+                    <th className="py-2.5 px-2 border-r border-slate-200 min-w-[110px]">Pick (PPI)</th>
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[110px]">WARP MTR *</th>
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[130px]">Sizing Plan Date</th>
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[130px]">Sizing Target End</th>
@@ -1941,6 +2035,20 @@ export default function OrderManagement() {
                           />
                         </td>
 
+                        {/* Pick / PPI */}
+                        <td className="p-1 border-r border-slate-200">
+                          <input
+                            type="text"
+                            placeholder="PPI"
+                            className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded font-medium text-slate-700 outline-none focus:border-indigo-600"
+                            value={row.ppi || row.pick || ''}
+                            onChange={e => {
+                              const v = e.target.value;
+                              setMultiRows(prev => { const n = [...prev]; n[idx] = { ...n[idx], ppi: v, pick: v }; return n; });
+                            }}
+                          />
+                        </td>
+
                         {/* WARP Qty */}
                         <td className="p-1 border-r border-slate-200">
                           <input
@@ -2112,7 +2220,7 @@ export default function OrderManagement() {
       {showMultiEditModal && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden">
-            
+
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-blue-900 text-white">
               <div>
                 <h2 className="text-lg font-black tracking-tight flex items-center gap-2">

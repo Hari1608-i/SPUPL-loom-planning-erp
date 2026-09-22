@@ -1,49 +1,58 @@
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../context/AppProvider';
-import { calculateLoomRun } from '../utils/calculations';
+
 import { ListTodo, Search, Calendar, Download, FileSpreadsheet, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
-import { CompanyPrintHeader } from '../components/common/CompanyPrintHeader';
+import { CompanyPrintHeader, PrintTableHeaderRow } from '../components/common/CompanyPrintHeader';
 import { triggerPrint } from '../utils/printManager';
 
 export default function LoomWiseRunout() {
-  const { activeRuns, designs, looms, nextPlans } = useAppContext();
+  const { activeRuns, looms, nextPlans } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
 
   const tableData = useMemo(() => {
     const list = Object.values(activeRuns).map(run => {
-      const design = designs.find(d => d.designNo === run.designNo);
       const loom = looms.find(l => l.loomNo === run.loomNo);
       const plan = nextPlans[run.loomNo];
-      
-      const calc = calculateLoomRun({
-        loomStartDate: new Date(run.loomStartDate),
-        warpedMeter: run.warpedMeter,
-        dailyProduction: run.dailyProduction,
-        crimpPercent: design?.crimpPercent || 0,
-        rpm: run.rpm,
-        efficiency: run.efficiency,
-        pick: design?.pick,
-        productionOverride: run.productionOverride
-      });
-      
-      return { 
-        ...run, 
-        ...calc, 
+
+      // AppProvider already computed the correct runout via getMainEntryLoomRun with full production logs.
+      // Read those pre-calculated fields directly — no double-calculation.
+      return {
+        ...run,
         unit: loom?.unit || 'Unknown',
         loomType: loom?.loomType || 'Unknown',
-        nextDesign: plan?.designNo || 'Unplanned'
+        nextDesign: plan?.designNo || 'Unplanned',
+        // Ensure all display fields have safe defaults
+        producedMeter: run.producedMeter ?? 0,
+        netBalanceMeter: run.netBalanceMeter ?? 0,
+        effectiveDailyProduction: run.effectiveDailyProduction ?? 0,
+        balanceDays: run.balanceDays ?? 999999,
+        expectedRunoutDate: run.expectedRunoutDate instanceof Date ? run.expectedRunoutDate : new Date(run.expectedRunoutDate ?? new Date()),
+        runoutSource: run.runoutSource ?? 'DATA REQUIRED',
+        confidenceLevel: run.confidenceLevel ?? 'DATA REQUIRED',
+        runoutStatus: run.runoutStatus ?? 'DATA REQUIRED'
       };
     });
 
     return list.sort((a, b) => a.balanceDays - b.balanceDays);
-  }, [activeRuns, designs, looms, nextPlans]);
+  }, [activeRuns, looms, nextPlans]);
 
-  const filteredData = tableData.filter(d => 
-    d.designNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    d.loomNo.toString().includes(searchTerm)
-  );
+
+  const filteredData = tableData.filter(d => {
+    const q = (searchTerm || '').trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (d.designNo && d.designNo.toLowerCase().includes(q)) ||
+      d.loomNo.toString().includes(q) ||
+      (d.nextDesign && d.nextDesign.toLowerCase().includes(q)) ||
+      (d.currentBeamNo && d.currentBeamNo.toLowerCase().includes(q)) ||
+      ((d as any).setNo && (d as any).setNo.toLowerCase().includes(q)) ||
+      ((d as any).orderNo && (d as any).orderNo.toLowerCase().includes(q)) ||
+      (d.unit && d.unit.toLowerCase().includes(q)) ||
+      (d.loomType && d.loomType.toLowerCase().includes(q))
+    );
+  });
 
   const handleExportExcel = () => {
     const exportRows = filteredData.map(r => ({
@@ -101,7 +110,7 @@ export default function LoomWiseRunout() {
   };
 
   const handleExportPDF = () => {
-    triggerPrint();
+    triggerPrint({ orientation: 'landscape', title: 'Loom-Wise Runout Report' });
   };
 
   return (
@@ -146,8 +155,8 @@ export default function LoomWiseRunout() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-industrial-100 overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-industrial-100 bg-industrial-50 flex justify-between items-center">
+      <div className="bg-white rounded-xl shadow-sm border border-industrial-100 overflow-hidden flex flex-col print:border-none print:shadow-none print:overflow-visible">
+        <div className="p-4 border-b border-industrial-100 bg-industrial-50 flex justify-between items-center print:hidden">
            <div className="relative w-64">
              <Search className="w-4 h-4 absolute left-3 top-2.5 text-industrial-400" />
              <input 
@@ -161,10 +170,15 @@ export default function LoomWiseRunout() {
            <div className="text-sm text-industrial-500 font-medium">Running Looms: {filteredData.length}</div>
         </div>
         
-        <div className="overflow-x-auto flex-1 min-h-[500px]">
+        <div className="overflow-x-auto flex-1 min-h-[500px] print:overflow-visible print:min-h-0">
           <table className="w-full text-left border-collapse whitespace-nowrap text-xs">
-            <thead className="bg-white sticky top-0 shadow-sm z-10">
-              <tr className="border-b border-industrial-200 font-bold uppercase text-industrial-500">
+            <thead className="bg-white sticky top-0 shadow-sm z-10 print:static print:shadow-none">
+              <PrintTableHeaderRow 
+                title="Loom-Wise Runout Report" 
+                subtitle="Warp Balance & Runout Schedule Audit Log" 
+                colSpan={13} 
+              />
+              <tr className="border-b border-industrial-200 font-bold uppercase text-industrial-500 print:text-black print:bg-slate-100">
                 <th className="py-3 px-4">Loom No</th>
                 <th className="py-3 px-4">Unit</th>
                 <th className="py-3 px-4">Loom Type</th>
@@ -217,13 +231,13 @@ export default function LoomWiseRunout() {
 
                   <td className="py-3 px-4 text-right">
                     <span className={`px-2 py-1 rounded font-bold font-mono text-xs ${row.balanceDays <= 2 ? 'bg-red-100 text-red-700' : 'text-industrial-900'}`}>
-                      {row.balanceDays.toFixed(1)} d
+                      {row.balanceDays === 999999 ? '—' : (row.runoutStatus === 'RUNOUT OVERDUE' ? 'OVERDUE (0.0 d)' : `${row.balanceDays.toFixed(1)} d`)}
                     </span>
                   </td>
                   <td className="py-3 px-4 flex items-center font-medium">
                     <Calendar className={`w-4 h-4 mr-1.5 ${row.balanceDays <= 2 ? 'text-red-500' : 'text-industrial-400'}`} />
                     <span className={row.balanceDays <= 2 ? 'text-red-600 font-bold' : 'text-industrial-700'}>
-                      {format(row.expectedRunoutDate, 'dd MMM yyyy')}
+                      {row.balanceDays === 999999 || row.runoutStatus === 'DATA REQUIRED' ? '—' : format(row.expectedRunoutDate, 'dd MMM yyyy')}
                     </span>
                   </td>
                   <td className="py-3 px-4">

@@ -107,23 +107,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               if (actionKey === 'view') return screenPerm;
               return screenPerm;
             }
-          } else {
-            // Screen is not in explicitly saved permissions -> DENY
-            return false;
           }
+          // If screen is not explicitly defined in custom permissions JSON (e.g. newly introduced screen),
+          // fall through to role-based default permissions below.
         }
       } catch (e) {}
     }
 
     // Role default permissions fallback (only if user has no saved custom permissions JSON)
     const roleAccess: Record<string, string[]> = {
-      'PLANNING': ['Executive Dashboard', 'Analytics', 'Design-Wise Loom Running', 'Loom Runout', 'Design Runout', 'Main Entry', 'Availability Board', 'Smart Recommendation', 'Order Management', 'Loom Planning Setup', 'Alert Center', 'Runout Monitor', 'Next Planned Looms', 'Order Completion & History', 'Completed Warp History', 'Completed Warp Analysis', 'Loom Master', 'Design Master', 'Reed Stock', 'Beam Stock', 'Sizing Dashboard'],
-      'PLANNING_MANAGER': ['Executive Dashboard', 'Analytics', 'Design-Wise Loom Running', 'Loom Runout', 'Design Runout', 'Main Entry', 'Availability Board', 'Smart Recommendation', 'Order Management', 'Loom Planning Setup', 'Alert Center', 'Runout Monitor', 'Next Planned Looms', 'Order Completion & History', 'Completed Warp History', 'Completed Warp Analysis', 'Loom Master', 'Design Master', 'Reed Stock', 'Beam Stock', 'Sizing Dashboard'],
-      'SIZING': ['Executive Dashboard', 'Sizing Dashboard', 'Beam Stock', 'Reed Stock', 'Alert Center', 'Runout Monitor', 'Main Entry', 'Availability Board'],
-      'WEAVING': ['Executive Dashboard', 'Main Entry', 'Availability Board', 'Loom Runout', 'Design Runout', 'Loom Master', 'Design Master'],
-      'MANAGEMENT': ['Executive Dashboard', 'Analytics', 'Design-Wise Loom Running', 'Loom Runout', 'Design Runout', 'Order Completion & History', 'Completed Warp History', 'Completed Warp Analysis', 'Order Management'],
-      'MERCH': ['Executive Dashboard', 'Analytics', 'Order Management', 'Order Completion & History', 'Design Master'],
-      'VIEWER': ['Executive Dashboard', 'Analytics', 'Design-Wise Loom Running', 'Availability Board']
+      'PLANNING': ['Executive Dashboard', 'Analytics', 'Design-Wise Loom Running', 'Loom Runout', 'Design Runout', 'Main Entry', 'Availability Board', 'Smart Recommendation', 'Order Management', 'Loom Planning Setup', 'Alert Center', 'Runout Monitor', 'Next Planned Looms', 'Order Completion & History', 'Completed Warp History', 'Completed Warp Analysis', 'Loom Master', 'Design Master', 'Reed Stock', 'Beam Stock', 'Sizing Dashboard', 'Order Tracking & Planning Analytics', 'Daily & Monthly Reports'],
+      'PLANNING_MANAGER': ['Executive Dashboard', 'Analytics', 'Design-Wise Loom Running', 'Loom Runout', 'Design Runout', 'Main Entry', 'Availability Board', 'Smart Recommendation', 'Order Management', 'Loom Planning Setup', 'Alert Center', 'Runout Monitor', 'Next Planned Looms', 'Order Completion & History', 'Completed Warp History', 'Completed Warp Analysis', 'Loom Master', 'Design Master', 'Reed Stock', 'Beam Stock', 'Sizing Dashboard', 'Order Tracking & Planning Analytics', 'Daily & Monthly Reports'],
+      'SIZING': ['Executive Dashboard', 'Sizing Dashboard', 'Beam Stock', 'Reed Stock', 'Alert Center', 'Runout Monitor', 'Main Entry', 'Availability Board', 'Order Tracking & Planning Analytics', 'Daily & Monthly Reports'],
+      'WEAVING': ['Executive Dashboard', 'Main Entry', 'Availability Board', 'Loom Runout', 'Design Runout', 'Loom Master', 'Design Master', 'Order Tracking & Planning Analytics', 'Daily & Monthly Reports'],
+      'MANAGEMENT': ['Executive Dashboard', 'Analytics', 'Design-Wise Loom Running', 'Loom Runout', 'Design Runout', 'Order Completion & History', 'Completed Warp History', 'Completed Warp Analysis', 'Order Management', 'Order Tracking & Planning Analytics', 'Daily & Monthly Reports'],
+      'MERCH': ['Executive Dashboard', 'Analytics', 'Order Management', 'Order Completion & History', 'Design Master', 'Order Tracking & Planning Analytics', 'Daily & Monthly Reports'],
+      'VIEWER': ['Executive Dashboard', 'Analytics', 'Design-Wise Loom Running', 'Availability Board', 'Order Tracking & Planning Analytics', 'Daily & Monthly Reports']
     };
 
     const targetRole = roleAccess[roleUpper] ? roleUpper : (roleAccess[user.role] ? user.role : '');
