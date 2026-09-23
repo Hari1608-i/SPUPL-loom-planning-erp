@@ -38,7 +38,7 @@ import {
 } from '../config/dailyReportConfig';
 import { COMPANY_LOGO_DATA_URL } from '../assets/logoDataUrl';
 
-const API_BASE_URL = 'http://localhost:3002';
+const API_BASE_URL = '';
 
 type ViewMode = 'DAILY' | 'WEEKLY' | 'MONTHLY';
 
