@@ -3,7 +3,7 @@
   "buildCommand": "cd backend && npx --yes prisma@6.19.3 generate && cd .. && npm install --prefix backend && npm install --prefix frontend && npm --prefix frontend run build",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "api/index.js": {
+    "backend/upload_server.js": {
       "maxDuration": 60,
       "includeFiles": "backend/node_modules/.prisma/**"
     }
@@ -11,7 +11,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.js"
+      "destination": "/backend/upload_server.js"
     },
     {
       "source": "/(.*)",
