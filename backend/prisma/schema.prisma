@@ -1,13 +1,12 @@
-datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+generator client {
+  provider = "prisma-client-js"
 }
 
-generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "debian-openssl-3.0.x", "rhel-openssl-3.0.x"]
-}	
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
 model AllocationAuditLog {
   id        Int      @id @default(autoincrement())
   user      String   @default("System")
@@ -87,6 +86,9 @@ model BeamStockMaster {
   total_warped_meter Float?
   unit               String?
   warping_batch_no   String?
+  net_wt             Float?
+  tare               Float?
+  gross_wt           Float?
 
   @@index([status])
 }
@@ -103,6 +105,7 @@ model CompletedWarpHistory {
   avg_daily_production   Float
   efficiency_pct         Float
   unit                   String
+  sort_change_type       String?
   LoomMaster             LoomMaster @relation(fields: [loom_no], references: [loom_no])
 }
 
@@ -182,6 +185,7 @@ model LoomMaster {
   CompletedWarpHistory CompletedWarpHistory[]
   LoomRunEntry         LoomRunEntry?
   PlannedAssignment    PlannedAssignment[]
+  WarpPreparationProcess WarpPreparationProcess[]
 }
 
 model LoomRunEntry {
@@ -205,6 +209,8 @@ model LoomRunEntry {
   production_override Float?
   override_reason     String?
   next_plan_design    String?
+  sort_change_type    String?
+  prep_status         String?
   remarks             String?
   LoomMaster          LoomMaster @relation(fields: [loom_no], references: [loom_no])
 }
@@ -282,6 +288,7 @@ model PlannedAssignment {
   createdAt                    DateTime   @default(now())
   updatedAt                    DateTime   @default(now())
   LoomMaster                   LoomMaster @relation(fields: [loom_no], references: [loom_no])
+  WarpPreparationProcess       WarpPreparationProcess[]
 }
 
 model RecommendationHistory {
@@ -749,5 +756,49 @@ model DepartmentMasterInfo {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
+
+model WarpPreparationProcess {
+  id                         Int                @id @default(autoincrement())
+  plan_id                    Int?
+  loom_no                    Int
+  process_type               String             // 'KNOTTING', 'KNOTTING_SORT_CHANGE', 'GAITING'
+  suggested_process          String             // 'KNOTTING', 'KNOTTING_SORT_CHANGE / GAITING'
+  confirmed_process          String?            // 'KNOTTING', 'KNOTTING_SORT_CHANGE', 'GAITING'
+  eligibility_status         String?            // 'ELIGIBLE', 'NOT_ELIGIBLE'
+  eligibility_reasons        String?            // Reasons when knotting is not suggested
+  current_design             String?
+  next_design                String?
+  order_no                   String?
+  current_ends               Int?
+  next_ends                  Int?
+  ends_difference            Int?
+  current_warp_colours       String?
+  next_warp_colours          String?
+  current_warp_colour_count  Int?
+  next_warp_colour_count     Int?
+  set_no                     String?
+  beam_no                    String?
+  warp_loading_date          DateTime?
+  status                     String             @default("PENDING") // 'PENDING', 'IN_PROGRESS', 'COMPLETED'
+  process_start_date         DateTime?
+  process_start_time         String?
+  process_completion_date    DateTime?
+  process_completion_time    String?
+  responsible_person         String?
+  remarks                    String?
+  created_by                 String?            @default("System")
+  confirmed_by               String?
+  confirmed_date             DateTime?
+  createdAt                  DateTime           @default(now())
+  updatedAt                  DateTime           @updatedAt
+
+  LoomMaster                 LoomMaster         @relation(fields: [loom_no], references: [loom_no])
+  PlannedAssignment          PlannedAssignment? @relation(fields: [plan_id], references: [id])
+
+  @@index([loom_no])
+  @@index([plan_id])
+  @@index([status])
+}
+
 
 

@@ -5,11 +5,11 @@ import {
   ArrowRight, ArrowUpRight, Cpu, Layers, Package, ShieldCheck, Zap, Info,
   TrendingUp, Sliders, ChevronRight, X, ExternalLink, Activity, Box, Filter,
   Check, AlertCircle, PlayCircle, BarChart3, Scissors, Sparkles, Building2,
-  HelpCircle, ArrowDownCircle, CheckSquare, ListOrdered
+  HelpCircle, ArrowDownCircle, CheckSquare, ListOrdered, Download
 } from 'lucide-react';
 import { format, addDays, startOfDay, differenceInDays, isValid, isPast } from 'date-fns';
 import { useAppContext } from '../context/AppProvider';
-import { PrintTableHeaderRow } from '../components/common/CompanyPrintHeader';
+import { CompanyPrintHeader, PrintTableHeaderRow } from '../components/common/CompanyPrintHeader';
 import { triggerPrint } from '../utils/printManager';
 import {
   checkLoomCompatibility,
@@ -882,12 +882,208 @@ export default function OrderTrackingAnalytics() {
     ];
   }, [selectedOrder, orderSpec, matchedDesign, sizingReadiness, reedReadiness, beamReadiness, loomCapacity, currentlyRunningLooms, productionSummary, targetFeasibility]);
 
+  const getOrderReportTitle = () => {
+    if (!selectedOrder) return 'SPUPL_Order_Tracking_Analytics';
+    const idStr = selectedOrder.ibpo_no ? `IBPO_${selectedOrder.ibpo_no}` : selectedOrder.order_no;
+    return `SPUPL_Order_Analytics_${idStr}`;
+  };
+
   const handlePrint = () => {
-    triggerPrint({ orientation: 'landscape', title: 'Order Tracking & Planning Analytics' });
+    triggerPrint({ orientation: 'landscape', title: getOrderReportTitle() });
+  };
+
+  const handleDownloadPdf = () => {
+    triggerPrint({ orientation: 'landscape', title: getOrderReportTitle() });
   };
 
   return (
     <div className="p-4 md:p-6 space-y-8 max-w-[1600px] mx-auto pb-24 print-landscape">
+
+      {/* ── High-Visibility Print & PDF View Styles ── */}
+      <style>{`
+        @page {
+          size: A4 landscape;
+          margin: 6mm 8mm;
+        }
+
+        @media print {
+          /* Clean, crisp foundation */
+          *, *::before, *::after {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+          }
+
+          html, body {
+            background: #ffffff !important;
+            color: #000000 !important;
+            font-size: 8.5px !important;
+            line-height: 1.25 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif !important;
+          }
+
+          .print-landscape {
+            padding: 0 !important;
+            margin: 0 !important;
+            max-width: 100% !important;
+            width: 100% !important;
+          }
+
+          .print-landscape > div {
+            margin-bottom: 8px !important;
+          }
+
+          /* Force high contrast: all muted text becomes dark and razor-sharp */
+          .dark, html.dark, body.dark, [class*="dark:bg-"] {
+            background-color: #ffffff !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+          }
+
+          [class*="text-slate-400"],
+          [class*="text-slate-500"],
+          [class*="dark:text-slate-400"],
+          [class*="dark:text-slate-500"] {
+            color: #1e293b !important;
+            font-weight: 700 !important;
+          }
+
+          [class*="text-slate-600"],
+          [class*="text-slate-700"],
+          [class*="dark:text-slate-300"],
+          [class*="dark:text-slate-200"] {
+            color: #0f172a !important;
+            font-weight: 700 !important;
+          }
+
+          [class*="text-slate-800"],
+          [class*="text-slate-900"],
+          [class*="text-slate-950"],
+          [class*="dark:text-white"] {
+            color: #000000 !important;
+            font-weight: 800 !important;
+          }
+
+          /* Solid, crisp card borders */
+          [class*="rounded-xl"],
+          [class*="rounded-2xl"],
+          [class*="border-slate-"],
+          [class*="dark:border-slate-"] {
+            border: 1px solid #334155 !important;
+            border-radius: 4px !important;
+            box-shadow: none !important;
+          }
+
+          /* Main section card boxes */
+          .bg-white,
+          .dark\\:bg-slate-800 {
+            background-color: #ffffff !important;
+            padding: 8px 12px !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          /* Inner metric blocks */
+          [class*="bg-slate-50"],
+          [class*="dark:bg-slate-900"] {
+            background-color: #f8fafc !important;
+            border: 1px solid #475569 !important;
+            padding: 4px 6px !important;
+          }
+
+          /* High-visibility status badges */
+          [class*="bg-emerald-100"],
+          [class*="bg-emerald-50"] {
+            background-color: #dcfce7 !important;
+            color: #14532d !important;
+            border: 1.5px solid #16a34a !important;
+            font-weight: 800 !important;
+          }
+
+          [class*="bg-blue-100"],
+          [class*="bg-blue-50"] {
+            background-color: #dbeafe !important;
+            color: #1e3a8a !important;
+            border: 1.5px solid #2563eb !important;
+            font-weight: 800 !important;
+          }
+
+          [class*="bg-amber-100"],
+          [class*="bg-amber-50"] {
+            background-color: #fef3c7 !important;
+            color: #78350f !important;
+            border: 1.5px solid #d97706 !important;
+            font-weight: 800 !important;
+          }
+
+          [class*="bg-rose-100"],
+          [class*="bg-rose-50"] {
+            background-color: #ffe4e6 !important;
+            color: #881337 !important;
+            border: 1.5px solid #e11d48 !important;
+            font-weight: 800 !important;
+          }
+
+          /* High-visibility table styles */
+          table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            border: 1.5px solid #0f172a !important;
+            font-size: 8px !important;
+            page-break-inside: auto !important;
+          }
+
+          thead {
+            display: table-header-group !important;
+            page-break-inside: avoid !important;
+          }
+
+          tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          th {
+            background-color: #e2e8f0 !important;
+            color: #000000 !important;
+            font-weight: 800 !important;
+            border: 1px solid #334155 !important;
+            padding: 3px 5px !important;
+            text-align: center !important;
+          }
+
+          td {
+            border: 1px solid #64748b !important;
+            padding: 2.5px 4.5px !important;
+            color: #000000 !important;
+            background: #ffffff !important;
+          }
+
+          /* Progress bar */
+          .bg-spu-primary {
+            background-color: #0f172a !important;
+          }
+
+          /* Prevent headings from detaching */
+          h1, h2, h3, h4 {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+            color: #000000 !important;
+            font-weight: 800 !important;
+          }
+        }
+      `}</style>
+
+      {/* ── Print-Only Executive Header: High-visibility SPUPL Company Logo, Order Analytics Title, and Metadata ── */}
+      <div className="hidden print:block mb-3">
+        <CompanyPrintHeader
+          title="ORDER TRACKING & PLANNING ANALYTICS REPORT"
+          subtitle={selectedOrder ? `IBPO NO: ${selectedOrder.ibpo_no || '—'} | ORDER NO: ${selectedOrder.order_no} | DESIGN: ${selectedOrder.design_no_sp_no || selectedOrder.design_no || '—'} | CUSTOMER: ${orderSpec?.buyer || selectedOrder.buyer || '—'}` : 'Operational Feasibility & 224-Loom Capacity Report'}
+        />
+      </div>
 
       {/* ── Top Header & Order Selector ── */}
       <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-md print:hidden space-y-5">
@@ -923,8 +1119,18 @@ export default function OrderTrackingAnalytics() {
             </button>
 
             <button
+              onClick={handleDownloadPdf}
+              className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-md active:scale-95"
+              title="Download / Save Analytics Report as PDF"
+            >
+              <Download className="w-4 h-4" />
+              <span>DOWNLOAD PDF</span>
+            </button>
+
+            <button
               onClick={handlePrint}
               className="flex items-center gap-2 px-5 py-2 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 hover:bg-slate-800 rounded-xl text-xs font-black transition-all shadow-md active:scale-95"
+              title="Print Analytics Report"
             >
               <Printer className="w-4 h-4" />
               <span>PRINT ANALYTICS REPORT</span>
@@ -1146,7 +1352,7 @@ export default function OrderTrackingAnalytics() {
               </div>
               <Link
                 to={`/orders`}
-                className="text-xs font-black text-spu-primary hover:underline flex items-center gap-1"
+                className="text-xs font-black text-spu-primary hover:underline flex items-center gap-1 print:hidden"
               >
                 <span>OPEN ORDER MANAGEMENT</span>
                 <ArrowUpRight className="w-3.5 h-3.5" />
@@ -1263,7 +1469,7 @@ export default function OrderTrackingAnalytics() {
                 </div>
                 <Link
                   to={`/designs`}
-                  className="text-xs font-black text-spu-primary hover:underline flex items-center gap-1"
+                  className="text-xs font-black text-spu-primary hover:underline flex items-center gap-1 print:hidden"
                 >
                   <span>DESIGN MASTER</span>
                   <ArrowUpRight className="w-3.5 h-3.5" />
@@ -1320,7 +1526,7 @@ export default function OrderTrackingAnalytics() {
                     Warp sizing readiness before loom start
                   </p>
                 </div>
-                <Link to="/sizing" className="text-xs font-black text-spu-primary hover:underline">
+                <Link to="/sizing" className="text-xs font-black text-spu-primary hover:underline print:hidden">
                   SIZING
                 </Link>
               </div>
@@ -1358,7 +1564,7 @@ export default function OrderTrackingAnalytics() {
                     Physical reed stock availability
                   </p>
                 </div>
-                <Link to="/reed-stock" className="text-xs font-black text-spu-primary hover:underline">
+                <Link to="/reed-stock" className="text-xs font-black text-spu-primary hover:underline print:hidden">
                   REED STOCK
                 </Link>
               </div>
@@ -1400,7 +1606,7 @@ export default function OrderTrackingAnalytics() {
                     Physical beam stock & warp availability
                   </p>
                 </div>
-                <Link to="/beam-stock" className="text-xs font-black text-spu-primary hover:underline">
+                <Link to="/beam-stock" className="text-xs font-black text-spu-primary hover:underline print:hidden">
                   BEAM STOCK
                 </Link>
               </div>
@@ -1780,7 +1986,7 @@ export default function OrderTrackingAnalytics() {
                   <span className="text-slate-800 dark:text-slate-200 uppercase">Simulated Loom Allocation:</span>
                   <span className="text-base font-black text-spu-primary">{whatIfLoomCount} Looms</span>
                 </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap print:hidden">
                   {[4, 5, 6, 7, 8, 9, 10, 12].map(num => (
                     <button
                       key={num}

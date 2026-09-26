@@ -4,9 +4,10 @@ import { calculateOrderLoomPlanningSummary, checkLoomCompatibility, calculateLoo
 import { format } from 'date-fns';
 import {
   History, Search, CheckCircle2, AlertTriangle, ShieldCheck,
-  Play, RefreshCw, Layers, Clock, AlertCircle, Plus, X, Eye, ShieldAlert, CheckCircle, FileText, Calendar, RotateCcw
+  Play, RefreshCw, Layers, Clock, AlertCircle, Plus, X, Eye, ShieldAlert, CheckCircle, FileText, Calendar, RotateCcw, Scissors
 } from 'lucide-react';
 import { API_BASE_URL } from '../config';
+import { WarpPrepConfirmationModal, WarpPrepDetails, WarpPrepConfirmPayload } from '../components/warpPreparation/WarpPrepConfirmationModal';
 
 export default function NextPlan() {
   const { activeRuns, rawNextPlans, looms, designs, reeds, beams, orders, refreshData } = useAppContext();
@@ -30,9 +31,101 @@ export default function NextPlan() {
   const [loadingLoom, setLoadingLoom] = useState<number | null>(null);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
 
+  // Warp Preparation State
+  const [prepModalDetails, setPrepModalDetails] = useState<WarpPrepDetails | null>(null);
+  const [prepModalMode, setPrepModalMode] = useState<'CONFIRM_LOOM' | 'PREP_ONLY'>('PREP_ONLY');
+  const [planForLoomConfirmation, setPlanForLoomConfirmation] = useState<any | null>(null);
+  const [prepDetailsByPlan, setPrepDetailsByPlan] = useState<Record<number, WarpPrepDetails>>({});
+
+  // Inline Sort Change Type state: keyed by planId → selected process type
+  const [sortChangeSelections, setSortChangeSelections] = useState<Record<number, 'KNOTTING' | 'KNOTTING_SORT_CHANGE' | 'GAITING'>>({});
+  const [sortChangeSaving, setSortChangeSaving] = useState<Record<number, boolean>>({});
+  const [sortChangeConfirmed, setSortChangeConfirmed] = useState<Record<number, boolean>>({});
+
+  const fetchPrepDetailsForPlan = async (planId: number) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/warp-preparation/evaluate/${planId}`);
+      const data = await res.json();
+      if (data.success && data.details) {
+        setPrepDetailsByPlan(prev => ({ ...prev, [planId]: data.details }));
+        return data.details;
+      }
+    } catch (e) {
+      console.error('Error fetching preparation details:', e);
+    }
+    return null;
+  };
+
+  const handleOpenPrepModal = async (plan: any) => {
+    let details = prepDetailsByPlan[plan.id];
+    if (!details) {
+      details = await fetchPrepDetailsForPlan(plan.id);
+    }
+    if (details) {
+      setPrepModalMode('PREP_ONLY');
+      setPlanForLoomConfirmation(null);
+      setPrepModalDetails(details);
+    }
+  };
+
+  // Confirm / save Sort Change Type for a plan — persists to DB via warpPreparationService
+  const handleConfirmSortChange = async (plan: any, processType: 'KNOTTING' | 'KNOTTING_SORT_CHANGE' | 'GAITING') => {
+    const planId = plan.id;
+    const loomNo = plan.loom_no;
+    const prep = prepDetailsByPlan[planId];
+
+    // Knotting eligibility guard
+    if (processType === 'KNOTTING' && prep?.evaluation && !prep.evaluation.isEligible) {
+      setStatusMsg({
+        type: 'error',
+        text: `❌ KNOTTING NOT ELIGIBLE for Loom ${loomNo}: ${prep.evaluation.reasons.join(' | ')}. Please select Knotting Sort Change or Gaiting.`
+      });
+      return;
+    }
+
+    setSortChangeSaving(prev => ({ ...prev, [planId]: true }));
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/warp-preparation/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId,
+          loomNo,
+          processType,
+          remarks: `Sort change type selected in Loom Plan Setup — ${processType}`
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSortChangeConfirmed(prev => ({ ...prev, [planId]: true }));
+        setStatusMsg({
+          type: 'success',
+          text: `✅ Sort Change Type "${processType.replace(/_/g,' ')}" confirmed for Loom ${loomNo} and saved to database.`
+        });
+        // Re-fetch prep details so the badge updates
+        fetchPrepDetailsForPlan(planId);
+      } else {
+        setStatusMsg({ type: 'error', text: data.error || 'Failed to save sort change type.' });
+      }
+    } catch (e: any) {
+      setStatusMsg({ type: 'error', text: 'Error saving sort change: ' + e.message });
+    } finally {
+      setSortChangeSaving(prev => ({ ...prev, [planId]: false }));
+    }
+  };
+
   useEffect(() => {
     refreshData();
   }, []);
+
+  // Fetch warp preparation details for current visible plans
+  useEffect(() => {
+    rawNextPlans.forEach(p => {
+      if (p && p.id && !prepDetailsByPlan[p.id]) {
+        fetchPrepDetailsForPlan(p.id);
+      }
+    });
+  }, [rawNextPlans]);
 
   // Filter Active Orders (excluding COMPLETED orders)
   const activeOrders = useMemo(() => {
@@ -221,11 +314,15 @@ export default function NextPlan() {
       } else {
         setStatusMsg({
           type: 'success',
-          text: `✅ Loom ${loomNo} plan saved! Next Step: Click "ALLOCATE BEAM" to select a compatible Beam before confirming.`
+          text: `✅ Loom ${loomNo} plan saved! Next Step: Confirm Warp Preparation process and allocate a compatible Beam.`
         });
         setShowAssignModal(false);
         setAssignLoomNo(null);
         await refreshData();
+        if (data.warpPreparation) {
+          setPrepDetailsByPlan(prev => ({ ...prev, [data.assignment.id]: data.warpPreparation }));
+          setPrepModalDetails(data.warpPreparation);
+        }
       }
     } catch (err: any) {
       setStatusMsg({ type: 'error', text: 'Error saving loom assignment: ' + err.message });
@@ -312,12 +409,50 @@ export default function NextPlan() {
       return;
     }
 
-    if (!window.confirm(`Confirm Loom ${plan.loom_no} with allocated Beam #${plan.reserved_beam_no}? This will activate the Loom in Main Entry live production.`)) return;
+    // Open confirmation popup asking for process type, loom start date, and sort-change details
+    let details = prepDetailsByPlan[plan.id];
+    if (!details) {
+      setLoadingLoom(plan.loom_no);
+      details = await fetchPrepDetailsForPlan(plan.id);
+      setLoadingLoom(null);
+    }
+
+    if (!details) {
+      setStatusMsg({
+        type: 'error',
+        text: `Could not evaluate warp preparation details for Loom ${plan.loom_no}.`
+      });
+      return;
+    }
+
+    setPlanForLoomConfirmation(plan);
+    setPrepModalMode('CONFIRM_LOOM');
+    setPrepModalDetails(details);
+  };
+
+  const handleExecuteLoomConfirmation = async (payload: WarpPrepConfirmPayload) => {
+    const plan = planForLoomConfirmation || rawNextPlans.find(p => p.id === payload.planId);
+    if (!plan) return;
 
     setLoadingLoom(plan.loom_no);
     setStatusMsg(null);
 
     try {
+      // 1. Confirm warp preparation in database
+      await fetch(`${API_BASE_URL}/api/warp-preparation/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId: plan.id,
+          loomNo: plan.loom_no,
+          processType: payload.processType,
+          startDate: payload.startDate,
+          responsiblePerson: payload.responsiblePerson,
+          remarks: payload.remarks || `Confirmed from Next Planned Looms (${payload.processType})`
+        })
+      });
+
+      // 2. Confirm Loom Plan into Main Entry
       const res = await fetch(`${API_BASE_URL}/api/planning/next-plan/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -326,8 +461,9 @@ export default function NextPlan() {
           nextDesign: plan.next_design,
           orderNo: plan.order_no,
           beamId: plan.reserved_beam_id,
-          startDate: format(new Date(plan.planned_start_date || new Date()), 'yyyy-MM-dd'),
-          remarks: 'Loom confirmed after beam allocation',
+          startDate: payload.startDate,
+          processType: payload.processType,
+          remarks: payload.remarks || `Loom confirmed after beam allocation (${payload.processType})`,
           plannerName: 'Senior Production Planner'
         })
       });
@@ -338,7 +474,7 @@ export default function NextPlan() {
       } else {
         setStatusMsg({
           type: 'success',
-          text: `🚀 LOOM CONFIRMED! Loom ${plan.loom_no} is now ACTIVE in Main Entry with Beam #${plan.reserved_beam_no || 'Allocated'}.`
+          text: `🚀 LOOM CONFIRMED! Loom ${plan.loom_no} is now ACTIVE in Main Entry with Beam #${plan.reserved_beam_no || 'Allocated'} (${payload.processType.replace(/_/g, ' ')}).`
         });
         await refreshData();
       }
@@ -346,6 +482,8 @@ export default function NextPlan() {
       setStatusMsg({ type: 'error', text: 'Error confirming loom: ' + err.message });
     } finally {
       setLoadingLoom(null);
+      setPlanForLoomConfirmation(null);
+      setPrepModalDetails(null);
     }
   };
 
@@ -679,6 +817,136 @@ export default function NextPlan() {
                       </div>
                       <div className="col-span-2 text-slate-500 italic">Remarks: {plan.remarks || 'Saved plan'}</div>
                     </div>
+
+                    {/* ═══════════════════════════════════════════════════════
+                        SORT CHANGE TYPE SELECTION PANEL
+                        Step 3 of Confirmation Workflow — Mandatory before
+                        CONFIRM LOOM. Auto-evaluates Knotting eligibility.
+                    ═══════════════════════════════════════════════════════ */}
+                    {(() => {
+                      const prep = prepDetailsByPlan[plan.id];
+                      const rec = prep?.existingProcess;
+                      const isEligible = prep?.evaluation?.isEligible;
+                      const reasons = prep?.evaluation?.reasons || [];
+                      const isAlreadyConfirmed = !!(rec?.confirmed_process) || sortChangeConfirmed[plan.id];
+                      const confirmedType = rec?.confirmed_process || null;
+                      const isSaving = sortChangeSaving[plan.id] || false;
+
+                      // Determine current selection (defaults to eligibility suggestion)
+                      const currentSelection = sortChangeSelections[plan.id] ||
+                        (isAlreadyConfirmed ? confirmedType : null) ||
+                        (isEligible ? 'KNOTTING' : 'KNOTTING_SORT_CHANGE');
+
+                      return (
+                        <div className="p-3 bg-gradient-to-r from-indigo-950/80 to-slate-900 rounded-xl border border-indigo-700/60 space-y-2.5">
+                          {/* Header */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Scissors className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+                              <span className="text-[11px] font-black uppercase tracking-wider text-indigo-200">
+                                SORT CHANGE TYPE
+                              </span>
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-700/50 text-indigo-300">
+                                Step 3 — Required Before Confirmation
+                              </span>
+                            </div>
+                            {/* Status Badge */}
+                            {isAlreadyConfirmed ? (
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                                rec?.status === 'COMPLETED' ? 'bg-emerald-500 text-white' :
+                                rec?.status === 'IN_PROGRESS' ? 'bg-blue-400 text-white' :
+                                'bg-amber-100 text-amber-800 border border-amber-400'
+                              }`}>
+                                {rec?.status === 'COMPLETED' ? '✓ Done' : rec?.status === 'IN_PROGRESS' ? '⟳ In Progress' : '⏳ Pending'}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-red-900/50 text-red-300 border border-red-600/50">
+                                ⚠ NOT YET CONFIRMED
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Auto-Eligibility Result */}
+                          <div className={`p-2 rounded-lg text-[10px] font-semibold ${
+                            prep === undefined
+                              ? 'bg-slate-800 text-slate-400'
+                              : isEligible
+                              ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-700/60'
+                              : 'bg-amber-950/60 text-amber-300 border border-amber-700/60'
+                          }`}>
+                            {prep === undefined ? (
+                              '⟳ Evaluating Knotting eligibility from current plan data...'
+                            ) : isEligible ? (
+                              '✅ AUTO-SUGGESTION: KNOTTING — Same SP No, same warp colours, ends difference ≤ 1. Knotting is eligible for this transition.'
+                            ) : (
+                              <div>
+                                <span className="font-black text-amber-200">⚠ KNOTTING NOT ELIGIBLE — </span>
+                                {reasons.length > 0 ? reasons.join(' | ') : 'Knotting conditions not met.'}
+                                <span className="block mt-0.5 text-amber-400 font-bold">→ Select Knotting Sort Change or Gaiting below.</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Selector + Confirm Button Row */}
+                          <div className="flex items-center gap-2">
+                            {/* Process Type Dropdown */}
+                            <select
+                              value={currentSelection || 'KNOTTING_SORT_CHANGE'}
+                              disabled={isAlreadyConfirmed && rec?.status === 'COMPLETED'}
+                              onChange={e => setSortChangeSelections(prev => ({
+                                ...prev,
+                                [plan.id]: e.target.value as any
+                              }))}
+                              className={`flex-1 px-2.5 py-1.5 rounded-lg border text-xs font-black outline-none transition-all ${
+                                isAlreadyConfirmed
+                                  ? 'bg-slate-800 border-slate-600 text-slate-300 cursor-default'
+                                  : 'bg-white border-indigo-400 text-indigo-900 focus:ring-2 focus:ring-indigo-500 cursor-pointer'
+                              }`}
+                            >
+                              <option value="KNOTTING" disabled={!isEligible && !isAlreadyConfirmed}>
+                                ✂ KNOTTING {isEligible ? '(Recommended ✓)' : '(Ineligible – requires same SP, colours, ends±1)'}
+                              </option>
+                              <option value="KNOTTING_SORT_CHANGE">🔀 KNOTTING SORT CHANGE</option>
+                              <option value="GAITING">🔧 GAITING</option>
+                            </select>
+
+                            {/* Confirm Button — hidden once confirmed */}
+                            {!isAlreadyConfirmed ? (
+                              <button
+                                disabled={isSaving}
+                                onClick={() => handleConfirmSortChange(plan, (sortChangeSelections[plan.id] || (isEligible ? 'KNOTTING' : 'KNOTTING_SORT_CHANGE')) as any)}
+                                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-lg text-[10px] shadow-sm transition-all active:scale-95 disabled:opacity-50 whitespace-nowrap flex items-center gap-1"
+                              >
+                                <CheckCircle2 className="w-3 h-3" />
+                                {isSaving ? 'Saving...' : 'CONFIRM TYPE'}
+                              </button>
+                            ) : (
+                              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-900/50 border border-emerald-700/50 rounded-lg">
+                                <CheckCircle className="w-3 h-3 text-emerald-400" />
+                                <span className="text-[10px] font-black text-emerald-300 whitespace-nowrap">
+                                  {(confirmedType || currentSelection)?.replace(/_/g,' ')}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Confirmed details row */}
+                          {isAlreadyConfirmed && rec && (
+                            <div className="text-[10px] text-slate-400 font-semibold flex flex-wrap items-center gap-3 pt-1 border-t border-slate-700/50">
+                              <span>Confirmed by: <strong className="text-slate-200">{rec.confirmed_by || 'Planner'}</strong></span>
+                              {rec.responsible_person && <span>Operator: <strong className="text-slate-200">{rec.responsible_person}</strong></span>}
+                              <span>Status: <strong className={rec.status === 'COMPLETED' ? 'text-emerald-400' : rec.status === 'IN_PROGRESS' ? 'text-blue-400' : 'text-amber-400'}>{rec.status}</strong></span>
+                              <button
+                                onClick={() => handleOpenPrepModal(plan)}
+                                className="ml-auto px-2 py-0.5 text-[9px] font-bold bg-slate-700 hover:bg-slate-600 text-slate-200 rounded border border-slate-600 transition-colors"
+                              >
+                                View Details →
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* ACTIONS: [CANCEL PLAN] | [ALLOCATE BEAM] / [CHANGE BEAM] | [CONFIRM LOOM] */}
                     <div className="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-slate-100">
@@ -1052,6 +1320,26 @@ export default function NextPlan() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Warp Preparation Confirmation Modal */}
+      {prepModalDetails && (
+        <WarpPrepConfirmationModal
+          isOpen={prepModalDetails !== null}
+          onClose={() => {
+            setPrepModalDetails(null);
+            setPlanForLoomConfirmation(null);
+          }}
+          details={prepModalDetails}
+          mode={prepModalMode}
+          onConfirm={prepModalMode === 'CONFIRM_LOOM' ? handleExecuteLoomConfirmation : undefined}
+          onSuccess={async () => {
+            await refreshData();
+            if (prepModalDetails) {
+              fetchPrepDetailsForPlan(prepModalDetails.planId);
+            }
+          }}
+        />
       )}
     </div>
   );

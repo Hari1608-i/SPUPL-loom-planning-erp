@@ -66,12 +66,44 @@ export default function LoomWiseRunout() {
       'Effective Daily Production': Math.round(r.effectiveDailyProduction),
       'Runout Source': r.runoutSource,
       'Confidence Level': r.confidenceLevel,
-      'Balance Days': r.balanceDays.toFixed(1),
+      'Balance Days': Number(r.balanceDays.toFixed(1)),
       'Expected Runout Date': format(r.expectedRunoutDate, 'dd-MMM-yyyy'),
       'Next Plan': r.nextDesign
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
+
+    // Dynamic Excel Formulas:
+    // Col G: Net Balance (M) = MAX(0, Warped Meter [Col E] - Produced Meter [Col F])
+    // Col K: Balance Days = IF(Effective Daily Prod [Col H] > 0, ROUND(Net Balance [Col G] / Effective Daily Prod [Col H], 1), 0)
+    // Col L: Expected Runout Date = IF(Balance Days [Col K] > 0, TEXT(TODAY() + ROUND(Balance Days [Col K], 0), "dd-mmm-yyyy"), "—")
+    filteredData.forEach((r, idx) => {
+      const rowNum = idx + 2;
+      const netBal = Math.round(r.netBalanceMeter);
+      const balDays = Number(r.balanceDays.toFixed(1));
+      const runoutStr = format(r.expectedRunoutDate, 'dd-MMM-yyyy');
+
+      worksheet[`G${rowNum}`] = { t: 'n', v: netBal, f: `MAX(0, E${rowNum}-F${rowNum})` };
+      worksheet[`K${rowNum}`] = { t: 'n', v: balDays, f: `IF(H${rowNum}>0, ROUND(G${rowNum}/H${rowNum}, 1), 0)` };
+      worksheet[`L${rowNum}`] = { t: 's', v: runoutStr, f: `IF(K${rowNum}>0, TEXT(TODAY()+ROUND(K${rowNum}, 0), "dd-mmm-yyyy"), "—")` };
+    });
+
+    worksheet['!cols'] = [
+      { wch: 10 }, // Loom No
+      { wch: 10 }, // Unit
+      { wch: 12 }, // Loom Type
+      { wch: 18 }, // Current Design
+      { wch: 14 }, // Warped Meter
+      { wch: 14 }, // Produced Meter
+      { wch: 16 }, // Net Balance (M)
+      { wch: 22 }, // Effective Daily Production
+      { wch: 18 }, // Runout Source
+      { wch: 18 }, // Confidence Level
+      { wch: 14 }, // Balance Days
+      { wch: 20 }, // Expected Runout Date
+      { wch: 18 }  // Next Plan
+    ];
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Loom Runout');
     XLSX.writeFile(workbook, `Loom_Wise_Runout_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);

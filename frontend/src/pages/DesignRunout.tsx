@@ -119,6 +119,29 @@ export default function DesignRunout() {
     const summaryWs = XLSX.utils.json_to_sheet(summaryRows);
     const detailWs = XLSX.utils.json_to_sheet(detailRows);
 
+    // Dynamic Excel Formulas for Loom Breakdown:
+    // Col F: Net Balance (M) = MAX(0, Warped Meter [Col D] - Produced Meter [Col E])
+    // Col H: Balance Days = IF(Effective Prod [Col G] > 0, ROUND(Net Balance [Col F] / Effective Prod [Col G], 1), 0)
+    // Col I: Expected Runout Date = IF(Balance Days [Col H] > 0, TEXT(TODAY() + ROUND(Balance Days [Col H], 0), "dd-mmm-yyyy"), "—")
+    detailRows.forEach((r, idx) => {
+      const rowNum = idx + 2;
+      const netBal = r['Net Balance (M)'];
+      const balDays = Number(r['Balance Days']);
+      const runoutStr = r['Expected Runout Date'];
+
+      detailWs[`F${rowNum}`] = { t: 'n', v: netBal, f: `MAX(0, D${rowNum}-E${rowNum})` };
+      detailWs[`H${rowNum}`] = { t: 'n', v: balDays, f: `IF(G${rowNum}>0, ROUND(F${rowNum}/G${rowNum}, 1), 0)` };
+      detailWs[`I${rowNum}`] = { t: 's', v: runoutStr, f: `IF(H${rowNum}>0, TEXT(TODAY()+ROUND(H${rowNum}, 0), "dd-mmm-yyyy"), "—")` };
+    });
+
+    summaryWs['!cols'] = [
+      { wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 22 }
+    ];
+
+    detailWs['!cols'] = [
+      { wch: 18 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 16 }
+    ];
+
     XLSX.utils.book_append_sheet(workbook, summaryWs, 'Design Summary');
     XLSX.utils.book_append_sheet(workbook, detailWs, 'Loom Breakdown');
 

@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx';
 import React, { useState, useMemo } from 'react';
 import { History as HistoryIcon, Search, Download, Filter } from 'lucide-react';
 import { format, isSameMonth, subMonths, parseISO } from 'date-fns';
@@ -34,6 +35,72 @@ export default function History() {
     });
   }, [completedHistory, searchTerm, monthFilter]);
 
+  const handleExportExcel = () => {
+    const dataToExport = filteredData.map((row) => {
+      let unit = row.unit;
+      if (!unit || unit === 'Unknown') {
+        const l = looms.find(loom => loom.loomNo === row.loomNo);
+        unit = l ? l.unit : '-';
+      }
+      if (unit && unit !== '-' && !unit.startsWith('Unit')) {
+        unit = `Unit ${unit}`;
+      }
+
+      const sortChangeDisplay = row.sortChangeType === 'KNOTTING'
+        ? 'Knotting'
+        : row.sortChangeType === 'KNOTTING_SORT_CHANGE'
+        ? 'Knotting Sort Change'
+        : row.sortChangeType === 'GAITING'
+        ? 'Gaiting'
+        : '—';
+
+      return {
+        'Loom': `L-${row.loomNo}`,
+        'Unit': unit,
+        'Design / SP No': row.designNo,
+        'Sort Change': sortChangeDisplay,
+        'Start Date': format(parseISO(row.startDate), 'dd/MM/yyyy'),
+        'End Date': format(parseISO(row.endDate), 'dd/MM/yyyy'),
+        'Warp M.': Math.round(row.warpMeter),
+        'Prod M.': Math.round(row.totalProductionMeter),
+        'Run Days': row.runningDays,
+        'Avg Prod': Math.round(row.avgDailyProduction),
+        'Efficiency %': Number(row.efficiencyPct.toFixed(1))
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+
+    // Dynamic Excel Formulas:
+    // Col J: Avg Prod = IF(Run Days [Col I] > 0, ROUND(Prod M. [Col H] / Run Days [Col I], 0), 0)
+    // Col K: Efficiency % = IF(Warp M. [Col G] > 0, ROUND((Prod M. [Col H] / Warp M. [Col G]) * 100, 1), 0)
+    filteredData.forEach((row, idx) => {
+      const r = idx + 2;
+      const avgProd = Math.round(row.avgDailyProduction);
+      const eff = Number(row.efficiencyPct.toFixed(1));
+      ws[`J${r}`] = { t: 'n', v: avgProd, f: `IF(I${r}>0, ROUND(H${r}/I${r}, 0), 0)` };
+      ws[`K${r}`] = { t: 'n', v: eff, f: `IF(G${r}>0, ROUND((H${r}/G${r})*100, 1), 0)` };
+    });
+
+    ws['!cols'] = [
+      { wch: 10 }, // Loom
+      { wch: 12 }, // Unit
+      { wch: 18 }, // Design / SP No
+      { wch: 16 }, // Sort Change
+      { wch: 14 }, // Start Date
+      { wch: 14 }, // End Date
+      { wch: 14 }, // Warp M.
+      { wch: 14 }, // Prod M.
+      { wch: 12 }, // Run Days
+      { wch: 14 }, // Avg Prod
+      { wch: 14 }  // Efficiency %
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Completed Warp History');
+    XLSX.writeFile(wb, `SPUPL_Completed_Warp_History_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+  };
+
   return (
     <div className="space-y-6 flex flex-col h-full">
       <div className="flex justify-between items-center mb-6">
@@ -56,7 +123,7 @@ export default function History() {
             </select>
             <Filter className="w-4 h-4 absolute left-3 top-2.5 text-industrial-400 pointer-events-none" />
           </div>
-          <button className="flex items-center px-4 py-2 bg-white border border-industrial-200 text-industrial-700 rounded-lg hover:bg-industrial-50 shadow-sm transition-colors font-medium text-sm">
+          <button onClick={handleExportExcel} className="flex items-center px-4 py-2 bg-white border border-industrial-200 text-industrial-700 rounded-lg hover:bg-industrial-50 shadow-sm transition-colors font-medium text-sm cursor-pointer">
             <Download className="w-4 h-4 mr-2" /> Export Log
           </button>
         </div>
@@ -84,6 +151,7 @@ export default function History() {
                 <th className="py-3 px-4 text-xs font-semibold text-industrial-500 uppercase">Loom</th>
                 <th className="py-3 px-4 text-xs font-semibold text-industrial-500 uppercase">Unit</th>
                 <th className="py-3 px-4 text-xs font-semibold text-industrial-500 uppercase">Design / SP No</th>
+                <th className="py-3 px-4 text-xs font-semibold text-industrial-500 uppercase">Sort Change</th>
                 <th className="py-3 px-4 text-xs font-semibold text-industrial-500 uppercase text-right">Start Date</th>
                 <th className="py-3 px-4 text-xs font-semibold text-industrial-500 uppercase text-right">End Date</th>
                 <th className="py-3 px-4 text-xs font-semibold text-industrial-500 uppercase text-right">Warp M.</th>
@@ -96,7 +164,7 @@ export default function History() {
             <tbody className="divide-y divide-industrial-100">
               {filteredData.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-industrial-500">
+                  <td colSpan={11} className="py-12 text-center text-industrial-500">
                     No completed runs found.
                   </td>
                 </tr>
@@ -117,6 +185,21 @@ export default function History() {
                     <td className="py-3 px-4 font-bold text-industrial-800">{row.loomNo}</td>
                     <td className="py-3 px-4 text-industrial-600">{unit}</td>
                     <td className="py-3 px-4 text-industrial-800 font-medium">{row.designNo}</td>
+                    <td className="py-3 px-4">
+                      {row.sortChangeType ? (
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-black border ${
+                          row.sortChangeType === 'KNOTTING'
+                            ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                            : row.sortChangeType === 'KNOTTING_SORT_CHANGE'
+                            ? 'bg-amber-100 text-amber-900 border-amber-300'
+                            : 'bg-purple-100 text-purple-900 border-purple-300'
+                        }`}>
+                          {row.sortChangeType === 'KNOTTING' ? '✂️ Knotting' : row.sortChangeType === 'KNOTTING_SORT_CHANGE' ? '🔄 Sort Chg' : '⚙️ Gaiting'}
+                        </span>
+                      ) : (
+                        <span className="text-industrial-400 text-xs">—</span>
+                      )}
+                    </td>
                     <td className="py-3 px-4 text-industrial-600 text-right">{format(parseISO(row.startDate), 'dd/MM/yyyy')}</td>
                     <td className="py-3 px-4 text-industrial-600 text-right">{format(parseISO(row.endDate), 'dd/MM/yyyy')}</td>
                     <td className="py-3 px-4 text-industrial-600 text-right font-mono">{Math.round(row.warpMeter).toLocaleString()}</td>

@@ -86,12 +86,12 @@ export function triggerPrint(options?: PrintOptions) {
     ? options.orientation
     : detectOrientation();
 
-  const pageCss = `@page { size: A4 ${chosenOrientation}; margin: 8mm 10mm; }`;
+  const pageCss = `@page { size: A4 ${chosenOrientation}; margin: 0; }`;
 
   styleEl.textContent = `
-    @media print {
-      ${pageCss}
+    ${pageCss}
 
+    @media print {
       /* Base print color and reset */
       *, *::before, *::after {
         -webkit-print-color-adjust: exact !important;
@@ -101,7 +101,7 @@ export function triggerPrint(options?: PrintOptions) {
         transition: none !important;
       }
 
-      /* Clean page foundation */
+      /* Clean page foundation - Full A4 area utilization */
       html, body {
         background: #ffffff !important;
         color: #000000 !important;
@@ -111,8 +111,9 @@ export function triggerPrint(options?: PrintOptions) {
         overflow: visible !important;
         margin: 0 !important;
         padding: 0 !important;
-        font-size: 10px !important;
-        line-height: 1.35 !important;
+        font-size: 9px !important;
+        line-height: 1.25 !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif !important;
       }
 
       /* Dark mode override: print must always be white paper with dark text */
@@ -201,10 +202,12 @@ export function triggerPrint(options?: PrintOptions) {
         max-width: 100% !important;
         table-layout: auto !important;
         border-collapse: collapse !important;
+        border-spacing: 0 !important;
         page-break-inside: auto !important;
         break-inside: auto !important;
-        font-size: 9px !important;
-        margin-bottom: 12px !important;
+        font-size: 8.5px !important;
+        margin-bottom: 8px !important;
+        box-shadow: none !important;
       }
 
       thead {
@@ -228,15 +231,16 @@ export function triggerPrint(options?: PrintOptions) {
         break-inside: avoid !important;
       }
 
-      /* Base table cells */
+      /* Base table cells - Clean single borders and full wrapping */
       th, td {
         word-break: break-word !important;
-        overflow-wrap: break-word !important;
+        overflow-wrap: anywhere !important;
         white-space: normal !important;
-        padding: 4px 6px !important;
+        padding: 2.5px 4.5px !important;
         border: 1px solid #94a3b8 !important;
         color: #000000 !important;
         vertical-align: middle !important;
+        box-shadow: none !important;
       }
 
       /* Standard column headers (excluding the special print header row) */
@@ -247,11 +251,22 @@ export function triggerPrint(options?: PrintOptions) {
         background-color: #f1f5f9 !important;
         color: #000000 !important;
         font-weight: 800 !important;
-        font-size: 9px !important;
+        font-size: 8.5px !important;
         text-transform: uppercase !important;
+        text-align: center !important;
+        vertical-align: middle !important;
         border: 1px solid #475569 !important;
         border-bottom: 2px solid #000000 !important;
-        letter-spacing: 0.025em !important;
+        letter-spacing: 0.02em !important;
+        padding: 3px 4px !important;
+      }
+
+      /* Numbers, dates, statuses, percentages centered per user specification */
+      td:not(.text-left):not(.p-left) {
+        text-align: center !important;
+      }
+      td.text-left, td.p-left {
+        text-align: left !important;
       }
 
       /* Dedicated repeating logo & report title header row inside thead */
@@ -260,8 +275,8 @@ export function triggerPrint(options?: PrintOptions) {
       th.print-header-cell {
         background: #ffffff !important;
         border: none !important;
-        border-bottom: 2px solid #000000 !important;
-        padding: 0 0 6px 0 !important;
+        border-bottom: 1.5px solid #000000 !important;
+        padding: 0 0 3px 0 !important;
         color: #000000 !important;
         font-weight: normal !important;
         text-transform: none !important;
@@ -274,19 +289,27 @@ export function triggerPrint(options?: PrintOptions) {
         border: none !important;
       }
 
+      .print-header-content,
+      .company-print-header {
+        padding-bottom: 2px !important;
+        margin-bottom: 4px !important;
+        border-bottom: 1.5px solid #000000 !important;
+      }
+
       .print-logo {
-        max-height: 48px !important;
-        max-width: 240px !important;
-        height: 48px !important;
+        max-height: 40px !important;
+        max-width: 220px !important;
+        height: 38px !important;
         width: auto !important;
         object-fit: contain !important;
       }
 
-      /* Expand truncated text so full data is visible in print */
+      /* Expand truncated text so full data is visible in print (no ellipsis) */
       .truncate,
       [class*="truncate"],
       .line-clamp-1,
-      .line-clamp-2 {
+      .line-clamp-2,
+      .line-clamp-3 {
         overflow: visible !important;
         text-overflow: clip !important;
         white-space: normal !important;
@@ -304,22 +327,24 @@ export function triggerPrint(options?: PrintOptions) {
         background-color: #f8fafc !important;
         color: #000000 !important;
         border: 1px solid #475569 !important;
+        padding: 2px 4px !important;
       }
 
       /* Ensure loom pills wrap cleanly and remain visible */
       .print-keep,
       .data-badge,
-      .loom-pill {
+      .loom-pill,
+      [class*="rounded-full"] {
         display: inline-block !important;
         background: #f8fafc !important;
         color: #000000 !important;
         border: 1px solid #64748b !important;
         border-radius: 3px !important;
-        padding: 1px 4px !important;
-        font-size: 8.5px !important;
+        padding: 1px 3.5px !important;
+        font-size: 7.5px !important;
         font-weight: 700 !important;
         box-shadow: none !important;
-        margin: 1px !important;
+        margin: 0.5px !important;
         white-space: nowrap !important;
       }
 
@@ -335,6 +360,18 @@ export function triggerPrint(options?: PrintOptions) {
     }
   `;
 
-  // Trigger browser print
-  window.print();
+  // Set document title before window.print() so browser suggests this title when Saving as PDF
+  const originalTitle = document.title;
+  if (options?.title) {
+    document.title = options.title;
+  } else {
+    document.title = '';
+  }
+
+  setTimeout(() => {
+    window.print();
+    setTimeout(() => {
+      document.title = originalTitle || 'SPUPL LOOM SYSTEM';
+    }, 1200);
+  }, 60);
 }

@@ -16,14 +16,14 @@ export const CompanyPrintHeader: React.FC<CompanyPrintHeaderProps> = ({
     <div
       className={`${
         showOnScreen ? 'flex' : 'hidden print:flex'
-      } items-center justify-between pb-4 mb-6 border-b-2 border-slate-800 w-full text-slate-900 bg-white`}
+      } items-center justify-between pb-2 mb-2 print:pb-1.5 print:mb-2 border-b-2 print:border-b-[1.5px] border-slate-800 w-full text-slate-900 bg-white company-print-header`}
     >
       {/* Top Left Corner Logo (contains full company name inside image) */}
       <div className="flex items-center">
         <img
           src={COMPANY_LOGO_DATA_URL}
           alt="Santhi Processing Unit Pvt Ltd Logo"
-          className="h-14 w-auto object-contain max-w-[260px]"
+          className="h-10 print:h-8 w-auto object-contain max-w-[220px] print-logo"
         />
       </div>
 
@@ -31,14 +31,14 @@ export const CompanyPrintHeader: React.FC<CompanyPrintHeaderProps> = ({
       {(title || subtitle) && (
         <div className="text-right">
           {title && (
-            <h2 className="font-black text-xl text-black tracking-tight leading-none mb-1 print-title">
+            <h2 className="font-black text-lg print:text-sm text-black tracking-tight leading-none mb-0.5 print-title">
               {title}
             </h2>
           )}
           {subtitle && (
-            <p className="text-xs text-slate-800 font-bold">{subtitle}</p>
+            <p className="text-xs print:text-[10px] text-slate-800 font-bold">{subtitle}</p>
           )}
-          <p className="text-[11px] text-slate-700 font-semibold mt-1">
+          <p className="text-[10px] print:text-[8.5px] text-slate-700 font-semibold mt-0.5">
             Generated: {new Date().toLocaleString()}
           </p>
         </div>
@@ -65,26 +65,26 @@ export const PrintTableHeaderRow: React.FC<PrintTableHeaderRowProps> = ({
 }) => {
   return (
     <tr className="hidden print:table-row border-0 bg-white print-header-row">
-      <th colSpan={colSpan} className="border-0 p-0 pb-3 bg-white font-normal text-left print-header-cell">
-        <div className="flex items-center justify-between pb-3 mb-2 border-b-2 border-slate-900 w-full text-slate-900 bg-white print-header-content">
+      <th colSpan={colSpan} className="border-0 p-0 pb-1.5 bg-white font-normal text-left print-header-cell">
+        <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b-[1.5px] border-slate-900 w-full text-slate-900 bg-white print-header-content">
           <div className="flex items-center">
             <img
               src={COMPANY_LOGO_DATA_URL}
               alt="Santhi Processing Unit Pvt Ltd Logo"
-              className="h-12 w-auto object-contain max-w-[240px] print-logo"
+              className="h-9 print:h-8 w-auto object-contain max-w-[200px] print-logo"
             />
           </div>
           {(title || subtitle) && (
             <div className="text-right">
               {title && (
-                <h2 className="font-black text-lg text-black tracking-tight leading-none mb-1">
+                <h2 className="font-black text-base print:text-sm text-black tracking-tight leading-none mb-0.5">
                   {title}
                 </h2>
               )}
               {subtitle && (
-                <p className="text-xs text-slate-800 font-bold">{subtitle}</p>
+                <p className="text-xs print:text-[10px] text-slate-800 font-bold">{subtitle}</p>
               )}
-              <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
+              <p className="text-[10px] print:text-[8.5px] text-slate-600 font-semibold mt-0.5">
                 Generated: {new Date().toLocaleString()}
               </p>
             </div>

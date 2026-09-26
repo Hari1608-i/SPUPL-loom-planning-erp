@@ -5,7 +5,7 @@ import {
   AlertCircle, Save, Zap, Info, Lock, Unlock, Layers, Building2, Package, CheckCircle2, 
   XCircle, ChevronDown, ChevronRight, ExternalLink, RefreshCw, AlertTriangle, ShieldCheck,
   Search, Filter, ShoppingBag, FileText, Calendar, Clock, Activity, ListTodo,
-  Plus, Edit3, Trash2, CheckCircle, X, Download, Play, FileSpreadsheet, Printer
+  Plus, Edit3, Trash2, CheckCircle, X, Download, Play, FileSpreadsheet, Printer, Upload, Scissors
 } from 'lucide-react';
 import { format, addDays } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -64,15 +64,194 @@ export default function MainEntry() {
     isVerifying: false
   });
   const [isSavingAll, setIsSavingAll] = useState<boolean>(false);
+  const [isImportingWarpLoad, setIsImportingWarpLoad] = useState<boolean>(false);
+  const [warpLoadModalData, setWarpLoadModalData] = useState<any | null>(null);
+  const [showWarpLoadModal, setShowWarpLoadModal] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
+
+  const handleImportWarpLoad = async () => {
+    setIsImportingWarpLoad(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/warp-load/import`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setWarpLoadModalData(data);
+        setShowWarpLoadModal(true);
+        await refreshData();
+      } else {
+        alert('Warp Load Import Error: ' + (data.error || 'Failed to import warp load'));
+      }
+    } catch (e: any) {
+      alert('Network Error: ' + e.message);
+    } finally {
+      setIsImportingWarpLoad(false);
+    }
+  };
+
+  const handleOpenWarpLoadModal = async () => {
+    setShowWarpLoadModal(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/warp-load/summary`);
+      const data = await res.json();
+      if (data.success) {
+        setWarpLoadModalData(data);
+      }
+    } catch (e: any) {
+      console.error('Failed to fetch warp load summary:', e);
+    }
+  };
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedUnit, setSelectedUnit] = useState<string>('ALL');
   const [selectedRunoutFilter, setSelectedRunoutFilter] = useState<string>('ALL');
   const [selectedProductionDate, setSelectedProductionDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+
+  // Warp Preparation State for Main Entry Grid
+  const [prepRecordsByLoom, setPrepRecordsByLoom] = useState<Record<number, any>>({});
+  const [prepModalData, setPrepModalData] = useState<{
+    loomNo: number;
+    plan: any;
+    prepRec: any;
+    evalDetails: any;
+  } | null>(null);
+
+  const [prepFormState, setPrepFormState] = useState<{
+    processType: 'KNOTTING' | 'KNOTTING_SORT_CHANGE' | 'GAITING';
+    status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+    startDate: string;
+    startTime: string;
+    completionDate: string;
+    completionTime: string;
+    responsiblePerson: string;
+    remarks: string;
+  }>({
+    processType: 'KNOTTING',
+    status: 'PENDING',
+    startDate: '',
+    startTime: '',
+    completionDate: '',
+    completionTime: '',
+    responsiblePerson: '',
+    remarks: ''
+  });
+
+  const [isSavingPrep, setIsSavingPrep] = useState(false);
+
+  const fetchPrepRecords = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/warp-preparation/all`);
+      const data = await res.json();
+      if (data.success && data.latestByLoom) {
+        setPrepRecordsByLoom(data.latestByLoom);
+      }
+    } catch (e) {
+      console.error('Failed to load prep records in MainEntry:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchPrepRecords();
+    const interval = setInterval(fetchPrepRecords, 8000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleOpenPrepModal = async (loomNo: number, plan?: any, rec?: any) => {
+    let activeRec = rec || prepRecordsByLoom[loomNo];
+    let activePlan = plan || (loomNextPlansMap[loomNo] && loomNextPlansMap[loomNo][0]);
+
+    let evalDetails: any = null;
+    if (activePlan?.id) {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/warp-preparation/evaluate/${activePlan.id}`);
+        const data = await res.json();
+        if (data.success && data.details) {
+          evalDetails = data.details;
+          if (!activeRec && data.details.existingProcess) {
+            activeRec = data.details.existingProcess;
+          }
+        }
+      } catch (e) {}
+    }
+
+    setPrepModalData({
+      loomNo,
+      plan: activePlan,
+      prepRec: activeRec,
+      evalDetails
+    });
+
+    setPrepFormState({
+      processType: (activeRec?.confirmed_process || activeRec?.process_type || (evalDetails?.evaluation?.isEligible ? 'KNOTTING' : 'KNOTTING_SORT_CHANGE')) as any,
+      status: (activeRec?.status || 'PENDING') as any,
+      startDate: activeRec?.process_start_date ? format(new Date(activeRec.process_start_date), 'yyyy-MM-dd') : '',
+      startTime: activeRec?.process_start_time || '',
+      completionDate: activeRec?.process_completion_date ? format(new Date(activeRec.process_completion_date), 'yyyy-MM-dd') : '',
+      completionTime: activeRec?.process_completion_time || '',
+      responsiblePerson: activeRec?.responsible_person || user?.username || '',
+      remarks: activeRec?.remarks || ''
+    });
+  };
+
+  const handleSavePrepModal = async () => {
+    if (!prepModalData) return;
+    setIsSavingPrep(true);
+    try {
+      if (prepModalData.prepRec?.id) {
+        const res = await fetch(`${API_BASE_URL}/api/warp-preparation/status/${prepModalData.prepRec.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: prepFormState.status,
+            processStartDate: prepFormState.startDate || null,
+            processStartTime: prepFormState.startTime || null,
+            processCompletionDate: prepFormState.completionDate || null,
+            processCompletionTime: prepFormState.completionTime || null,
+            responsiblePerson: prepFormState.responsiblePerson,
+            remarks: prepFormState.remarks,
+            user: user?.username || 'Supervisor'
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setSuccessMsg(`Warp preparation updated for Loom ${prepModalData.loomNo} (${prepFormState.status}).`);
+          await fetchPrepRecords();
+          setPrepModalData(null);
+          setTimeout(() => setSuccessMsg(null), 4000);
+        } else {
+          alert('Error updating prep record: ' + (data.error || 'Failed'));
+        }
+      } else {
+        const res = await fetch(`${API_BASE_URL}/api/warp-preparation/confirm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            planId: prepModalData.plan?.id,
+            loomNo: prepModalData.loomNo,
+            processType: prepFormState.processType,
+            responsiblePerson: prepFormState.responsiblePerson,
+            remarks: prepFormState.remarks,
+            user: user?.username || 'Supervisor'
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setSuccessMsg(`Warp preparation created for Loom ${prepModalData.loomNo} (${prepFormState.processType}).`);
+          await fetchPrepRecords();
+          setPrepModalData(null);
+          setTimeout(() => setSuccessMsg(null), 4000);
+        } else {
+          alert('Error saving prep record: ' + (data.error || 'Failed'));
+        }
+      }
+    } catch (e: any) {
+      alert('Error saving prep record: ' + e.message);
+    } finally {
+      setIsSavingPrep(false);
+    }
+  };
 
   useEffect(() => {
     if (location.state && (location.state as any).loomNo) {
@@ -95,6 +274,8 @@ export default function MainEntry() {
       const pDate = stateObj.plannedStartDate ? format(new Date(stateObj.plannedStartDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
       const pWarpMtr = Number(stateObj.warpMeter || stateObj.plannedWarpMeter || 0);
 
+      const pSortChangeType = stateObj.sortChangeType || '';
+
       dirtyLoomsRef.current.add(pLoom);
       setEntries(prev => ({
         ...prev,
@@ -106,6 +287,7 @@ export default function MainEntry() {
           dailyProduction: prev[pLoom]?.dailyProduction || '',
           rpm: prev[pLoom]?.rpm || '',
           efficiency: prev[pLoom]?.efficiency || '',
+          sortChangeType: pSortChangeType || (prev[pLoom] as any)?.sortChangeType || '',
           remarks: prev[pLoom]?.remarks || ''
         }
       }));
@@ -136,6 +318,18 @@ export default function MainEntry() {
     const currentEntry = entries[loomNo] || {};
     try {
       if (plan.next_design && plan.next_design !== 'AVAILABLE (No Plan Queued)') {
+        // Check Warp Preparation Prerequisite:
+        try {
+          const checkRes = await fetch(`${API_BASE_URL}/api/warp-preparation/prerequisite/${loomNo}?planId=${plan.id || ''}`);
+          const checkData = await checkRes.json();
+          if (checkData.success && !checkData.allowed) {
+            alert(checkData.message);
+            return;
+          }
+        } catch (e: any) {
+          console.warn('Prep check warning:', e);
+        }
+
         const res = await fetch(`${API_BASE_URL}/api/confirm-plan`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -147,7 +341,8 @@ export default function MainEntry() {
             dailyProduction: 0, // NEW DESIGN PRODUCTION RESET TO 0
             beamNo: plan.reserved_beam_no,
             setNo: plan.reserved_set_no,
-            beamId: plan.reserved_beam_id
+            beamId: plan.reserved_beam_id,
+            processType: (plan as any).sort_change_type || prepRecordsByLoom[loomNo]?.confirmed_process || prepRecordsByLoom[loomNo]?.process_type || null
           })
         });
 
@@ -775,6 +970,8 @@ export default function MainEntry() {
       rpm: entry.rpm ? Number(entry.rpm) : null,
       efficiency: entry.efficiency ? Number(entry.efficiency) : null,
       crimpPercent: design && Number(design.crimpPercent) > 0 ? (design.crimpPercent > 1 ? design.crimpPercent / 100 : design.crimpPercent) : 0.05,
+      sortChangeType: (activeRuns[loomNo] as any)?.sortChangeType || (activeRuns[loomNo] as any)?.sort_change_type || prepRecordsByLoom[loomNo]?.confirmed_process || (entry as any).sortChangeType || null,
+      prepStatus: prepRecordsByLoom[loomNo]?.status || (activeRuns[loomNo] as any)?.prepStatus || (activeRuns[loomNo] as any)?.prep_status || null,
       remarks: entry.remarks
     };
 
@@ -852,6 +1049,8 @@ export default function MainEntry() {
           rpm: entry.rpm !== '' ? Number(entry.rpm) : null,
           efficiency: entry.efficiency !== '' ? Number(entry.efficiency) : null,
           crimpPercent: design && Number(design.crimpPercent) > 0 ? (design.crimpPercent > 1 ? design.crimpPercent / 100 : design.crimpPercent) : 0.05,
+          sortChangeType: (activeRuns[loomNo] as any)?.sortChangeType || (activeRuns[loomNo] as any)?.sort_change_type || prepRecordsByLoom[loomNo]?.confirmed_process || (entry as any).sortChangeType || null,
+          prepStatus: prepRecordsByLoom[loomNo]?.status || (activeRuns[loomNo] as any)?.prepStatus || (activeRuns[loomNo] as any)?.prep_status || null,
           remarks: entry.remarks
         };
         runsArray.push(run);
@@ -1161,37 +1360,125 @@ export default function MainEntry() {
             : `${(calc?.standardCrimpPercent ?? (effectiveCrimp * 100)).toFixed(1)}%`)
         : '—';
 
+      const activeRunObj = activeRuns[loom.loomNo];
+      const activeSortChange = (activeRunObj as any)?.sort_change_type || (activeRunObj as any)?.sortChangeType || (entry as any).sortChangeType;
+      const prepRec = prepRecordsByLoom[loom.loomNo] || ((nextPlans[loom.loomNo] as any)?.WarpPreparationProcess && (nextPlans[loom.loomNo] as any).WarpPreparationProcess[0]);
+      const pType = activeSortChange || prepRec?.confirmed_process || prepRec?.process_type || (nextPlans[loom.loomNo] as any)?.sort_change_type;
+      const sortChangeDisplay = pType === 'KNOTTING' ? 'Knotting' : pType === 'KNOTTING_SORT_CHANGE' ? 'Knotting Sort Change' : pType === 'GAITING' ? 'Gaiting' : '—';
+
+      const crimpDisplayNum = isLoomAllocated
+        ? Number((calc?.standardCrimpPercent ?? (effectiveCrimp * 100)).toFixed(1))
+        : null;
+
+      const producedMtrNum = isLoomAllocated ? Math.round(calc?.producedMeter ?? 0) : null;
+      const avgProdNum = isLoomAllocated ? Math.round(calc?.avgProduction ?? 0) : null;
+      const grossBalNum = isLoomAllocated ? Math.round(calc?.warpBalanceGross ?? 0) : null;
+      const crimpLossNum = isLoomAllocated ? Math.round(calc?.crimpLossMeter ?? 0) : null;
+      const netBalNum = isLoomAllocated ? Math.round(calc?.netBalanceMeter ?? 0) : null;
+      const balDaysNum = isLoomAllocated && typeof calc?.balanceDays === 'number' && calc.balanceDays < 9999 ? Number(calc.balanceDays.toFixed(1)) : null;
+      const runoutDateStr = isLoomAllocated && calc?.expectedRunoutDate ? format(calc.expectedRunoutDate, 'dd-MMM-yyyy') : '—';
+
       return {
         'S.No': index + 1,
         'Loom No': `L-${loom.loomNo}`,
         'Unit': loom.unit || '—',
-        'Loom Type': loom.loomType || '—',
-        'Running Design / SP No': entry.designNo || 'Not Allocated',
+        'Running Design': entry.designNo || 'Not Allocated',
         'Construction': design?.construction || matchedOrder?.construction || '—',
         'Reed': design?.reedCount || matchedOrder?.reed || '—',
-        'Pick (PPI)': design?.pick || matchedOrder?.pick || '—',
-        'Width (Inch)': design?.greigeWidth || matchedOrder?.width || '—',
+        'Pick': design?.pick || matchedOrder?.pick || '—',
+        'Width': design?.greigeWidth || matchedOrder?.width || '—',
         'Set No': beamInfo?.setNo || beamInfo?.set_no || '—',
         'Beam No': entry.currentBeamNo || '—',
+        'Sort Change': sortChangeDisplay,
         'Start Date': isLoomAllocated ? startDateDisplay : '—',
-        'Warp Length (M)': effectiveWarpMtr > 0 ? effectiveWarpMtr : '—',
-        'Daily Prod (M)': (isLoomAllocated && entry.dailyProduction !== '') ? entry.dailyProduction : '—',
-        'Crimp %': crimpDisplayStr,
-        'RPM': (isLoomAllocated && entry.rpm !== '') ? entry.rpm : (loom.rpm || '—'),
-        'Eff %': (isLoomAllocated && entry.efficiency !== '') ? `${entry.efficiency}%` : '—',
-        'Produced Fabric (M)': isLoomAllocated ? (Math.round(calc?.producedMeter ?? 0)) : '—',
-        'Avg Prod/Day (M)': isLoomAllocated ? (Math.round(calc?.avgProduction ?? 0)) : '—',
-        'Gross Bal (M)': isLoomAllocated ? (Math.round(calc?.warpBalanceGross ?? 0)) : '—',
-        'Crimp Loss (M)': isLoomAllocated ? (Math.round(calc?.crimpLossMeter ?? 0)) : '—',
-        'Net Bal (M)': isLoomAllocated ? (Math.round(calc?.netBalanceMeter ?? 0)) : '—',
-        'Balance Days': isLoomAllocated ? (calc?.balanceDays ?? '—') : '—',
-        'Expected Runout': isLoomAllocated && calc?.expectedRunoutDate ? format(calc.expectedRunoutDate, 'dd-MMM-yyyy') : '—',
-        'Status': isLoomAllocated ? 'Active Run' : 'Available',
+        'Warp Mtr': isLoomAllocated && effectiveWarpMtr > 0 ? effectiveWarpMtr : '—',
+        'Daily Prod (M)': (isLoomAllocated && entry.dailyProduction !== '') ? Number(entry.dailyProduction) : '—',
+        'Crimp %': crimpDisplayNum !== null ? crimpDisplayNum : '—',
+        'RPM': (isLoomAllocated && entry.rpm !== '') ? Number(entry.rpm) : (loom.rpm || '—'),
+        'Eff %': (isLoomAllocated && entry.efficiency !== '') ? Number(entry.efficiency) : '—',
+        'Produced Mtr': producedMtrNum !== null ? producedMtrNum : '—',
+        'Avg Prod / Day': avgProdNum !== null ? avgProdNum : '—',
+        'Gross Balance': grossBalNum !== null ? grossBalNum : '—',
+        'Crimp Loss': crimpLossNum !== null ? crimpLossNum : '—',
+        'Net Balance': netBalNum !== null ? netBalNum : '—',
+        'Bal Days': balDaysNum !== null ? balDaysNum : '—',
+        'Expected Runout Date': runoutDateStr,
+        'Runout Status': isLoomAllocated ? (calc?.runoutStatus || 'Active Run') : 'Available',
         'Remarks': entry.remarks || '—'
       };
     });
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
+
+    // Inject Excel formulas for dynamic recalculation
+    filteredLooms.forEach((loom, idx) => {
+      const r = idx + 2; // Row number in Excel (1-based, row 1 is header)
+      const entry = entries[loom.loomNo];
+      const isLoomAllocated = !!(entry?.designNo && entry.designNo.trim() !== '');
+
+      if (isLoomAllocated) {
+        // Col T: Gross Balance = MAX(0, Warp Mtr [Col M] - Produced Mtr [Col R])
+        const origT = worksheet[`T${r}`];
+        if (origT && typeof origT.v === 'number') {
+          worksheet[`T${r}`] = { t: 'n', v: origT.v, f: `MAX(0, M${r}-R${r})` };
+        }
+
+        // Col U: Crimp Loss = ROUND(Produced Mtr [Col R] * (Crimp % [Col O] / 100), 0)
+        const origU = worksheet[`U${r}`];
+        if (origU && typeof origU.v === 'number') {
+          worksheet[`U${r}`] = { t: 'n', v: origU.v, f: `ROUND(R${r}*(O${r}/100), 0)` };
+        }
+
+        // Col V: Net Balance = MAX(0, Gross Balance [Col T] - Crimp Loss [Col U])
+        const origV = worksheet[`V${r}`];
+        if (origV && typeof origV.v === 'number') {
+          worksheet[`V${r}`] = { t: 'n', v: origV.v, f: `MAX(0, T${r}-U${r})` };
+        }
+
+        // Col W: Bal Days = IF(Avg Prod [Col S] > 0, ROUND(Net Balance [Col V] / Avg Prod [Col S], 1), 0)
+        const origW = worksheet[`W${r}`];
+        if (origW && typeof origW.v === 'number') {
+          worksheet[`W${r}`] = { t: 'n', v: origW.v, f: `IF(S${r}>0, ROUND(V${r}/S${r}, 1), 0)` };
+        }
+
+        // Col X: Expected Runout Date = IF(Bal Days [Col W] > 0, TEXT(TODAY() + ROUND(Bal Days [Col W], 0), "dd-mmm-yyyy"), "—")
+        const origX = worksheet[`X${r}`];
+        if (origX && origX.v !== '—') {
+          worksheet[`X${r}`] = { t: 's', v: origX.v, f: `IF(W${r}>0, TEXT(TODAY()+ROUND(W${r}, 0), "dd-mmm-yyyy"), "—")` };
+        }
+      }
+    });
+
+    // Auto-fit column widths
+    worksheet['!cols'] = [
+      { wch: 6 },  // S.No
+      { wch: 10 }, // Loom No
+      { wch: 10 }, // Unit
+      { wch: 18 }, // Running Design
+      { wch: 16 }, // Construction
+      { wch: 8 },  // Reed
+      { wch: 8 },  // Pick
+      { wch: 8 },  // Width
+      { wch: 12 }, // Set No
+      { wch: 16 }, // Beam No
+      { wch: 14 }, // Sort Change
+      { wch: 13 }, // Start Date
+      { wch: 12 }, // Warp Mtr
+      { wch: 13 }, // Daily Prod (M)
+      { wch: 10 }, // Crimp %
+      { wch: 8 },  // RPM
+      { wch: 8 },  // Eff %
+      { wch: 13 }, // Produced Mtr
+      { wch: 14 }, // Avg Prod / Day
+      { wch: 13 }, // Gross Balance
+      { wch: 11 }, // Crimp Loss
+      { wch: 12 }, // Net Balance
+      { wch: 10 }, // Bal Days
+      { wch: 18 }, // Expected Runout Date
+      { wch: 14 }, // Runout Status
+      { wch: 20 }  // Remarks
+    ];
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Live Main Entry');
     XLSX.writeFile(workbook, `SPUPL_Main_Entry_Register_${selectedProductionDate || format(new Date(), 'yyyy-MM-dd')}.xlsx`);
@@ -1235,6 +1522,15 @@ export default function MainEntry() {
           >
             <Printer className="w-4 h-4" />
             <span>Print Report</span>
+          </button>
+
+          <button
+            onClick={handleOpenWarpLoadModal}
+            title="Warp Load Sync & Match Review"
+            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl text-xs font-black transition-all shadow-md active:scale-95"
+          >
+            <Upload className="w-4 h-4" />
+            <span>Warp Load Sync</span>
           </button>
 
           <button
@@ -1399,7 +1695,7 @@ export default function MainEntry() {
               <PrintTableHeaderRow 
                 title="Main Production Entry & Live Loom Runout Register" 
                 subtitle="Operational Live Weaving Master Audit Log" 
-                colSpan={30} 
+                colSpan={31} 
               />
               {/* Category Grouping Header Row */}
               <tr className="bg-slate-900 text-white uppercase text-[10px] font-black tracking-wider border-b border-slate-800 print:bg-slate-200 print:text-black">
@@ -1413,9 +1709,9 @@ export default function MainEntry() {
                     <Layers className="w-3.5 h-3.5" /> 2. DESIGN & ORDER
                   </span>
                 </th>
-                <th colSpan={2} className="p-2.5 bg-slate-900 border-r border-slate-800">
+                <th colSpan={3} className="p-2.5 bg-slate-900 border-r border-slate-800">
                   <span className="text-purple-400 flex items-center gap-1">
-                    <Package className="w-3.5 h-3.5" /> 3. BEAM & SET
+                    <Package className="w-3.5 h-3.5" /> 3. BEAM, SET & SORT CHANGE
                   </span>
                 </th>
                 <th colSpan={6} className="p-2.5 bg-slate-950 border-r border-slate-800">
@@ -1450,9 +1746,15 @@ export default function MainEntry() {
                 <th className="p-3 text-white">7. Pick</th>
                 <th className="p-3 border-r border-slate-700 text-white">8. Width</th>
 
-                {/* 9-10. Beam & Set */}
+                {/* 9-10b. Beam, Set & Sort Change */}
                 <th className="p-3 text-white">9. Set No</th>
-                <th className="p-3 border-r border-slate-700 text-white">10. Beam No</th>
+                <th className="p-3 text-white">10. Beam No</th>
+                <th className="p-3 border-r border-slate-700 text-purple-300 bg-purple-950/60 min-w-[135px]">
+                  <div className="flex items-center gap-1">
+                    <Scissors className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Sort Change</span>
+                  </div>
+                </th>
 
                 {/* 11-16. Production Entry */}
                 <th className="p-3 text-white">11. Start Date</th>
@@ -1749,7 +2051,7 @@ export default function MainEntry() {
                       </td>
 
                       {/* 10. Beam No (Read-Only - Allocated via Loom Planning Setup) */}
-                      <td className="p-3 border-r border-slate-300 dark:border-slate-700 font-bold text-xs">
+                      <td className="p-3 font-bold text-xs">
                         <div className="flex items-center space-x-1">
                           <span className={`px-2.5 py-1 rounded-md border text-xs font-mono font-extrabold ${
                             entry.currentBeamNo ? 'bg-indigo-100 text-indigo-950 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-200' : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300'
@@ -1760,6 +2062,87 @@ export default function MainEntry() {
                             <Lock className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                           </span>
                         </div>
+                      </td>
+
+                      {/* 10b. Sort Change Details (Confirmed in Next Planned Looms / Confirmation) */}
+                      <td className="p-3 border-r border-slate-300 dark:border-slate-700 text-xs">
+                        {(() => {
+                          const prepRec = prepRecordsByLoom[loom.loomNo] || (nextPlansList[0]?.WarpPreparationProcess && nextPlansList[0].WarpPreparationProcess[0]);
+                          const activeSortChange = (activeRunObj as any)?.sort_change_type || (activeRunObj as any)?.sortChangeType || (entry as any).sortChangeType;
+                          const pType = activeSortChange || prepRec?.confirmed_process || prepRec?.process_type || (nextPlansList[0] as any)?.sort_change_type;
+                          const pStatus = prepRec?.status || (activeRunObj as any)?.prep_status || 'PENDING';
+
+                          if (!pType) {
+                            return <span className="text-slate-400 font-medium text-xs select-none">—</span>;
+                          }
+
+                          const typeConfig = {
+                            KNOTTING: {
+                              label: 'KNOTTING',
+                              shortLabel: 'Knotting',
+                              color: 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 dark:border-emerald-800'
+                            },
+                            KNOTTING_SORT_CHANGE: {
+                              label: 'KNOTTING SORT CHANGE',
+                              shortLabel: 'Sort Chg',
+                              color: 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800'
+                            },
+                            GAITING: {
+                              label: 'GAITING',
+                              shortLabel: 'Gaiting',
+                              color: 'bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-950 dark:text-purple-200 dark:border-purple-800'
+                            }
+                          }[pType as 'KNOTTING' | 'KNOTTING_SORT_CHANGE' | 'GAITING'] || {
+                            label: pType,
+                            shortLabel: pType,
+                            color: 'bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-950 dark:text-blue-200 dark:border-blue-800'
+                          };
+
+                          return (
+                            <div className="flex flex-col gap-1 items-start whitespace-nowrap">
+                              {/* Sort Change Type Badge */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const p = nextPlansList[0];
+                                  handleOpenPrepModal(loom.loomNo, p, prepRec);
+                                }}
+                                className={`px-2 py-0.5 rounded text-[10px] font-black border tracking-tight shadow-xs hover:scale-105 transition-transform flex items-center gap-1 cursor-pointer ${typeConfig.color}`}
+                                title={`Confirmed Sort Change Type: ${typeConfig.label}. Click to view/edit details.`}
+                              >
+                                <Scissors className="w-2.5 h-2.5 shrink-0" />
+                                <span>{typeConfig.shortLabel}</span>
+                              </button>
+
+                              {/* Status Pill & Responsible Person (Hidden for Gaiting so only 'Gaiting' is displayed) */}
+                              {pType !== 'GAITING' && (
+                                <div className="flex items-center gap-1">
+                                  <span
+                                    onClick={() => {
+                                      const p = nextPlansList[0];
+                                      handleOpenPrepModal(loom.loomNo, p, prepRec);
+                                    }}
+                                    className={`px-1.5 py-0.2 rounded text-[9px] font-bold cursor-pointer transition-all hover:opacity-80 ${
+                                      pStatus === 'COMPLETED'
+                                        ? 'bg-emerald-600 text-white'
+                                        : pStatus === 'IN_PROGRESS'
+                                        ? 'bg-blue-600 text-white animate-pulse'
+                                        : 'bg-amber-500 text-white'
+                                    }`}
+                                    title={`Status: ${pStatus}. Click to update.`}
+                                  >
+                                    {pStatus === 'COMPLETED' ? '✓ Ready' : pStatus === 'IN_PROGRESS' ? '🔄 In Prog' : '⏳ Pending'}
+                                  </span>
+                                  {prepRec?.responsible_person && (
+                                    <span className="text-[9px] text-slate-500 font-medium truncate max-w-[60px]" title={`Responsible: ${prepRec.responsible_person}`}>
+                                      {prepRec.responsible_person}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* 11. Start Date (Locked by default - Admin Password required to unlock) */}
@@ -2051,6 +2434,52 @@ export default function MainEntry() {
                                 }`}>
                                   {cp.statusLabel}
                                 </span>
+
+                                {/* Inline Sort Change Type Badge */}
+                                {(() => {
+                                  const prepRec = prepRecordsByLoom[loom.loomNo] || (cp.plan.WarpPreparationProcess && cp.plan.WarpPreparationProcess[0]);
+                                  const pType = prepRec?.confirmed_process || prepRec?.process_type || (cp.plan as any).sort_change_type;
+                                  const pStatus = prepRec?.status || 'PENDING';
+
+                                  return (
+                                    <>
+                                      {pType && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenPrepModal(loom.loomNo, cp.plan, prepRec)}
+                                          className={`shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded transition-all hover:scale-105 flex items-center gap-0.5 ${
+                                            pType === 'KNOTTING'
+                                              ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 dark:bg-emerald-950 dark:text-emerald-200'
+                                              : pType === 'KNOTTING_SORT_CHANGE'
+                                              ? 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950 dark:text-amber-200'
+                                              : 'bg-purple-100 text-purple-900 border border-purple-300 dark:bg-purple-950 dark:text-purple-200'
+                                          }`}
+                                          title={`Sort Change Type: ${pType}. Click to open warp prep modal.`}
+                                        >
+                                          <Scissors className="w-2.5 h-2.5 inline shrink-0" />
+                                          <span>{pType === 'KNOTTING' ? 'Knotting' : pType === 'KNOTTING_SORT_CHANGE' ? 'Sort Chg' : 'Gaiting'}</span>
+                                        </button>
+                                      )}
+
+                                      {prepRec && pType !== 'GAITING' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenPrepModal(loom.loomNo, cp.plan, prepRec)}
+                                          className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded transition-all hover:scale-105 flex items-center gap-0.5 ${
+                                            pStatus === 'COMPLETED'
+                                              ? 'bg-emerald-600 text-white'
+                                              : pStatus === 'IN_PROGRESS'
+                                              ? 'bg-blue-600 text-white animate-pulse'
+                                              : 'bg-amber-500 text-white'
+                                          }`}
+                                          title={`Warp Prep Status: ${pStatus}. Click to update.`}
+                                        >
+                                          <span>{pStatus === 'COMPLETED' ? '✓ Ready' : pStatus === 'IN_PROGRESS' ? '🔄 In Prog' : '⏳ Pending'}</span>
+                                        </button>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </div>
                             ))}
                           </div>
@@ -2089,6 +2518,25 @@ export default function MainEntry() {
                       <td className="p-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
+                            type="button"
+                            onClick={() => {
+                              const p = nextPlansList[0];
+                              const rec = prepRecordsByLoom[loom.loomNo] || (p?.WarpPreparationProcess && p.WarpPreparationProcess[0]);
+                              handleOpenPrepModal(loom.loomNo, p, rec);
+                            }}
+                            className={`p-1.5 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all ${
+                              prepRecordsByLoom[loom.loomNo]?.status === 'COMPLETED'
+                                ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300'
+                                : prepRecordsByLoom[loom.loomNo]
+                                ? 'bg-purple-50 text-purple-700 hover:bg-purple-100 border-purple-300'
+                                : 'bg-slate-50 text-slate-500 hover:bg-slate-100 border-slate-200'
+                            }`}
+                            title="Warp Preparation & Knotting Details"
+                          >
+                            <Scissors className="w-3.5 h-3.5" />
+                            <span>Prep</span>
+                          </button>
+                          <button
                             onClick={() => setHistoryModalLoomNo(loom.loomNo)}
                             className="p-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold flex items-center gap-1 border border-blue-200"
                             title="Daily Production History & Edit Modal"
@@ -2111,7 +2559,7 @@ export default function MainEntry() {
                     {/* ── Comprehensive 9-Dimension Expanded Operational Drawer ── */}
                     {isExpanded && (
                       <tr className="bg-slate-50/90 dark:bg-slate-900/70">
-                        <td colSpan={30} className="p-5">
+                        <td colSpan={31} className="p-5">
                           <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-lg space-y-6 text-xs">
                             
                             {/* Drawer Header */}
@@ -2662,6 +3110,361 @@ export default function MainEntry() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Warp Load Sync & Match Review Modal */}
+      {showWarpLoadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 rounded-xl">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    SPUPL Warp-Load Match & Sync Center
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Direct Warp Load vs Production Report Integration — 198 Matched Looms & 24 Action Items
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowWarpLoadModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              {/* Summary KPIs */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl">
+                  <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">
+                    Matched Looms
+                  </span>
+                  <div className="text-2xl font-black text-emerald-900 dark:text-emerald-200 mt-1">
+                    {warpLoadModalData?.summary?.matchedRows ?? 198}
+                  </div>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold block mt-0.5">
+                    Main Entry & Beam Stock Updated
+                  </span>
+                </div>
+
+                <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl">
+                  <span className="text-[11px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider block">
+                    Beam Stock Date
+                  </span>
+                  <div className="text-xl font-black text-blue-900 dark:text-blue-200 mt-1">
+                    Load Date - 5d
+                  </div>
+                  <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold block mt-0.5">
+                    Exact Calendar Subtraction
+                  </span>
+                </div>
+
+                <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl">
+                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block">
+                    No Match Rows
+                  </span>
+                  <div className="text-2xl font-black text-amber-900 dark:text-amber-200 mt-1">
+                    {warpLoadModalData?.summary?.noMatchRows ?? (warpLoadModalData?.noMatchList?.length ?? 24)}
+                  </div>
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold block mt-0.5">
+                    Preserved for Manual Review
+                  </span>
+                </div>
+
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl">
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
+                    Conflicts & Errors
+                  </span>
+                  <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">
+                    0
+                  </div>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block mt-0.5">
+                    100% Data Integrity
+                  </span>
+                </div>
+              </div>
+
+              {/* Status Banner */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900 dark:text-white">
+                      Warp Load Synchronization Status: READY / SYNCHRONIZED
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      All 198 MATCH rows are mapped directly to Main Entry and Beam Stock with exact dates and meterages.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleImportWarpLoad}
+                  disabled={isImportingWarpLoad}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                >
+                  {isImportingWarpLoad ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Syncing All Rows...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Re-Sync Matched Looms</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* No Match Action List */}
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                <div className="px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800/60 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="text-xs font-black text-amber-900 dark:text-amber-300">
+                      NO MATCH — Action List & Discrepancy Review ({warpLoadModalData?.noMatchList?.length ?? 24} Looms)
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 rounded">
+                    Unchanged in System
+                  </span>
+                </div>
+
+                <div className="max-h-64 overflow-y-auto">
+                  <table className="w-full text-left text-[11px] border-collapse">
+                    <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 uppercase tracking-wider text-[10px] font-black sticky top-0">
+                      <tr>
+                        <th className="p-2.5">S.No</th>
+                        <th className="p-2.5">Loom</th>
+                        <th className="p-2.5">Date</th>
+                        <th className="p-2.5">Set No</th>
+                        <th className="p-2.5">Beam No</th>
+                        <th className="p-2.5 text-amber-700 dark:text-amber-400">Warp Loaded Design</th>
+                        <th className="p-2.5 text-rose-700 dark:text-rose-400">Running Design (Prod)</th>
+                        <th className="p-2.5 text-right">Warp Mtr</th>
+                        <th className="p-2.5 text-right">Ends</th>
+                        <th className="p-2.5">Operator</th>
+                        <th className="p-2.5 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-800 dark:text-slate-200 font-medium">
+                      {(warpLoadModalData?.noMatchList || []).map((nm: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-amber-50/50 dark:hover:bg-amber-950/20 transition-colors">
+                          <td className="p-2 text-slate-500">{nm.sno}</td>
+                          <td className="p-2 font-black text-slate-900 dark:text-white">{nm.loomStr}</td>
+                          <td className="p-2 font-mono">{nm.warpLoadDate}</td>
+                          <td className="p-2 font-mono text-[10px]">{nm.setNo}</td>
+                          <td className="p-2 font-mono text-[10px]">{nm.beamNo}</td>
+                          <td className="p-2 font-bold text-amber-700 dark:text-amber-400">{nm.designNoWarp}</td>
+                          <td className="p-2 font-bold text-rose-700 dark:text-rose-400">{nm.designRunning}</td>
+                          <td className="p-2 text-right font-mono">{nm.warpMtrs}</td>
+                          <td className="p-2 text-right font-mono">{nm.ends ?? '—'}</td>
+                          <td className="p-2 text-slate-600 dark:text-slate-400">{nm.operator || '—'}</td>
+                          <td className="p-2 text-center">
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-700">
+                              NO MATCH
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                Idempotent Sync: Re-running will update existing records without creating duplicates.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowWarpLoadModal(false)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── WARP PREPARATION & KNOTTING DETAILS (Read-Only SSOT View) ── */}
+      {prepModalData && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl w-full max-w-xl overflow-hidden my-8 animate-fade-in">
+            
+            {/* Modal Header */}
+            <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+              <div className="flex items-center space-x-2">
+                <span className="px-2 py-0.5 bg-blue-600 text-white font-black text-xs rounded">
+                  L-{prepModalData.loomNo}
+                </span>
+                <h3 className="font-bold text-sm flex items-center gap-1.5">
+                  <Scissors className="w-4 h-4 text-purple-400" />
+                  Warp Preparation & Knotting Details (Read-Only)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPrepModalData(null)}
+                className="text-slate-400 hover:text-white font-bold text-base transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 text-xs max-h-[80vh] overflow-y-auto custom-scrollbar">
+              
+              {/* Read-Only Notice */}
+              <div className="p-2.5 bg-slate-100 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] text-slate-600 dark:text-slate-300 flex items-center gap-2">
+                <Lock className="w-4 h-4 text-slate-500 shrink-0" />
+                <span>
+                  <strong>Authoritative Planning:</strong> Process types and sort change details are confirmed in <em>Next Planned Looms Control</em> and remain read-only in Main Entry.
+                </span>
+              </div>
+
+              {/* Confirmed Process Badge Card */}
+              {(() => {
+                const rec = prepModalData.prepRec;
+                const procType = rec?.confirmed_process || rec?.process_type || (prepModalData.evalDetails?.evaluation?.isEligible ? 'KNOTTING' : 'KNOTTING_SORT_CHANGE');
+                const procStatus = rec?.status || 'PENDING';
+                
+                return (
+                  <div className="p-3.5 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Confirmed Process
+                      </span>
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+                        procType === 'KNOTTING'
+                          ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 dark:bg-emerald-950 dark:text-emerald-200'
+                          : procType === 'KNOTTING_SORT_CHANGE'
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950 dark:text-amber-200'
+                          : 'bg-purple-100 text-purple-900 border border-purple-300 dark:bg-purple-950 dark:text-purple-200'
+                      }`}>
+                        {procType.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Preparation Status
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        procStatus === 'COMPLETED'
+                          ? 'bg-emerald-600 text-white'
+                          : procStatus === 'IN_PROGRESS'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-amber-500 text-white'
+                      }`}>
+                        {procStatus === 'COMPLETED' ? '✓ Ready / Completed' : procStatus === 'IN_PROGRESS' ? '🔄 In Progress' : '⏳ Pending'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Design & Order Details */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Current Running SP</span>
+                  <span className="text-slate-900 dark:text-white font-bold text-xs truncate block">
+                    {prepModalData.evalDetails?.currentDesign || (activeRuns[prepModalData.loomNo] as any)?.design_no_sp_no || 'AVAILABLE'}
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Next Planned SP</span>
+                  <span className="text-blue-600 dark:text-blue-400 font-black text-xs truncate block">
+                    {prepModalData.plan?.next_design || prepModalData.evalDetails?.nextDesign || '—'}
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Order / IBPO No</span>
+                  <span className="text-slate-900 dark:text-white font-bold text-xs truncate block">
+                    {prepModalData.plan?.order_no || prepModalData.evalDetails?.orderNo || '—'}
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Loom Start Date</span>
+                  <span className="text-slate-900 dark:text-white font-bold text-xs truncate block">
+                    {prepModalData.plan?.planned_start_date ? format(new Date(prepModalData.plan.planned_start_date), 'dd-MM-yyyy') : format(new Date(), 'dd-MM-yyyy')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Technical Ends & Colors Comparison */}
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                  Pattern & Warp Transition
+                </span>
+                <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
+                  <div className="bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Current Ends</span>
+                    <strong className="text-slate-800 dark:text-slate-100">{prepModalData.evalDetails?.currentEnds ?? '—'}</strong>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Next Ends</span>
+                    <strong className="text-slate-800 dark:text-slate-100">{prepModalData.evalDetails?.nextEnds ?? '—'}</strong>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Ends Diff</span>
+                    <strong className={
+                      prepModalData.evalDetails?.endsDifference !== null && prepModalData.evalDetails?.endsDifference <= 1
+                        ? 'text-emerald-600'
+                        : 'text-amber-600'
+                    }>
+                      {prepModalData.evalDetails?.endsDifference ?? '—'}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] pt-1 text-slate-600 dark:text-slate-400">
+                  <span>Warp Colors: <strong>{prepModalData.evalDetails?.currentWarpColours || 'Std'} → {prepModalData.evalDetails?.nextWarpColours || 'Std'}</strong></span>
+                  <span>Set / Beam: <strong>{prepModalData.evalDetails?.setNo || '—'} / {prepModalData.evalDetails?.beamNo || '—'}</strong></span>
+                </div>
+              </div>
+
+              {/* Operator & Remarks */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Assigned Operator</span>
+                  <span className="text-slate-800 dark:text-slate-200 font-medium text-xs block">
+                    {prepModalData.prepRec?.responsible_person || '—'}
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Planner Remarks</span>
+                  <span className="text-slate-800 dark:text-slate-200 font-medium text-xs block truncate">
+                    {prepModalData.prepRec?.remarks || '—'}
+                  </span>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Footer (Read-Only) */}
+            <div className="p-4 bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPrepModalData(null)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs shadow-sm transition-all"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

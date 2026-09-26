@@ -24,6 +24,8 @@ export interface DepartmentConfig {
   calculate: (rawValues: Record<string, any>) => Record<string, any>;
 }
 
+const isEntered = (val: any): boolean => val !== undefined && val !== null && val !== '' && !isNaN(Number(val));
+
 export const DEPARTMENTS: DepartmentConfig[] = [
   // 1. PLANNING
   {
@@ -76,18 +78,25 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'TOTAL_YARN_STOCK_KGS', name: 'Total Yarn Stock (Dyed + Grey)', type: 'number', unit: 'Kgs', isCalculated: true }
     ],
     calculate: (raw) => {
-      const sizing = Number(raw.SIZING_MTRS) || 0;
-      const warping = Number(raw.SEC_WARPING_MTRS) || 0;
-      const rewinding = Number(raw.REWINDING_KGS) || 0;
-      const dyed = Number(raw.DYED_YARN_STOCK_KGS) || 0;
-      const grey = Number(raw.GREY_YARN_STOCK_KGS) || 0;
+      const isSizing = isEntered(raw.SIZING_MTRS);
+      const isWarping = isEntered(raw.SEC_WARPING_MTRS);
+      const isRewinding = isEntered(raw.REWINDING_KGS);
+      const isDyed = isEntered(raw.DYED_YARN_STOCK_KGS);
+      const isGrey = isEntered(raw.GREY_YARN_STOCK_KGS);
+
+      const sizing = isSizing ? Number(raw.SIZING_MTRS) : null;
+      const warping = isWarping ? Number(raw.SEC_WARPING_MTRS) : null;
+      const rewinding = isRewinding ? Number(raw.REWINDING_KGS) : null;
+      const dyed = isDyed ? Number(raw.DYED_YARN_STOCK_KGS) : 0;
+      const grey = isGrey ? Number(raw.GREY_YARN_STOCK_KGS) : 0;
+
       return {
-        SIZING_DIFF: Math.round(sizing - 40000),
-        SIZING_ACHIEVEMENT_PCT: Number(((sizing / 40000) * 100).toFixed(1)),
-        SEC_WARPING_DIFF: Math.round(warping - 4000),
-        SEC_WARPING_ACHIEVEMENT_PCT: Number(((warping / 4000) * 100).toFixed(1)),
-        REWINDING_DIFF: Math.round(rewinding - 600),
-        TOTAL_YARN_STOCK_KGS: Math.round(dyed + grey)
+        SIZING_DIFF: sizing !== null ? Math.round(sizing - 40000) : '',
+        SIZING_ACHIEVEMENT_PCT: sizing !== null ? Number(((sizing / 40000) * 100).toFixed(1)) : '',
+        SEC_WARPING_DIFF: warping !== null ? Math.round(warping - 4000) : '',
+        SEC_WARPING_ACHIEVEMENT_PCT: warping !== null ? Number(((warping / 4000) * 100).toFixed(1)) : '',
+        REWINDING_DIFF: rewinding !== null ? Math.round(rewinding - 600) : '',
+        TOTAL_YARN_STOCK_KGS: (isDyed || isGrey) ? Math.round(dyed + grey) : ''
       };
     }
   },
@@ -117,13 +126,15 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'MTRS_ACHIEVEMENT_PCT', name: 'Mtrs Achievement %', type: 'number', unit: '%', isCalculated: true }
     ],
     calculate: (raw) => {
-      const kp = Number(raw.INHOUSE_KPICKS) || 0;
-      const mtr = Number(raw.INHOUSE_MTRS) || 0;
+      const isKp = isEntered(raw.INHOUSE_KPICKS);
+      const isMtr = isEntered(raw.INHOUSE_MTRS);
+      const kp = isKp ? Number(raw.INHOUSE_KPICKS) : null;
+      const mtr = isMtr ? Number(raw.INHOUSE_MTRS) : null;
       return {
-        KPICKS_DIFF: Math.round(kp - 155739),
-        KPICKS_ACHIEVEMENT_PCT: Number(((kp / 155739) * 100).toFixed(1)),
-        MTRS_DIFF: Math.round(mtr - 68400),
-        MTRS_ACHIEVEMENT_PCT: Number(((mtr / 68400) * 100).toFixed(1))
+        KPICKS_DIFF: kp !== null ? Math.round(kp - 155739) : '',
+        KPICKS_ACHIEVEMENT_PCT: kp !== null ? Number(((kp / 155739) * 100).toFixed(1)) : '',
+        MTRS_DIFF: mtr !== null ? Math.round(mtr - 68400) : '',
+        MTRS_ACHIEVEMENT_PCT: mtr !== null ? Number(((mtr / 68400) * 100).toFixed(1)) : ''
       };
     }
   },
@@ -154,24 +165,33 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'OVERALL_REJECTION_PCT', name: 'Combined Overall Rejection %', type: 'number', unit: '%', isCalculated: true }
     ],
     calculate: (raw) => {
-      const inInsp = Number(raw.INHOUSE_TOTAL_INSPECTED) || 0;
-      const inPass = Number(raw.INHOUSE_TOTAL_PASSED) || 0;
-      const inRej = Math.max(0, Number((inInsp - inPass).toFixed(1)));
-      const inRejPct = inInsp > 0 ? Number(((inRej / inInsp) * 100).toFixed(2)) : 0;
+      const hasInInsp = isEntered(raw.INHOUSE_TOTAL_INSPECTED);
+      const hasInPass = isEntered(raw.INHOUSE_TOTAL_PASSED);
+      const inInsp = hasInInsp ? Number(raw.INHOUSE_TOTAL_INSPECTED) : null;
+      const inPass = hasInPass ? Number(raw.INHOUSE_TOTAL_PASSED) : null;
+      const inRej = (inInsp !== null && inPass !== null) ? Math.max(0, Number((inInsp - inPass).toFixed(1))) : '';
+      const inRejPct = (inInsp !== null && inInsp > 0 && typeof inRej === 'number') ? Number(((inRej / inInsp) * 100).toFixed(2)) : '';
 
-      const venInsp = Number(raw.VENDOR_TOTAL_INSPECTED) || 0;
-      const venPass = Number(raw.VENDOR_TOTAL_PASSED) || 0;
-      const venRej = Math.max(0, Number((venInsp - venPass).toFixed(1)));
-      const venRejPct = venInsp > 0 ? Number(((venRej / venInsp) * 100).toFixed(2)) : 0;
+      const hasVenInsp = isEntered(raw.VENDOR_TOTAL_INSPECTED);
+      const hasVenPass = isEntered(raw.VENDOR_TOTAL_PASSED);
+      const venInsp = hasVenInsp ? Number(raw.VENDOR_TOTAL_INSPECTED) : null;
+      const venPass = hasVenPass ? Number(raw.VENDOR_TOTAL_PASSED) : null;
+      const venRej = (venInsp !== null && venPass !== null) ? Math.max(0, Number((venInsp - venPass).toFixed(1))) : '';
+      const venRejPct = (venInsp !== null && venInsp > 0 && typeof venRej === 'number') ? Number(((venRej / venInsp) * 100).toFixed(2)) : '';
 
-      const washInsp = Number(raw.WASHING_TOTAL_MTRS) || 0;
-      const washPass = Number(raw.WASHING_TOTAL_PASSED) || 0;
-      const washRej = Math.max(0, Number((washInsp - washPass).toFixed(1)));
+      const hasWashInsp = isEntered(raw.WASHING_TOTAL_MTRS);
+      const hasWashPass = isEntered(raw.WASHING_TOTAL_PASSED);
+      const washInsp = hasWashInsp ? Number(raw.WASHING_TOTAL_MTRS) : null;
+      const washPass = hasWashPass ? Number(raw.WASHING_TOTAL_PASSED) : null;
+      const washRej = (washInsp !== null && washPass !== null) ? Math.max(0, Number((washInsp - washPass).toFixed(1))) : '';
 
-      const totInsp = Number((inInsp + venInsp + washInsp).toFixed(1));
-      const totPass = Number((inPass + venPass + washPass).toFixed(1));
-      const totRej = Number((inRej + venRej + washRej).toFixed(1));
-      const totRejPct = totInsp > 0 ? Number(((totRej / totInsp) * 100).toFixed(2)) : 0;
+      const hasAnyInsp = inInsp !== null || venInsp !== null || washInsp !== null;
+      const totInsp = hasAnyInsp ? Number(((inInsp || 0) + (venInsp || 0) + (washInsp || 0)).toFixed(1)) : '';
+      const hasAnyPass = inPass !== null || venPass !== null || washPass !== null;
+      const totPass = hasAnyPass ? Number(((inPass || 0) + (venPass || 0) + (washPass || 0)).toFixed(1)) : '';
+      const hasAnyRej = (typeof inRej === 'number') || (typeof venRej === 'number') || (typeof washRej === 'number');
+      const totRej = hasAnyRej ? Number(((typeof inRej === 'number' ? inRej : 0) + (typeof venRej === 'number' ? venRej : 0) + (typeof washRej === 'number' ? washRej : 0)).toFixed(1)) : '';
+      const totRejPct = (typeof totInsp === 'number' && totInsp > 0 && typeof totRej === 'number') ? Number(((totRej / totInsp) * 100).toFixed(2)) : '';
 
       return {
         INHOUSE_TOTAL_REJECTED: inRej,
@@ -219,28 +239,71 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'FABRIC_PURCHASE_DIFF', name: 'Purchase Diff (vs 30k)', type: 'number', unit: 'Mtrs', isCalculated: true }
     ],
     calculate: (raw) => {
-      const finished = Number(raw.FINISHED_INSPECTION_MTRS) || 0;
-      const procRej = Number(raw.PROCESSING_REJECTION_MTRS) || 0;
-      const venRej = Number(raw.VENDOR_REJECTION_MTRS) || 0;
-      const weavRej = Number(raw.WEAVING_REJECTION_MTRS) || 0;
-      const totRej = Number((procRej + venRej + weavRej).toFixed(1));
-      const totRejPct = finished > 0 ? Number(((totRej / finished) * 100).toFixed(2)) : 0;
+      const isFin = isEntered(raw.FINISHED_INSPECTION_MTRS);
+      const finished = isFin ? Number(raw.FINISHED_INSPECTION_MTRS) : null;
 
-      const procRew = Number(raw.PROCESSING_REWASH_MTRS) || 0;
-      const venRew = Number(raw.VENDOR_REWASH_MTRS) || 0;
-      const totRew = Number((procRew + venRew).toFixed(1));
-      const totRewPct = finished > 0 ? Number(((totRew / finished) * 100).toFixed(2)) : 0;
+      const hasProcRej = isEntered(raw.PROCESSING_REJECTION_MTRS);
+      const hasVenRej = isEntered(raw.VENDOR_REJECTION_MTRS);
+      const hasWeavRej = isEntered(raw.WEAVING_REJECTION_MTRS);
+      const hasAnyRej = hasProcRej || hasVenRej || hasWeavRej;
+      const totRej = hasAnyRej ? Number(((Number(raw.PROCESSING_REJECTION_MTRS) || 0) + (Number(raw.VENDOR_REJECTION_MTRS) || 0) + (Number(raw.WEAVING_REJECTION_MTRS) || 0)).toFixed(1)) : '';
+      const totRejPct = (finished !== null && finished > 0 && typeof totRej === 'number') ? Number(((totRej / finished) * 100).toFixed(2)) : '';
 
-      const purchase = Number(raw.FABRIC_PURCHASE_MTRS) || 0;
+      const hasProcRew = isEntered(raw.PROCESSING_REWASH_MTRS);
+      const hasVenRew = isEntered(raw.VENDOR_REWASH_MTRS);
+      const hasAnyRew = hasProcRew || hasVenRew;
+      const totRew = hasAnyRew ? Number(((Number(raw.PROCESSING_REWASH_MTRS) || 0) + (Number(raw.VENDOR_REWASH_MTRS) || 0)).toFixed(1)) : '';
+      const totRewPct = (finished !== null && finished > 0 && typeof totRew === 'number') ? Number(((totRew / finished) * 100).toFixed(2)) : '';
+
+      const isPurchase = isEntered(raw.FABRIC_PURCHASE_MTRS);
+      const purchase = isPurchase ? Number(raw.FABRIC_PURCHASE_MTRS) : null;
 
       return {
-        FINISHED_DIFF: Math.round(finished - 77950),
-        FINISHED_ACHIEVEMENT_PCT: Number(((finished / 77950) * 100).toFixed(1)),
+        FINISHED_DIFF: finished !== null ? Math.round(finished - 77950) : '',
+        FINISHED_ACHIEVEMENT_PCT: finished !== null ? Number(((finished / 77950) * 100).toFixed(1)) : '',
         TOTAL_REJECTION_MTRS: totRej,
         TOTAL_REJECTION_PCT: totRejPct,
         TOTAL_REWASH_MTRS: totRew,
         TOTAL_REWASH_PCT: totRewPct,
-        FABRIC_PURCHASE_DIFF: Math.round(purchase - 30000)
+        FABRIC_PURCHASE_DIFF: purchase !== null ? Math.round(purchase - 30000) : ''
+      };
+    }
+  },
+
+  // SAMPLING
+  {
+    code: 'SAMPLING',
+    name: 'SAMPLING',
+    head: 'GUNASEKARAN',
+    mentor: 'MATHESHWARAN',
+    description: 'Single End Sizing, Desk Loom Mtr, Sample WPG, Pending Sample and Remarks',
+    rawMetrics: [
+      { code: 'SINGLE_END_SIZING', name: 'SINGLE END SIZING', type: 'number', target: 80, unit: 'KG', placeholder: 'e.g. 80' },
+      { code: 'DESK_LOOM_MTR', name: 'DESK LOOM MTR', type: 'number', placeholder: 'Desk Loom Mtr' },
+      { code: 'SAMPLE_WPG', name: 'SAMPLE WPG', type: 'number', target: 8, placeholder: 'e.g. 8' },
+      { code: 'PENDING_SAMPLE', name: 'PENDING SAMPLE', type: 'number', placeholder: 'Pending Sample' },
+      { code: 'REMARKS', name: 'Remarks', type: 'text', placeholder: 'Enter remarks' }
+    ],
+    calculatedMetrics: [
+      { code: 'SINGLE_END_SIZING_DIFF', name: 'Single End Sizing Diff (vs Target)', type: 'number', unit: 'KG', isCalculated: true },
+      { code: 'SINGLE_END_SIZING_ACHIEVEMENT_PCT', name: 'Single End Sizing Achievement %', type: 'number', unit: '%', isCalculated: true },
+      { code: 'SAMPLE_WPG_DIFF', name: 'Sample WPG Diff (vs Target)', type: 'number', isCalculated: true },
+      { code: 'SAMPLE_WPG_ACHIEVEMENT_PCT', name: 'Sample WPG Achievement %', type: 'number', unit: '%', isCalculated: true }
+    ],
+    calculate: (raw) => {
+      const seVal = raw.SINGLE_END_SIZING !== undefined && raw.SINGLE_END_SIZING !== '' ? raw.SINGLE_END_SIZING : raw.SE_SIZING;
+      const wpgVal = raw.SAMPLE_WPG;
+      const isSe = isEntered(seVal);
+      const isWpg = isEntered(wpgVal);
+      const se = isSe ? Number(seVal) : null;
+      const wpg = isWpg ? Number(wpgVal) : null;
+      return {
+        SINGLE_END_SIZING_DIFF: se !== null ? Number((se - 80).toFixed(1)) : '',
+        SINGLE_END_SIZING_ACHIEVEMENT_PCT: (se !== null && 80 > 0) ? Number(((se / 80) * 100).toFixed(1)) : '',
+        SE_SIZING_DIFF: se !== null ? Number((se - 80).toFixed(1)) : '',
+        SE_SIZING_ACHIEVEMENT_PCT: (se !== null && 80 > 0) ? Number(((se / 80) * 100).toFixed(1)) : '',
+        SAMPLE_WPG_DIFF: wpg !== null ? Number((wpg - 8).toFixed(1)) : '',
+        SAMPLE_WPG_ACHIEVEMENT_PCT: (wpg !== null && 8 > 0) ? Number(((wpg / 8) * 100).toFixed(1)) : ''
       };
     }
   },
@@ -268,18 +331,23 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'TOTAL_MENDED_QTY', name: 'Grand Total Mended Quantity', type: 'number', unit: 'Mtrs', isCalculated: true }
     ],
     calculate: (raw) => {
-      const wIn = Number(raw.WEAVING_INHOUSE_MTRS) || 0;
-      const wVen = Number(raw.WEAVING_VENDOR_MTRS) || 0;
-      const yIn = Number(raw.YARN_INHOUSE_MTRS) || 0;
-      const yVen = Number(raw.YARN_VENDOR_MTRS) || 0;
-      const sIn = Number(raw.SIZING_INHOUSE_MTRS) || 0;
-      const sVen = Number(raw.SIZING_VENDOR_MTRS) || 0;
-      const p = Number(raw.PROCESSING_MTRS) || 0;
+      const hasWIn = isEntered(raw.WEAVING_INHOUSE_MTRS);
+      const hasWVen = isEntered(raw.WEAVING_VENDOR_MTRS);
+      const totW = (hasWIn || hasWVen) ? Number(((Number(raw.WEAVING_INHOUSE_MTRS) || 0) + (Number(raw.WEAVING_VENDOR_MTRS) || 0)).toFixed(1)) : '';
 
-      const totW = Number((wIn + wVen).toFixed(1));
-      const totY = Number((yIn + yVen).toFixed(1));
-      const totS = Number((sIn + sVen).toFixed(1));
-      const grand = Number((totW + totY + totS + p).toFixed(1));
+      const hasYIn = isEntered(raw.YARN_INHOUSE_MTRS);
+      const hasYVen = isEntered(raw.YARN_VENDOR_MTRS);
+      const totY = (hasYIn || hasYVen) ? Number(((Number(raw.YARN_INHOUSE_MTRS) || 0) + (Number(raw.YARN_VENDOR_MTRS) || 0)).toFixed(1)) : '';
+
+      const hasSIn = isEntered(raw.SIZING_INHOUSE_MTRS);
+      const hasSVen = isEntered(raw.SIZING_VENDOR_MTRS);
+      const totS = (hasSIn || hasSVen) ? Number(((Number(raw.SIZING_INHOUSE_MTRS) || 0) + (Number(raw.SIZING_VENDOR_MTRS) || 0)).toFixed(1)) : '';
+
+      const hasP = isEntered(raw.PROCESSING_MTRS);
+      const p = hasP ? Number(raw.PROCESSING_MTRS) : 0;
+
+      const hasGrand = (typeof totW === 'number') || (typeof totY === 'number') || (typeof totS === 'number') || hasP;
+      const grand = hasGrand ? Number(((typeof totW === 'number' ? totW : 0) + (typeof totY === 'number' ? totY : 0) + (typeof totS === 'number' ? totS : 0) + p).toFixed(1)) : '';
 
       return {
         TOTAL_WEAVING_MENDING: totW,
@@ -302,47 +370,35 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'REPROCESS_MTRS', name: 'Reprocess (Mtrs)', type: 'number', target: 0, unit: 'Mtrs', placeholder: 'Mtrs' },
       { code: 'PROCESSING_DELIVERY_INHOUSE', name: 'Processing Delivery Inhouse (Mtrs)', type: 'number', target: 35000, unit: 'Mtrs', placeholder: 'Mtrs' },
       { code: 'PROCESSING_DELIVERY_OUTSIDE', name: 'Processing Delivery Outside (Mtrs)', type: 'number', target: 0, unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'DYEING_PRINTING_MTRS', name: 'Dyeing & Printing (Mtrs)', type: 'number', target: 50000, unit: 'Mtrs', placeholder: 'Mtrs' },
+      { code: 'DYEING_PRINTING_MTRS', name: 'Dyeing & Printing (Mtrs)', type: 'number', target: 40000, unit: 'Mtrs', placeholder: 'Mtrs' },
       { code: 'GREIGE_FABRIC_STOCK_MTRS', name: 'Greige Fabric Stock (Mtrs)', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
       { code: 'YARN_DYED_FABRIC_STOCK_MTRS', name: 'Yarn Dyed Fabric Stock (Mtrs)', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'NO_OF_DAYS', name: 'NO OF DAYS', type: 'number', unit: 'Days', placeholder: 'Enter actual number of days' },
-      { code: 'OTD_GREIGE_YARN', name: 'OTD Pending - Greige Yarn', type: 'number', unit: 'Orders', placeholder: 'Orders count' },
-      { code: 'OTD_DYED_YARN', name: 'OTD Pending - Dyed Yarn', type: 'number', unit: 'Orders', placeholder: 'Orders count' },
-      { code: 'OTD_SIZING', name: 'OTD Pending - Sizing', type: 'number', unit: 'Orders', placeholder: 'Orders count' },
-      { code: 'OTD_GREIGE_WAREHOUSE', name: 'OTD Pending - Greige Warehouse', type: 'number', unit: 'Orders', placeholder: 'Orders count' },
-      { code: 'OTD_PROCESSING', name: 'OTD Pending - Processing', type: 'number', unit: 'Orders', placeholder: 'Orders count' },
-      { code: 'OTD_FINISHED_WAREHOUSE', name: 'OTD Pending - Finished Warehouse', type: 'number', unit: 'Orders', placeholder: 'Orders count' },
-      { code: 'OTD_FINAL_DISPATCH', name: 'OTD Pending - Final Dispatch', type: 'number', unit: 'Orders', placeholder: 'Orders count' }
+      { code: 'NO_OF_DAYS', name: 'NO OF DAYS', type: 'number', unit: 'Days', placeholder: 'Enter actual number of days' }
     ],
     calculatedMetrics: [
       { code: 'DELIVERY_INHOUSE_DIFF', name: 'Delivery Inhouse Diff (vs 35k)', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'DELIVERY_INHOUSE_ACHIEVEMENT_PCT', name: 'Delivery Inhouse Achievement %', type: 'number', unit: '%', isCalculated: true },
-      { code: 'DYEING_PRINTING_DIFF', name: 'Dyeing Diff (vs 50k)', type: 'number', unit: 'Mtrs', isCalculated: true },
+      { code: 'DYEING_PRINTING_DIFF', name: 'Dyeing Diff (vs 40k)', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'DYEING_PRINTING_ACHIEVEMENT_PCT', name: 'Dyeing Achievement %', type: 'number', unit: '%', isCalculated: true },
-      { code: 'TOTAL_FABRIC_STOCK_MTRS', name: 'Total Fabric Stock (Greige + YD)', type: 'number', unit: 'Mtrs', isCalculated: true },
-      { code: 'TOTAL_OTD_PENDING', name: 'Total OTD Pending Orders', type: 'number', unit: 'Orders', isCalculated: true }
+      { code: 'TOTAL_FABRIC_STOCK_MTRS', name: 'Total Fabric Stock (Greige + YD)', type: 'number', unit: 'Mtrs', isCalculated: true }
     ],
     calculate: (raw) => {
-      const delIn = Number(raw.PROCESSING_DELIVERY_INHOUSE) || 0;
-      const dye = Number(raw.DYEING_PRINTING_MTRS) || 0;
-      const gStk = Number(raw.GREIGE_FABRIC_STOCK_MTRS) || 0;
-      const ydStk = Number(raw.YARN_DYED_FABRIC_STOCK_MTRS) || 0;
+      const isDelIn = isEntered(raw.PROCESSING_DELIVERY_INHOUSE);
+      const isDye = isEntered(raw.DYEING_PRINTING_MTRS);
+      const isGStk = isEntered(raw.GREIGE_FABRIC_STOCK_MTRS);
+      const isYdStk = isEntered(raw.YARN_DYED_FABRIC_STOCK_MTRS);
 
-      const otd1 = Number(raw.OTD_GREIGE_YARN) || 0;
-      const otd2 = Number(raw.OTD_DYED_YARN) || 0;
-      const otd3 = Number(raw.OTD_SIZING) || 0;
-      const otd4 = Number(raw.OTD_GREIGE_WAREHOUSE) || 0;
-      const otd5 = Number(raw.OTD_PROCESSING) || 0;
-      const otd6 = Number(raw.OTD_FINISHED_WAREHOUSE) || 0;
-      const otd7 = Number(raw.OTD_FINAL_DISPATCH) || 0;
+      const delIn = isDelIn ? Number(raw.PROCESSING_DELIVERY_INHOUSE) : null;
+      const dye = isDye ? Number(raw.DYEING_PRINTING_MTRS) : null;
+      const gStk = isGStk ? Number(raw.GREIGE_FABRIC_STOCK_MTRS) : 0;
+      const ydStk = isYdStk ? Number(raw.YARN_DYED_FABRIC_STOCK_MTRS) : 0;
 
       return {
-        DELIVERY_INHOUSE_DIFF: Math.round(delIn - 35000),
-        DELIVERY_INHOUSE_ACHIEVEMENT_PCT: Number(((delIn / 35000) * 100).toFixed(1)),
-        DYEING_PRINTING_DIFF: Math.round(dye - 50000),
-        DYEING_PRINTING_ACHIEVEMENT_PCT: Number(((dye / 50000) * 100).toFixed(1)),
-        TOTAL_FABRIC_STOCK_MTRS: Math.round(gStk + ydStk),
-        TOTAL_OTD_PENDING: otd1 + otd2 + otd3 + otd4 + otd5 + otd6 + otd7
+        DELIVERY_INHOUSE_DIFF: delIn !== null ? Math.round(delIn - 35000) : '',
+        DELIVERY_INHOUSE_ACHIEVEMENT_PCT: delIn !== null ? Number(((delIn / 35000) * 100).toFixed(1)) : '',
+        DYEING_PRINTING_DIFF: dye !== null ? Math.round(dye - 40000) : '',
+        DYEING_PRINTING_ACHIEVEMENT_PCT: dye !== null ? Number(((dye / 40000) * 100).toFixed(1)) : '',
+        TOTAL_FABRIC_STOCK_MTRS: (isGStk || isYdStk) ? Math.round(gStk + ydStk) : ''
       };
     }
   },
@@ -369,19 +425,27 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'DYED_DELAY', name: 'Dyed Yarn - Delay', type: 'number', unit: 'Orders', isCalculated: true }
     ],
     calculate: (raw) => {
-      const gTot = Number(raw.GREIGE_TOTAL_ORDERS) || 0;
-      const gComp = Number(raw.GREIGE_YARN_COMPLETED) || 0;
-      const gOn = Number(raw.GREIGE_ONTIME) || 0;
+      const isGTot = isEntered(raw.GREIGE_TOTAL_ORDERS);
+      const isGComp = isEntered(raw.GREIGE_YARN_COMPLETED);
+      const isGOn = isEntered(raw.GREIGE_ONTIME);
 
-      const dTot = Number(raw.DYED_TOTAL_ORDERS) || 0;
-      const dComp = Number(raw.DYED_YARN_COMPLETED) || 0;
-      const dOn = Number(raw.DYED_ONTIME) || 0;
+      const isDTot = isEntered(raw.DYED_TOTAL_ORDERS);
+      const isDComp = isEntered(raw.DYED_YARN_COMPLETED);
+      const isDOn = isEntered(raw.DYED_ONTIME);
+
+      const gTot = isGTot ? Number(raw.GREIGE_TOTAL_ORDERS) : null;
+      const gComp = isGComp ? Number(raw.GREIGE_YARN_COMPLETED) : null;
+      const gOn = isGOn ? Number(raw.GREIGE_ONTIME) : null;
+
+      const dTot = isDTot ? Number(raw.DYED_TOTAL_ORDERS) : null;
+      const dComp = isDComp ? Number(raw.DYED_YARN_COMPLETED) : null;
+      const dOn = isDOn ? Number(raw.DYED_ONTIME) : null;
 
       return {
-        GREIGE_NOT_COMPLETED: Math.max(0, gTot - gComp),
-        GREIGE_DELAY: Math.max(0, gComp - gOn),
-        DYED_NOT_COMPLETED: Math.max(0, dTot - dComp),
-        DYED_DELAY: Math.max(0, dComp - dOn)
+        GREIGE_NOT_COMPLETED: (gTot !== null && gComp !== null) ? Math.max(0, gTot - gComp) : '',
+        GREIGE_DELAY: (gComp !== null && gOn !== null) ? Math.max(0, gComp - gOn) : '',
+        DYED_NOT_COMPLETED: (dTot !== null && dComp !== null) ? Math.max(0, dTot - dComp) : '',
+        DYED_DELAY: (dComp !== null && dOn !== null) ? Math.max(0, dComp - dOn) : ''
       };
     }
   },
@@ -405,13 +469,15 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'OUTWARD_ACHIEVEMENT_PCT', name: 'Outward Achievement %', type: 'number', unit: '%', isCalculated: true }
     ],
     calculate: (raw) => {
-      const grg = Number(raw.TOTAL_PRODN_GREIGE) || 0;
-      const out = Number(raw.GREIGE_YD_OUTWARD) || 0;
+      const isGrg = isEntered(raw.TOTAL_PRODN_GREIGE);
+      const isOut = isEntered(raw.GREIGE_YD_OUTWARD);
+      const grg = isGrg ? Number(raw.TOTAL_PRODN_GREIGE) : null;
+      const out = isOut ? Number(raw.GREIGE_YD_OUTWARD) : null;
       return {
-        PRODN_GREIGE_DIFF: Math.round(grg - 75000),
-        PRODN_GREIGE_ACHIEVEMENT_PCT: Number(((grg / 75000) * 100).toFixed(1)),
-        OUTWARD_DIFF: Math.round(out - 80000),
-        OUTWARD_ACHIEVEMENT_PCT: Number(((out / 80000) * 100).toFixed(1))
+        PRODN_GREIGE_DIFF: grg !== null ? Math.round(grg - 75000) : '',
+        PRODN_GREIGE_ACHIEVEMENT_PCT: grg !== null ? Number(((grg / 75000) * 100).toFixed(1)) : '',
+        OUTWARD_DIFF: out !== null ? Math.round(out - 80000) : '',
+        OUTWARD_ACHIEVEMENT_PCT: out !== null ? Number(((out / 80000) * 100).toFixed(1)) : ''
       };
     }
   },
@@ -434,13 +500,15 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'YD_ACHIEVEMENT_PCT', name: 'YD Achievement %', type: 'number', unit: '%', isCalculated: true }
     ],
     calculate: (raw) => {
-      const g = Number(raw.GREIGE_FABRIC) || 0;
-      const yd = Number(raw.YD_FABRIC) || 0;
+      const isG = isEntered(raw.GREIGE_FABRIC);
+      const isYd = isEntered(raw.YD_FABRIC);
+      const g = isG ? Number(raw.GREIGE_FABRIC) : null;
+      const yd = isYd ? Number(raw.YD_FABRIC) : null;
       return {
-        GREIGE_DIFF: Math.round(g - 15000),
-        GREIGE_ACHIEVEMENT_PCT: Number(((g / 15000) * 100).toFixed(1)),
-        YD_DIFF: Math.round(yd - 15000),
-        YD_ACHIEVEMENT_PCT: Number(((yd / 15000) * 100).toFixed(1))
+        GREIGE_DIFF: g !== null ? Math.round(g - 15000) : '',
+        GREIGE_ACHIEVEMENT_PCT: g !== null ? Number(((g / 15000) * 100).toFixed(1)) : '',
+        YD_DIFF: yd !== null ? Math.round(yd - 15000) : '',
+        YD_ACHIEVEMENT_PCT: yd !== null ? Number(((yd / 15000) * 100).toFixed(1)) : ''
       };
     }
   },
@@ -463,13 +531,15 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'PACKING_ACHIEVEMENT_PCT', name: 'Packing Achievement %', type: 'number', unit: '%', isCalculated: true }
     ],
     calculate: (raw) => {
-      const des = Number(raw.DESPATCH_MTRS) || 0;
-      const pac = Number(raw.PACKING_MTRS) || 0;
+      const isDes = isEntered(raw.DESPATCH_MTRS);
+      const isPac = isEntered(raw.PACKING_MTRS);
+      const des = isDes ? Number(raw.DESPATCH_MTRS) : null;
+      const pac = isPac ? Number(raw.PACKING_MTRS) : null;
       return {
-        DESPATCH_DIFF: Math.round(des - 77950),
-        DESPATCH_ACHIEVEMENT_PCT: Number(((des / 77950) * 100).toFixed(1)),
-        PACKING_DIFF: Math.round(pac - 77950),
-        PACKING_ACHIEVEMENT_PCT: Number(((pac / 77950) * 100).toFixed(1))
+        DESPATCH_DIFF: des !== null ? Math.round(des - 77950) : '',
+        DESPATCH_ACHIEVEMENT_PCT: des !== null ? Number(((des / 77950) * 100).toFixed(1)) : '',
+        PACKING_DIFF: pac !== null ? Math.round(pac - 77950) : '',
+        PACKING_ACHIEVEMENT_PCT: pac !== null ? Number(((pac / 77950) * 100).toFixed(1)) : ''
       };
     }
   },
@@ -493,12 +563,14 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'FLAX_GPS_DIFF', name: 'Flax GPS Diff (vs 140)', type: 'number', unit: 'GMS', isCalculated: true }
     ],
     calculate: (raw) => {
-      const flx = Number(raw.FLAX_LINEN_PRODUCTION) || 0;
-      const gps = Number(raw.FLAX_GPS) || 0;
+      const isFlx = isEntered(raw.FLAX_LINEN_PRODUCTION);
+      const isGps = isEntered(raw.FLAX_GPS);
+      const flx = isFlx ? Number(raw.FLAX_LINEN_PRODUCTION) : null;
+      const gps = isGps ? Number(raw.FLAX_GPS) : null;
       return {
-        FLAX_DIFF: Math.round(flx - 3500),
-        FLAX_ACHIEVEMENT_PCT: Number(((flx / 3500) * 100).toFixed(1)),
-        FLAX_GPS_DIFF: Math.round(gps - 140)
+        FLAX_DIFF: flx !== null ? Math.round(flx - 3500) : '',
+        FLAX_ACHIEVEMENT_PCT: flx !== null ? Number(((flx / 3500) * 100).toFixed(1)) : '',
+        FLAX_GPS_DIFF: gps !== null ? Math.round(gps - 140) : ''
       };
     }
   },
@@ -521,9 +593,10 @@ export const DEPARTMENTS: DepartmentConfig[] = [
     ],
     calculate: (raw) => {
       const app = Number(raw.APPROVED_STRENGTH) || 510;
-      const eng = Number(raw.ENGAGED_STRENGTH) || 0;
+      const isEng = isEntered(raw.ENGAGED_STRENGTH);
+      const eng = isEng ? Number(raw.ENGAGED_STRENGTH) : null;
       return {
-        HRD_EXCESS_SHORTAGE: eng > 0 ? eng - app : 0
+        HRD_EXCESS_SHORTAGE: eng !== null ? eng - app : ''
       };
     }
   },
@@ -543,10 +616,11 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'TRANSPORT_ACHIEVEMENT_PCT', name: 'Transport Achievement %', type: 'number', unit: '%', isCalculated: true }
     ],
     calculate: (raw) => {
-      const tr = Number(raw.TRANSPORT_TRIPS) || 0;
+      const isTr = isEntered(raw.TRANSPORT_TRIPS);
+      const tr = isTr ? Number(raw.TRANSPORT_TRIPS) : null;
       return {
-        TRANSPORT_DIFF: Math.round(tr - 45),
-        TRANSPORT_ACHIEVEMENT_PCT: Number(((tr / 45) * 100).toFixed(1))
+        TRANSPORT_DIFF: tr !== null ? Math.round(tr - 45) : '',
+        TRANSPORT_ACHIEVEMENT_PCT: tr !== null ? Number(((tr / 45) * 100).toFixed(1)) : ''
       };
     }
   }

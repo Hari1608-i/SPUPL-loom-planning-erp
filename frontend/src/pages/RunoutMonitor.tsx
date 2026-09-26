@@ -247,7 +247,8 @@ export default function RunoutMonitor() {
         await refreshData();
         setConfirmModalData(null);
       } else {
-        alert('Failed to confirm runout. Please try again.');
+        const errData = await response.json().catch(() => ({}));
+        alert(errData?.error || 'Failed to confirm runout. Please try again.');
       }
     } catch (e) {
       console.error('Failed to confirm runout:', e);
@@ -284,7 +285,8 @@ export default function RunoutMonitor() {
       if (response.ok) {
         await refreshData();
       } else {
-        alert('Failed to delete runout. Please try again.');
+        const errData = await response.json().catch(() => ({}));
+        alert(errData?.error || 'Failed to delete runout. Please try again.');
       }
     } catch (e: any) {
       console.error('Failed to delete runout:', e);

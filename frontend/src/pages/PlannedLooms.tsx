@@ -2,12 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ListTodo, Search, AlertCircle, CheckCircle2, Play, Lock, Eye, X, 
-  AlertTriangle, ArrowRight, ShieldCheck, Sparkles, RefreshCw, MessageSquare, ExternalLink, Filter, Check, Layers, Trash2
+  AlertTriangle, ArrowRight, ShieldCheck, Sparkles, RefreshCw, MessageSquare, ExternalLink, Filter, Check, Layers, Trash2, Scissors
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAppContext } from '../context/AppProvider';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
+import { WarpPrepConfirmationModal, WarpPrepDetails } from '../components/warpPreparation/WarpPrepConfirmationModal';
 
 interface PlannedAssignment {
   id: number;
@@ -35,6 +36,7 @@ interface PlannedAssignment {
   planner_name?: string;
   readiness_status?: string | null;
   change_request_remark?: string;
+  WarpPreparationProcess?: any[];
 }
 
 export default function PlannedLooms() {
@@ -54,6 +56,58 @@ export default function PlannedLooms() {
   const [confirmBeamModalPlan, setConfirmBeamModalPlan] = useState<PlannedAssignment | null>(null);
   const [declineModalPlan, setDeclineModalPlan] = useState<PlannedAssignment | null>(null);
   const [declineRemark, setDeclineRemark] = useState<string>('');
+
+  // Sort Change Type State (KNOTTING / KNOTTING_SORT_CHANGE / GAITING)
+  const [sortChangeSelections, setSortChangeSelections] = useState<Record<number, 'KNOTTING' | 'KNOTTING_SORT_CHANGE' | 'GAITING'>>({});
+  const [sortChangeEvaluations, setSortChangeEvaluations] = useState<Record<number, WarpPrepDetails>>({});
+  const [auditModalDetails, setAuditModalDetails] = useState<WarpPrepDetails | null>(null);
+  const [sortChangeSaving, setSortChangeSaving] = useState<Record<number, boolean>>({});
+
+  const fetchEvaluationForPlan = async (planId: number) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/warp-preparation/evaluate/${planId}`);
+      const data = await res.json();
+      if (data.success && data.details) {
+        setSortChangeEvaluations(prev => ({ ...prev, [planId]: data.details }));
+        setSortChangeSelections(prev => {
+          if (!prev[planId]) {
+            const saved = data.details.existingProcess?.confirmed_process || data.details.existingProcess?.process_type;
+            const fallback = data.details.evaluation?.isEligible ? 'KNOTTING' : 'KNOTTING_SORT_CHANGE';
+            return { ...prev, [planId]: (saved || fallback) as any };
+          }
+          return prev;
+        });
+        return data.details;
+      }
+    } catch (e) {
+      // ignore
+    }
+    return null;
+  };
+
+  const handleSelectSortChangeType = async (plan: PlannedAssignment, newType: 'KNOTTING' | 'KNOTTING_SORT_CHANGE' | 'GAITING') => {
+    setSortChangeSelections(prev => ({ ...prev, [plan.id]: newType }));
+    setSortChangeSaving(prev => ({ ...prev, [plan.id]: true }));
+    try {
+      await fetch(`${API_BASE_URL}/api/warp-preparation/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId: plan.id,
+          loomNo: plan.loom_no,
+          processType: newType,
+          responsiblePerson: user?.username || 'Planner',
+          remarks: `Assigned as ${newType} in Next Planned Looms`,
+          user: user?.username || 'Planner'
+        })
+      });
+      await fetchEvaluationForPlan(plan.id);
+    } catch (err) {
+      console.error('Failed to auto-save sort change selection:', err);
+    } finally {
+      setSortChangeSaving(prev => ({ ...prev, [plan.id]: false }));
+    }
+  };
 
   // Interactive Selection State for Reed Allocation
   const [selectedReedForConfirmation, setSelectedReedForConfirmation] = useState<number | null>(null);
@@ -89,7 +143,19 @@ export default function PlannedLooms() {
     try {
       const res = await fetch(`${API_BASE_URL}/api/planning/next-plans`);
       const data = await res.json();
-      if (Array.isArray(data)) setAssignments(data);
+      if (Array.isArray(data)) {
+        setAssignments(data);
+        data.forEach(p => {
+          if (p.WarpPreparationProcess && p.WarpPreparationProcess.length > 0) {
+            const proc = p.WarpPreparationProcess[0];
+            const pType = proc.confirmed_process || proc.process_type;
+            if (pType) {
+              setSortChangeSelections(prev => ({ ...prev, [p.id]: pType as any }));
+            }
+          }
+          fetchEvaluationForPlan(p.id);
+        });
+      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -194,6 +260,24 @@ export default function PlannedLooms() {
     setErrorMsg(null);
 
     try {
+      const chosenType = sortChangeSelections[plan.id] || (sortChangeEvaluations[plan.id]?.evaluation?.isEligible ? 'KNOTTING' : 'KNOTTING_SORT_CHANGE');
+
+      // Auto-save warp preparation process on beam confirmation
+      try {
+        await fetch(`${API_BASE_URL}/api/warp-preparation/confirm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            planId: plan.id,
+            loomNo: plan.loom_no,
+            processType: chosenType,
+            responsiblePerson: user?.username || 'Planner',
+            remarks: `Beam Confirmed with Sort Change Type: ${chosenType}`,
+            user: user?.username || 'Confirmation User'
+          })
+        });
+      } catch (e) {}
+
       const res = await fetch(`${API_BASE_URL}/api/planning/next-plan/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -204,6 +288,7 @@ export default function PlannedLooms() {
           beamId: targetBeamId,
           reedId: plan.reserved_reed_id,
           startDate: plan.planned_start_date,
+          processType: chosenType,
           remarks: plan.remarks || 'Beam confirmed via Interactive Picker',
           plannerName: user?.username || 'Confirmation User'
         })
@@ -243,9 +328,34 @@ export default function PlannedLooms() {
       return;
     }
 
+    const selectedProcessType = sortChangeSelections[plan.id] || 
+      plan.WarpPreparationProcess?.[0]?.confirmed_process || 
+      plan.WarpPreparationProcess?.[0]?.process_type || 
+      (sortChangeEvaluations[plan.id]?.evaluation?.isEligible ? 'KNOTTING' : 'KNOTTING_SORT_CHANGE');
+
     setIsLoading(true);
     setErrorMsg(null);
     try {
+      // 1. Persist to WarpPreparationProcess table
+      try {
+        await fetch(`${API_BASE_URL}/api/warp-preparation/confirm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            planId: plan.id,
+            loomNo: plan.loom_no,
+            processType: selectedProcessType,
+            startDate: plan.planned_start_date,
+            responsiblePerson: user?.username || 'Planner',
+            remarks: `Loom Confirmed with ${selectedProcessType} & Ready for Main Entry`,
+            user: user?.username || 'Confirmation User'
+          })
+        });
+      } catch (prepErr) {
+        console.warn('Warp prep save warning:', prepErr);
+      }
+
+      // 2. Confirm Loom Plan
       const res = await fetch(`${API_BASE_URL}/api/planning/next-plan/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -256,18 +366,19 @@ export default function PlannedLooms() {
           reedId: plan.reserved_reed_id,
           beamId: plan.reserved_beam_id,
           startDate: plan.planned_start_date,
-          remarks: 'Loom Confirmed & Ready for Main Entry',
+          processType: selectedProcessType,
+          remarks: `Loom Confirmed with ${selectedProcessType} & Ready for Main Entry`,
           plannerName: user?.username || 'Confirmation User'
         })
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
-        setSuccessMsg(`🚀 LOOM CONFIRMED for Loom ${plan.loom_no}! Transferring to Main Entry...`);
+        setSuccessMsg(`🚀 LOOM CONFIRMED for Loom ${plan.loom_no} (${selectedProcessType})! Transferring to Main Entry...`);
         await refreshData();
         await fetchAssignments();
         setTimeout(() => setSuccessMsg(null), 3000);
-        handleGoToMainEntry(plan);
+        handleGoToMainEntry(plan, selectedProcessType);
       } else {
         setErrorMsg(data.error || 'Failed to confirm loom.');
       }
@@ -279,7 +390,8 @@ export default function PlannedLooms() {
   };
 
   // Navigate to Main Entry with Pre-filled State
-  const handleGoToMainEntry = (plan: PlannedAssignment) => {
+  const handleGoToMainEntry = (plan: PlannedAssignment, chosenType?: string) => {
+    const processType = chosenType || sortChangeSelections[plan.id] || plan.WarpPreparationProcess?.[0]?.confirmed_process || plan.WarpPreparationProcess?.[0]?.process_type || 'KNOTTING';
     navigate('/entry', {
       state: {
         loomNo: plan.loom_no,
@@ -287,7 +399,8 @@ export default function PlannedLooms() {
         reedNo: plan.reserved_reed_no || '',
         beamNo: plan.reserved_beam_no || '',
         orderNo: plan.order_no || '',
-        plannedStartDate: plan.planned_start_date
+        plannedStartDate: plan.planned_start_date,
+        sortChangeType: processType
       }
     });
   };
@@ -393,7 +506,7 @@ export default function PlannedLooms() {
             <ListTodo className="w-6 h-6 mr-3 text-blue-600" /> NEXT PLANNED LOOMS & REED / BEAM CONFIRMATION CONTROL
           </h1>
           <p className="text-industrial-500 text-sm mt-1">
-            2-Step Confirmation Workflow: <strong>NEXT PLANNED LOOM → REED CONFIRMATION → BEAM CONFIRMATION → LOOM CONFIRMATION → GO TO MAIN ENTRY</strong>
+            2-Step Confirmation Workflow: <strong>NEXT PLANNED LOOM → REED CONFIRMATION → BEAM CONFIRMATION → SORT CHANGE TYPE (KNOTTING / GAITING) → LOOM CONFIRMATION → GO TO MAIN ENTRY</strong>
           </p>
         </div>
 
@@ -467,6 +580,7 @@ export default function PlannedLooms() {
                 <th className="p-3">Expected Start Date</th>
                 <th className="p-3 text-amber-300">Allocated Reed</th>
                 <th className="p-3 text-emerald-300">Allocated Beam</th>
+                <th className="p-3 text-purple-300">Sort Change Type</th>
                 <th className="p-3">Reed Status</th>
                 <th className="p-3">Beam Status</th>
                 <th className="p-3">Plan Status</th>
@@ -477,13 +591,13 @@ export default function PlannedLooms() {
             <tbody className="divide-y divide-slate-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan={14} className="p-12 text-center text-slate-400 font-medium">
+                  <td colSpan={15} className="p-12 text-center text-slate-400 font-medium">
                     Loading planned looms...
                   </td>
                 </tr>
               ) : filteredData.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="p-12 text-center text-slate-400 font-medium">
+                  <td colSpan={15} className="p-12 text-center text-slate-400 font-medium">
                     No active proposed next plans found. Assign a loom in <strong>Loom Planning Setup</strong>.
                   </td>
                 </tr>
@@ -592,6 +706,97 @@ export default function PlannedLooms() {
                         ) : (
                           <span className="text-amber-600 font-semibold">0 Beams Available</span>
                         )}
+                      </td>
+
+                      {/* Sort Change Type (Knotting / Knotting Sort Change / Gaiting) */}
+                      <td className="p-3">
+                        {(() => {
+                          const evalData = sortChangeEvaluations[row.id];
+                          const isEligible = evalData?.evaluation?.isEligible;
+                          const endsDiff = evalData?.evaluation?.endsDifference;
+                          const selectedType = sortChangeSelections[row.id] || (row.WarpPreparationProcess?.[0]?.confirmed_process || row.WarpPreparationProcess?.[0]?.process_type) || (isEligible ? 'KNOTTING' : 'KNOTTING_SORT_CHANGE');
+                          const isSaving = sortChangeSaving[row.id];
+
+                          return (
+                            <div className="space-y-1.5 min-w-[210px]">
+                              {/* Segmented Selector Buttons */}
+                              <div className="inline-flex rounded-lg border border-slate-300 bg-slate-50 p-0.5 shadow-xs w-full">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectSortChangeType(row, 'KNOTTING')}
+                                  disabled={isSaving}
+                                  className={`flex-1 py-1 px-1.5 text-[10px] font-black rounded-md transition-all ${
+                                    selectedType === 'KNOTTING'
+                                      ? 'bg-emerald-600 text-white shadow-xs'
+                                      : 'text-slate-600 hover:text-emerald-700 hover:bg-white'
+                                  }`}
+                                  title="Knotting: Direct knotting when SP No & warp colors match and ends diff <= 1"
+                                >
+                                  Knotting
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectSortChangeType(row, 'KNOTTING_SORT_CHANGE')}
+                                  disabled={isSaving}
+                                  className={`flex-1 py-1 px-1 text-[10px] font-black rounded-md transition-all ${
+                                    selectedType === 'KNOTTING_SORT_CHANGE'
+                                      ? 'bg-amber-600 text-white shadow-xs'
+                                      : 'text-slate-600 hover:text-amber-700 hover:bg-white'
+                                  }`}
+                                  title="Knotting Sort Change: Sort change knotting when ends or colors differ"
+                                >
+                                  Sort Chg
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectSortChangeType(row, 'GAITING')}
+                                  disabled={isSaving}
+                                  className={`flex-1 py-1 px-1.5 text-[10px] font-black rounded-md transition-all ${
+                                    selectedType === 'GAITING'
+                                      ? 'bg-purple-600 text-white shadow-xs'
+                                      : 'text-slate-600 hover:text-purple-700 hover:bg-white'
+                                  }`}
+                                  title="Gaiting: Full draw-in and reed/harness gaiting"
+                                >
+                                  Gaiting
+                                </button>
+                              </div>
+
+                              {/* Eligibility Badge & Audit Trigger */}
+                              <div className="flex items-center justify-between gap-1 text-[10px]">
+                                {evalData ? (
+                                  isEligible ? (
+                                    <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-bold flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600 inline shrink-0" /> Knotting Eligible (Diff: {endsDiff ?? 0})
+                                    </span>
+                                  ) : (
+                                    <span 
+                                      className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-bold flex items-center gap-1 truncate max-w-[160px]"
+                                      title={evalData.evaluation?.reasons?.join('; ') || 'Sort change recommended'}
+                                    >
+                                      <AlertTriangle className="w-3 h-3 text-amber-600 inline shrink-0" /> Diff: {endsDiff !== null && endsDiff !== undefined ? endsDiff : '?'} → Chg Req
+                                    </span>
+                                  )
+                                ) : (
+                                  <span className="text-slate-400 text-[10px]">Evaluating...</span>
+                                )}
+
+                                {evalData && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setAuditModalDetails(evalData)}
+                                    className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
+                                    title="View Knotting Eligibility Audit Details"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* Reed Status */}
@@ -1175,6 +1380,55 @@ export default function PlannedLooms() {
                     <Check className="w-5 h-5 text-emerald-700" />
                   </div>
                 )}
+
+                {/* Step 3: Sort Change Type Selection inside Beam Modal */}
+                <div className="p-4 bg-purple-50/70 rounded-xl border border-purple-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Scissors className="w-4 h-4 text-purple-700" />
+                      <span className="font-black text-purple-950 uppercase text-xs">
+                        Step 3: Assign Sort Change Type (Before Loom Confirmation)
+                      </span>
+                    </div>
+                    {sortChangeEvaluations[confirmBeamModalPlan.id]?.evaluation?.isEligible ? (
+                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded font-black text-[10px]">
+                        ✓ Knotting Eligible (Ends Diff: {sortChangeEvaluations[confirmBeamModalPlan.id]?.evaluation?.endsDifference ?? 0})
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded font-black text-[10px]">
+                        ⚠️ Knotting Sort Change / Gaiting Required
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    {[
+                      { type: 'KNOTTING', title: 'KNOTTING', desc: 'Same SP, same colors, ends diff ≤ 1', color: 'border-emerald-500 bg-emerald-50 text-emerald-950 ring-2 ring-emerald-400' },
+                      { type: 'KNOTTING_SORT_CHANGE', title: 'KNOTTING SORT CHANGE', desc: 'Different ends/colors with knotting', color: 'border-amber-500 bg-amber-50 text-amber-950 ring-2 ring-amber-400' },
+                      { type: 'GAITING', title: 'GAITING', desc: 'New sort / full harness draw-in', color: 'border-purple-500 bg-purple-50 text-purple-950 ring-2 ring-purple-400' }
+                    ].map(opt => {
+                      const isSel = (sortChangeSelections[confirmBeamModalPlan.id] || (sortChangeEvaluations[confirmBeamModalPlan.id]?.evaluation?.isEligible ? 'KNOTTING' : 'KNOTTING_SORT_CHANGE')) === opt.type;
+                      return (
+                        <button
+                          key={opt.type}
+                          type="button"
+                          onClick={() => handleSelectSortChangeType(confirmBeamModalPlan, opt.type as any)}
+                          className={`p-2.5 rounded-xl border-2 text-left transition-all ${
+                            isSel
+                              ? `${opt.color} font-black shadow-xs`
+                              : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black">{opt.title}</span>
+                            {isSel && <CheckCircle2 className="w-4 h-4 text-purple-700 shrink-0" />}
+                          </div>
+                          <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">{opt.desc}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
 
               {/* Footer Buttons */}
@@ -1267,6 +1521,17 @@ export default function PlannedLooms() {
           </div>
         </div>
       )}
+
+      {/* KNOTTING ELIGIBILITY AUDIT MODAL */}
+      <WarpPrepConfirmationModal
+        isOpen={!!auditModalDetails}
+        onClose={() => setAuditModalDetails(null)}
+        details={auditModalDetails}
+        onSuccess={async () => {
+          setAuditModalDetails(null);
+          await fetchAssignments();
+        }}
+      />
     </div>
   );
 }

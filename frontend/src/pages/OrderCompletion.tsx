@@ -187,25 +187,38 @@ export default function OrderCompletion() {
     }
   };
 
-  // Export Excel
+  // Export Excel - Matches visible application report details and includes live Excel formulas
   const handleExportExcel = () => {
-    const dataToExport = historyRecords.map(r => ({
-      'Order No': r.order_no,
-      'IBPO No': r.ibpo_no || '—',
-      'Design No': r.design_no_sp_no,
+    const exportRecords = filteredHistory.length > 0 ? filteredHistory : historyRecords;
+    const dataToExport = exportRecords.map(r => ({
+      'Order / IBPO': r.ibpo_no ? `${r.order_no} / ${r.ibpo_no}` : r.order_no,
+      'Customer & Design': r.design_no_sp_no || '—',
       'Order Qty': r.order_qty,
       'Produced Qty': r.produced_qty,
-      'Short / Excess Qty': r.short_excess_qty || 0,
-      'Order Received Date': r.order_received_date ? format(new Date(r.order_received_date), 'dd/MM/yyyy') : '—',
-      'Target Delivery Date': r.target_delivery_date ? format(new Date(r.target_delivery_date), 'dd/MM/yyyy') : '—',
+      'Short / Excess': r.short_excess_qty !== undefined && r.short_excess_qty !== null ? r.short_excess_qty : (r.produced_qty - r.order_qty),
       'Actual Completion Date': r.actual_completion_date ? format(new Date(r.actual_completion_date), 'dd/MM/yyyy') : '—',
-      'Delay Days': r.delay_days || 0,
-      'Final Status': r.final_status,
-      'Completed By': r.completed_by || '—',
-      'Planner Remarks': r.planner_remarks || '—'
+      'Status': r.final_status
     }));
 
     const ws = XLSX.utils.json_to_sheet(dataToExport);
+
+    // Inject dynamic formulas for calculated columns: Short / Excess = Produced Qty (Col D) - Order Qty (Col C)
+    exportRecords.forEach((r, idx) => {
+      const rowNum = idx + 2;
+      const shortExcessVal = r.short_excess_qty !== undefined && r.short_excess_qty !== null ? r.short_excess_qty : (r.produced_qty - r.order_qty);
+      ws[`E${rowNum}`] = { t: 'n', v: shortExcessVal, f: `D${rowNum}-C${rowNum}` };
+    });
+
+    ws['!cols'] = [
+      { wch: 22 }, // Order / IBPO
+      { wch: 22 }, // Customer & Design
+      { wch: 14 }, // Order Qty
+      { wch: 14 }, // Produced Qty
+      { wch: 14 }, // Short / Excess
+      { wch: 22 }, // Actual Completion Date
+      { wch: 18 }  // Status
+    ];
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Completed Orders');
     XLSX.writeFile(wb, `SPUPL_Completed_Orders_History_${format(new Date(), 'yyyyMMdd')}.xlsx`);

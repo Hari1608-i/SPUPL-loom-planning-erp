@@ -1113,6 +1113,22 @@ export default function OrderManagement() {
     });
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
+
+    // Dynamic Excel Formulas:
+    // Col W: Balance Quantity = Order Quantity [Col S] - Produced Quantity [Col V]
+    // Col AD: Total Daily Production (Planned) = Planned Loom Count [Col AB] * Planned Avg Prod/Loom [Col AC]
+    // Col AE: Required Production Days = IF(Total Daily Prod [Col AD] > 0, ROUNDUP(Balance Quantity [Col W] / Total Daily Prod [Col AD], 0), 0)
+    exportData.forEach((row, idx) => {
+      const r = idx + 2;
+      const balQty = row['Balance Quantity'];
+      const totalDaily = row['Total Daily Production (Planned)'];
+      const reqDays = row['Required Production Days'];
+
+      worksheet[`W${r}`] = { t: 'n', v: balQty, f: `S${r}-V${r}` };
+      worksheet[`AD${r}`] = { t: 'n', v: totalDaily, f: `AB${r}*AC${r}` };
+      worksheet[`AE${r}`] = { t: 'n', v: reqDays, f: `IF(AD${r}>0, ROUNDUP(W${r}/AD${r}, 0), 0)` };
+    });
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Order_Master');
     XLSX.writeFile(workbook, `SPU_Loom_Orders_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);

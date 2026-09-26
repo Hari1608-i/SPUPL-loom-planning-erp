@@ -32,6 +32,8 @@ export interface ActiveRun {
   productionOverride?: number | null;
   overrideReason?: string;
   remarks?: string;
+  sortChangeType?: string | null;
+  prepStatus?: string | null;
 }
 
 export interface NextPlanState {
@@ -57,6 +59,7 @@ export interface CompletedRun {
   avgDailyProduction: number;
   efficiencyPct: number;
   unit: string;
+  sortChangeType?: string | null;
 }
 
 interface AppContextType {
@@ -295,7 +298,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             rpm: todayRpm,
             efficiency: todayEff,
             crimpPercent: crimp,
-            remarks: run.remarks || ''
+            remarks: run.remarks || '',
+            sortChangeType: run.sort_change_type || run.sortChangeType || null,
+            prepStatus: run.prep_status || run.prepStatus || null
           };
 
           const calc = getMainEntryLoomRun({
@@ -363,7 +368,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           runningDays: h.running_days,
           avgDailyProduction: h.avg_daily_production,
           efficiencyPct: h.efficiency_pct,
-          unit: h.unit
+          unit: h.unit,
+          sortChangeType: h.sort_change_type || (h as any).sortChangeType || null
         })));
       }
 

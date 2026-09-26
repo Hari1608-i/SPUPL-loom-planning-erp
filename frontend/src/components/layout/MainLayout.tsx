@@ -532,7 +532,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     <div className="flex h-screen overflow-hidden font-sans bg-spu-background dark:bg-slate-900 text-slate-900 dark:text-slate-100">
 
       {/* ── Sidebar ── */}
-      <aside className={`bg-spu-sidebar text-white flex flex-col shadow-2xl z-30 transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-72'}`}>
+      <aside className={`bg-spu-sidebar text-white flex flex-col shadow-2xl z-30 transition-all duration-300 print:hidden ${isCollapsed ? 'w-20' : 'w-72'}`}>
 
         {/* Logo */}
         <div className={`h-16 flex items-center border-b border-slate-800/50 ${isCollapsed ? 'justify-center px-2' : 'px-4'}`}>
@@ -636,7 +636,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       </aside>
 
       {/* ── Main area ── */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden relative print:h-auto print:overflow-visible">
 
         {/* Top header */}
         <header className="h-16 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-6 shadow-sm z-20 flex-shrink-0 bg-white dark:bg-slate-800 transition-colors print:hidden">
