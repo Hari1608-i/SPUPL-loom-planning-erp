@@ -1,14 +1,9 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('./prismaClient');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-
-// GLOBAL SINGLETON PRISMA CLIENT TO PREVENT 500 SERVERLESS CONNECTION EXHAUSTION
-const globalForPrisma = global;
-const prisma = globalForPrisma.prisma || new PrismaClient({ log: ['error'] });
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 const app = express();
 
