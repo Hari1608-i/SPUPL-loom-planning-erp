@@ -4,7 +4,7 @@
   "outputDirectory": "frontend/dist",
   "functions": {
     "api/index.js": {
-      "maxDuration": 30,
+      "maxDuration": 60,
       "memory": 1024,
       "includeFiles": "backend/node_modules/.prisma/**"
     }
