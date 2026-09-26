@@ -3,7 +3,7 @@
   "buildCommand": "cd backend && npx --yes prisma@6.19.3 generate && cd .. && npm install --prefix backend && npm install --prefix frontend && npm --prefix frontend run build",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "backend/upload_server.js": {
+    "api/index.js": {
       "maxDuration": 60,
       "includeFiles": "backend/node_modules/.prisma/**"
     }
