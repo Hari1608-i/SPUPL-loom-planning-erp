@@ -1,2 +1,5 @@
-const app = require('../backend/upload_server');
-module.exports = app;
+const app = require('../backend/upload_server.js');
+
+module.exports = (req, res) => {
+  return app(req, res);
+};

@@ -7,9 +7,8 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 
-const allowedOrigins = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) : '*';
 app.use(cors({
-  origin: allowedOrigins,
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-role', 'x-user-role', 'x-user']
 }));
@@ -34,9 +33,7 @@ async function safeComparePassword(inputPassword, storedHash) {
 // ----------------------------------------------------
 // SYSTEM HEALTH & ROOT
 // ----------------------------------------------------
-app.get('/', (req, res) => res.json({ status: 'online', system: 'SPU Loom ERP Backend API Server' }));
 app.get('/api', (req, res) => res.json({ status: 'online', version: '1.0.0' }));
-
 app.get('/api/system-health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -139,22 +136,18 @@ app.get('/api/daily-report', async (req, res) => {
   try {
     const { date, department, startDate, endDate } = req.query;
     let where = {};
-
     if (startDate && endDate) {
       where.report_date = startDate === endDate ? String(startDate) : { gte: String(startDate), lte: String(endDate) };
     } else if (date) {
       where.report_date = String(date);
     }
-
     if (department) {
       where.department_code = String(department).toUpperCase();
     }
-
     const [entries, masters] = await Promise.all([
       prisma.dailyReportEntry.findMany({ where, orderBy: [{ department_code: 'asc' }, { id: 'asc' }] }),
       prisma.departmentMasterInfo.findMany()
     ]);
-
     res.json({ entries, count: entries.length, departmentMasters: masters });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -167,7 +160,6 @@ app.get('/api/daily-report/history-dates', async (req, res) => {
       by: ['report_date', 'department_code'],
       _count: { id: true }
     });
-
     const dateMap = new Map();
     rawDates.forEach(r => {
       if (!dateMap.has(r.report_date)) {
@@ -175,7 +167,6 @@ app.get('/api/daily-report/history-dates', async (req, res) => {
       }
       dateMap.get(r.report_date).add(r.department_code);
     });
-
     const dates = Array.from(dateMap.entries())
       .map(([date, depts]) => ({
         date,
@@ -183,7 +174,6 @@ app.get('/api/daily-report/history-dates', async (req, res) => {
         departments: Array.from(depts)
       }))
       .sort((a, b) => b.date.localeCompare(a.date));
-
     res.json({ dates, count: dates.length });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -300,14 +290,11 @@ app.get('/api/reports/design-running', async (req, res) => {
       prisma.designMaster.findMany(),
       prisma.orderMaster.findMany()
     ]);
-
     const loomMap = new Map(loomMasters.map(l => [l.loom_no, l]));
     const designMap = new Map(designMasters.map(d => [d.design_no_sp_no, d]));
 
     const runningLoomsList = activeRuns.map(run => {
       const loomInfo = loomMap.get(run.loom_no);
-      const designInfo = designMap.get(run.design_no_sp_no);
-
       return {
         loomNo: run.loom_no,
         designNo: run.design_no_sp_no,
@@ -326,7 +313,6 @@ app.get('/api/reports/design-running', async (req, res) => {
         status: loomInfo?.status || 'Running'
       };
     });
-
     res.json({ success: true, data: runningLoomsList, orders: orderMasters });
   } catch (error) {
     res.status(500).json({ error: error.message });
