@@ -291,7 +291,6 @@ app.get('/api/reports/design-running', async (req, res) => {
       prisma.orderMaster.findMany()
     ]);
     const loomMap = new Map(loomMasters.map(l => [l.loom_no, l]));
-    const designMap = new Map(designMasters.map(d => [d.design_no_sp_no, d]));
 
     const runningLoomsList = activeRuns.map(run => {
       const loomInfo = loomMap.get(run.loom_no);
