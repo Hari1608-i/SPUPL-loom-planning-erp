@@ -1,5 +1,5 @@
 const app = require('../backend/upload_server.js');
 
-module.exports = async (req, res) => {
+module.exports = (req, res) => {
   return app(req, res);
 };
