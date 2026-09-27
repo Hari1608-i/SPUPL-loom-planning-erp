@@ -114,6 +114,72 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// ----------------------------------------------------
+// LOOMS API (GET & POST / UPSERT)
+// ----------------------------------------------------
+app.get('/api/looms', async (req, res) => {
+  try {
+    const looms = await prisma.loomMaster.findMany({ orderBy: { loom_no: 'asc' } });
+    res.json(looms);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/looms', async (req, res) => {
+  try {
+    const data = req.body;
+    const loomsArray = Array.isArray(data) ? data : [data];
+    const results = [];
+
+    for (const item of loomsArray) {
+      const loomNo = Number(item.loom_no || item.loomNo);
+      if (!loomNo) continue;
+
+      const upserted = await prisma.loomMaster.upsert({
+        where: { loom_no: loomNo },
+        update: {
+          loom_type: item.loom_type || item.loomType || null,
+          shed: item.shed !== undefined && item.shed !== null ? Number(item.shed) : null,
+          shed_name: item.shed_name || item.shedName || null,
+          rpm: item.rpm !== undefined && item.rpm !== null ? Number(item.rpm) : null,
+          make: item.make || null,
+          model: item.model || null,
+          width: item.width || null,
+          unit: item.unit || 'UNIT 1',
+          weave: item.weave || null,
+          status: item.status || 'Available',
+          remarks: item.remarks || null,
+          modifiedBy: item.modifiedBy || 'ADMIN'
+        },
+        create: {
+          loom_no: loomNo,
+          loom_type: item.loom_type || item.loomType || 'AIRJET',
+          shed: item.shed !== undefined && item.shed !== null ? Number(item.shed) : 1,
+          shed_name: item.shed_name || item.shedName || 'SHED 1',
+          rpm: item.rpm !== undefined && item.rpm !== null ? Number(item.rpm) : 650,
+          make: item.make || null,
+          model: item.model || null,
+          width: item.width || null,
+          unit: item.unit || 'UNIT 1',
+          weave: item.weave || null,
+          status: item.status || 'Available',
+          remarks: item.remarks || null,
+          createdBy: item.createdBy || 'ADMIN'
+        }
+      });
+      results.push(upserted);
+    }
+
+    res.json({ success: true, count: results.length, looms: results });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// DAILY OPERATIONAL REPORTS API
+// ----------------------------------------------------
 function computePerformanceMark(target, actual, pct) {
   if (target === null || target === undefined || target <= 0) return 'N/A';
   if (actual === null || actual === undefined) return 'NOT ENTERED';
@@ -235,15 +301,9 @@ app.post('/api/daily-report', async (req, res) => {
   }
 });
 
-app.get('/api/looms', async (req, res) => {
-  try {
-    const looms = await prisma.loomMaster.findMany({ orderBy: { loom_no: 'asc' } });
-    res.json(looms);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
+// ----------------------------------------------------
+// OTHER MODULES API
+// ----------------------------------------------------
 app.get('/api/designs', async (req, res) => {
   try {
     const designs = await prisma.designMaster.findMany();
