@@ -30,29 +30,14 @@ async function safeComparePassword(inputPassword, storedHash) {
   }
 }
 
+// ----------------------------------------------------
+// HEALTH CHECK
+// ----------------------------------------------------
 app.get('/api', (req, res) => res.json({ status: 'online', version: '1.0.0' }));
 
-app.get('/api/system-health', async (req, res) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    const [looms, designs, runs, orders, beams, reeds] = await Promise.all([
-      prisma.loomMaster.count(),
-      prisma.designMaster.count(),
-      prisma.loomRunEntry.count(),
-      prisma.orderMaster.count(),
-      prisma.beamStockMaster.count(),
-      prisma.reedStockMaster.count()
-    ]);
-    res.json({
-      status: 'Healthy',
-      dbConnected: true,
-      metrics: { totalLooms: looms, totalDesigns: designs, runningLooms: runs, totalOrders: orders, totalBeams: beams, totalReeds: reeds }
-    });
-  } catch (e) {
-    res.status(500).json({ status: 'Critical', error: e.message });
-  }
-});
-
+// ----------------------------------------------------
+// AUTHENTICATION
+// ----------------------------------------------------
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -61,14 +46,12 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid Username or Password' });
     }
 
-    const capitalizedUsername = cleanUsername.charAt(0).toUpperCase() + cleanUsername.slice(1).toLowerCase();
     let user = await prisma.user.findFirst({
       where: {
         OR: [
           { username: cleanUsername },
           { username: cleanUsername.toUpperCase() },
-          { username: cleanUsername.toLowerCase() },
-          { username: capitalizedUsername }
+          { username: cleanUsername.toLowerCase() }
         ]
       }
     });
@@ -96,10 +79,6 @@ app.post('/api/auth/login', async (req, res) => {
     let isValid = await safeComparePassword(password, user.password_hash);
     if (!isValid && isAdminAttempt && password === DEFAULT_ADMIN_PASSWORD) {
       isValid = true;
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { password_hash: hash }
-      }).catch(() => {});
     }
 
     if (!isValid) {
@@ -114,7 +93,9 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// LOOMS MASTER & RUNS API
+// ----------------------------------------------------
+// LOOMS MASTER API (GET, POST, PUT, DELETE)
+// ----------------------------------------------------
 app.get('/api/looms', async (req, res) => {
   try {
     const looms = await prisma.loomMaster.findMany({ orderBy: { loom_no: 'asc' } });
@@ -127,72 +108,82 @@ app.get('/api/looms', async (req, res) => {
 app.post('/api/looms', async (req, res) => {
   try {
     const data = req.body;
-    const loomsArray = Array.isArray(data) ? data : [data];
-    const results = [];
+    const loomNo = Number(data.loom_no || data.loomNo);
+    if (!loomNo) return res.status(400).json({ error: 'Loom Number is required' });
 
-    for (const item of loomsArray) {
-      const loomNo = Number(item.loom_no || item.loomNo);
-      if (!loomNo) continue;
-
-      const upserted = await prisma.loomMaster.upsert({
-        where: { loom_no: loomNo },
-        update: {
-          loom_type: item.loom_type || item.loomType || null,
-          shed: item.shed !== undefined && item.shed !== null ? Number(item.shed) : null,
-          shed_name: item.shed_name || item.shedName || null,
-          rpm: item.rpm !== undefined && item.rpm !== null ? Number(item.rpm) : null,
-          make: item.make || null,
-          model: item.model || null,
-          width: item.width || null,
-          unit: item.unit || 'UNIT 1',
-          weave: item.weave || null,
-          status: item.status || 'Available',
-          remarks: item.remarks || null,
-          modifiedBy: item.modifiedBy || 'ADMIN'
-        },
-        create: {
-          loom_no: loomNo,
-          loom_type: item.loom_type || item.loomType || 'AIRJET',
-          shed: item.shed !== undefined && item.shed !== null ? Number(item.shed) : 1,
-          shed_name: item.shed_name || item.shedName || 'SHED 1',
-          rpm: item.rpm !== undefined && item.rpm !== null ? Number(item.rpm) : 650,
-          make: item.make || null,
-          model: item.model || null,
-          width: item.width || null,
-          unit: item.unit || 'UNIT 1',
-          weave: item.weave || null,
-          status: item.status || 'Available',
-          remarks: item.remarks || null,
-          createdBy: item.createdBy || 'ADMIN'
-        }
-      });
-      results.push(upserted);
-    }
-    res.json({ success: true, count: results.length, looms: results });
+    const upserted = await prisma.loomMaster.upsert({
+      where: { loom_no: loomNo },
+      update: {
+        loom_type: data.loom_type || data.loomType || null,
+        shed: data.shed !== undefined ? Number(data.shed) : null,
+        shed_name: data.shed_name || data.shedName || null,
+        rpm: data.rpm !== undefined ? Number(data.rpm) : null,
+        make: data.make || null,
+        model: data.model || null,
+        width: data.width || null,
+        unit: data.unit || 'UNIT 1',
+        weave: data.weave || null,
+        status: data.status || 'Available',
+        remarks: data.remarks || null
+      },
+      create: {
+        loom_no: loomNo,
+        loom_type: data.loom_type || data.loomType || 'AIRJET',
+        shed: data.shed !== undefined ? Number(data.shed) : 1,
+        shed_name: data.shed_name || data.shedName || 'SHED 1',
+        rpm: data.rpm !== undefined ? Number(data.rpm) : 650,
+        make: data.make || null,
+        model: data.model || null,
+        width: data.width || null,
+        unit: data.unit || 'UNIT 1',
+        weave: data.weave || null,
+        status: data.status || 'Available',
+        remarks: data.remarks || null
+      }
+    });
+    res.json({ success: true, loom: upserted });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get('/api/active-runs', async (req, res) => {
+app.put('/api/looms/:id', async (req, res) => {
   try {
-    const runs = await prisma.loomRunEntry.findMany({ orderBy: { loom_no: 'asc' } });
-    res.json(runs || []);
+    const id = Number(req.params.id);
+    const data = req.body;
+    const updated = await prisma.loomMaster.update({
+      where: { loom_no: id },
+      data: {
+        loom_type: data.loom_type || data.loomType,
+        shed: data.shed !== undefined ? Number(data.shed) : undefined,
+        shed_name: data.shed_name || data.shedName,
+        rpm: data.rpm !== undefined ? Number(data.rpm) : undefined,
+        make: data.make,
+        model: data.model,
+        width: data.width,
+        status: data.status,
+        remarks: data.remarks
+      }
+    });
+    res.json({ success: true, loom: updated });
   } catch (error) {
-    res.json([]);
+    res.status(500).json({ error: error.message });
   }
 });
 
-app.get('/api/completed-runs', async (req, res) => {
+app.delete('/api/looms/:id', async (req, res) => {
   try {
-    const history = await prisma.completedWarpHistory.findMany({ orderBy: { end_date: 'desc' } });
-    res.json(history || []);
+    const id = Number(req.params.id);
+    await prisma.loomMaster.delete({ where: { loom_no: id } });
+    res.json({ success: true, message: `Loom ${id} deleted successfully` });
   } catch (error) {
-    res.json([]);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// STOCKS & ORDERS API
+// ----------------------------------------------------
+// BEAM STOCK API (GET, POST, PUT, DELETE)
+// ----------------------------------------------------
 app.get('/api/beam-stock', async (req, res) => {
   try {
     const beams = await prisma.beamStockMaster.findMany({ orderBy: { id: 'desc' } });
@@ -219,7 +210,7 @@ app.post('/api/beam-stock', async (req, res) => {
         vendor_name: item.vendor_name || item.vendorName || 'Premier',
         status: item.status || 'Available',
         unit: item.unit || 'UNIT 1',
-        remarks: item.remarks || 'Direct Beam Stock Entry'
+        remarks: item.remarks || 'Beam Stock Entry'
       }
     });
     res.json({ success: true, beam: created });
@@ -228,9 +219,43 @@ app.post('/api/beam-stock', async (req, res) => {
   }
 });
 
+app.put('/api/beam-stock/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const item = req.body;
+    const updated = await prisma.beamStockMaster.update({
+      where: { id },
+      data: {
+        beam_no: item.beam_no || item.beamNo,
+        design_no: item.design_no || item.designNo,
+        available_meter: item.available_meter !== undefined ? Number(item.available_meter) : undefined,
+        vendor_name: item.vendor_name || item.vendorName,
+        status: item.status,
+        remarks: item.remarks
+      }
+    });
+    res.json({ success: true, beam: updated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/beam-stock/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    await prisma.beamStockMaster.delete({ where: { id } });
+    res.json({ success: true, message: `Beam stock ${id} deleted successfully` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// REED STOCK API (GET, POST, PUT, DELETE)
+// ----------------------------------------------------
 app.get('/api/reed-stock', async (req, res) => {
   try {
-    const reeds = await prisma.reedStockMaster.findMany({ orderBy: { reed_count: 'asc' } });
+    const reeds = await prisma.reedStockMaster.findMany({ orderBy: { id: 'desc' } });
     res.json(reeds || []);
   } catch (error) {
     res.json([]);
@@ -240,9 +265,9 @@ app.get('/api/reed-stock', async (req, res) => {
 app.post('/api/reed-stock', async (req, res) => {
   try {
     const item = req.body;
-    const reedCount = item.reed_count || item.reedCount || item.required_reed_count || '52.2';
-    const qty = Number(item.available_qty || item.qty || item.add_qty || item.add_reed_qty || 1);
-    
+    const reedCount = item.reed_count || item.reedCount || '52.2';
+    const qty = Number(item.available_qty || item.qty || 1);
+
     const created = await prisma.reedStockMaster.create({
       data: {
         reed_no: item.reed_no || item.reedNo || `REED-${Date.now()}`,
@@ -250,9 +275,10 @@ app.post('/api/reed-stock', async (req, res) => {
         reed_type: item.reed_type || item.reedType || 'STANDARD',
         available_qty: qty,
         total_qty: qty,
-        vendor: item.vendor || item.vendor_name || 'Premier',
-        location: item.location || item.stock_location || 'Rack A-01',
-        remarks: item.remarks || 'Direct Stock Entry against Order'
+        vendor: item.vendor || 'Premier',
+        location: item.location || 'Rack A-01',
+        status: item.status || 'Available',
+        remarks: item.remarks || 'Reed Stock Entry'
       }
     });
     res.json({ success: true, reed: created });
@@ -261,35 +287,40 @@ app.post('/api/reed-stock', async (req, res) => {
   }
 });
 
-app.get('/api/designs', async (req, res) => {
+app.put('/api/reed-stock/:id', async (req, res) => {
   try {
-    const designs = await prisma.designMaster.findMany();
-    res.json(designs || []);
+    const id = Number(req.params.id);
+    const item = req.body;
+    const updated = await prisma.reedStockMaster.update({
+      where: { id },
+      data: {
+        reed_no: item.reed_no || item.reedNo,
+        reed_count: item.reed_count || item.reedCount,
+        available_qty: item.available_qty !== undefined ? Number(item.available_qty) : undefined,
+        location: item.location,
+        status: item.status,
+        remarks: item.remarks
+      }
+    });
+    res.json({ success: true, reed: updated });
   } catch (error) {
-    res.json([]);
+    res.status(500).json({ error: error.message });
   }
 });
 
-app.get('/api/orders', async (req, res) => {
+app.delete('/api/reed-stock/:id', async (req, res) => {
   try {
-    const orders = await prisma.orderMaster.findMany({ include: { designMaster: true }, orderBy: { id: 'desc' } });
-    res.json(orders || []);
+    const id = Number(req.params.id);
+    await prisma.reedStockMaster.delete({ where: { id } });
+    res.json({ success: true, message: `Reed stock ${id} deleted successfully` });
   } catch (error) {
-    res.json([]);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// DAILY OPERATIONAL REPORTS API
-function computePerformanceMark(target, actual, pct) {
-  if (target === null || target === undefined || target <= 0) return 'N/A';
-  if (actual === null || actual === undefined) return 'NOT ENTERED';
-  if (actual === 0 && target > 0) return 'CRITICAL';
-  if (pct >= 100) return 'EXCELLENT';
-  if (pct >= 90) return 'GOOD';
-  if (pct >= 80) return 'ON PLAN';
-  return 'BELOW TARGET';
-}
-
+// ----------------------------------------------------
+// DAILY OPERATIONAL REPORTS & PRODUCTION ENTRY API
+// ----------------------------------------------------
 app.get('/api/daily-report', async (req, res) => {
   try {
     const { date, department, startDate, endDate } = req.query;
@@ -372,7 +403,6 @@ app.post('/api/daily-report', async (req, res) => {
           pct_value: pctVal,
           department_head: department_head || null,
           mentor: mentor || null,
-          performance_mark: computePerformanceMark(targetVal, numVal, pctVal || 0),
           remarks: item.remarks || remarks || '',
           entered_by: entered_by || 'ADMIN'
         },
@@ -388,7 +418,6 @@ app.post('/api/daily-report', async (req, res) => {
           pct_value: pctVal,
           department_head: department_head || null,
           mentor: mentor || null,
-          performance_mark: computePerformanceMark(targetVal, numVal, pctVal || 0),
           remarks: item.remarks || remarks || '',
           entered_by: entered_by || 'ADMIN'
         }
@@ -401,12 +430,41 @@ app.post('/api/daily-report', async (req, res) => {
   }
 });
 
+// ----------------------------------------------------
+// OTHER CORE MODULES (DESIGNS, ORDERS, ACTIVE RUNS)
+// ----------------------------------------------------
+app.get('/api/designs', async (req, res) => {
+  try {
+    const designs = await prisma.designMaster.findMany();
+    res.json(designs || []);
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+app.get('/api/orders', async (req, res) => {
+  try {
+    const orders = await prisma.orderMaster.findMany({ include: { designMaster: true }, orderBy: { id: 'desc' } });
+    res.json(orders || []);
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+app.get('/api/active-runs', async (req, res) => {
+  try {
+    const runs = await prisma.loomRunEntry.findMany({ orderBy: { loom_no: 'asc' } });
+    res.json(runs || []);
+  } catch (error) {
+    res.json([]);
+  }
+});
+
 app.get('/api/reports/design-running', async (req, res) => {
   try {
-    const [activeRuns, loomMasters, designMasters, orderMasters] = await Promise.all([
+    const [activeRuns, loomMasters, orderMasters] = await Promise.all([
       prisma.loomRunEntry.findMany(),
       prisma.loomMaster.findMany(),
-      prisma.designMaster.findMany(),
       prisma.orderMaster.findMany()
     ]);
     const loomMap = new Map(loomMasters.map(l => [l.loom_no, l]));
@@ -419,7 +477,6 @@ app.get('/api/reports/design-running', async (req, res) => {
         loomStartDate: run.loom_start_date,
         warpedMeter: run.warped_meter || 0,
         dailyProduction: run.daily_production || 0,
-        producedMeter: 0,
         rpm: run.rpm || loomInfo?.rpm || 650,
         efficiency: run.efficiency || 90,
         currentReedNo: run.current_reed_no || '',
@@ -455,33 +512,6 @@ app.get('/api/next-plans', async (req, res) => {
   }
 });
 
-app.get('/api/planning/next-plans', async (req, res) => {
-  try {
-    const plans = await prisma.plannedAssignment.findMany({ orderBy: { id: 'asc' } });
-    res.json(plans || []);
-  } catch (error) {
-    res.json([]);
-  }
-});
-
-app.get('/api/erp-alerts', async (req, res) => {
-  try {
-    const alerts = await prisma.erpAlert.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
-    res.json(alerts || []);
-  } catch (error) {
-    res.json([]);
-  }
-});
-
-app.get('/api/production-logs', async (logReq, logRes) => {
-  try {
-    const logs = await prisma.dailyProductionLog.findMany({ orderBy: { date: 'desc' }, take: 2000 });
-    logRes.json(logs || []);
-  } catch (error) {
-    logRes.json([]);
-  }
-});
-
 app.get('/api/users', async (req, res) => {
   try {
     const users = await prisma.user.findMany({
@@ -494,7 +524,7 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// GLOBAL JSON ERROR HANDLER
+// GLOBAL ERROR & 404 HANDLERS
 app.use((err, req, res, next) => {
   res.status(500).json({ success: false, error: err.message || 'Internal Server Error' });
 });
