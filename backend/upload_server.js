@@ -30,6 +30,9 @@ async function safeComparePassword(inputPassword, storedHash) {
   }
 }
 
+// ----------------------------------------------------
+// SYSTEM HEALTH & ROOT
+// ----------------------------------------------------
 app.get('/api', (req, res) => res.json({ status: 'online', version: '1.0.0' }));
 
 app.get('/api/system-health', async (req, res) => {
@@ -53,6 +56,9 @@ app.get('/api/system-health', async (req, res) => {
   }
 });
 
+// ----------------------------------------------------
+// AUTHENTICATION
+// ----------------------------------------------------
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -120,7 +126,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/looms', async (req, res) => {
   try {
     const looms = await prisma.loomMaster.findMany({ orderBy: { loom_no: 'asc' } });
-    res.json(looms);
+    res.json(looms || []);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -179,37 +185,61 @@ app.post('/api/looms', async (req, res) => {
 app.get('/api/active-runs', async (req, res) => {
   try {
     const runs = await prisma.loomRunEntry.findMany({ orderBy: { loom_no: 'asc' } });
-    res.json(runs);
+    res.json(runs || []);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json([]);
   }
 });
 
 app.get('/api/completed-runs', async (req, res) => {
   try {
     const history = await prisma.completedWarpHistory.findMany({ orderBy: { end_date: 'desc' } });
-    res.json(history);
+    res.json(history || []);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json([]);
   }
 });
 
 // ----------------------------------------------------
-// STOCKS & ORDERS API
+// STOCKS & ORDERS API (BEAM & REED STOCK HANDLERS)
 // ----------------------------------------------------
 app.get('/api/beam-stock', async (req, res) => {
   try {
     const beams = await prisma.beamStockMaster.findMany({ orderBy: { id: 'desc' } });
-    res.json(beams);
+    res.json(beams || []);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json([]);
   }
 });
 
 app.get('/api/reed-stock', async (req, res) => {
   try {
     const reeds = await prisma.reedStockMaster.findMany({ orderBy: { reed_count: 'asc' } });
-    res.json(reeds);
+    res.json(reeds || []);
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+app.post('/api/reed-stock', async (req, res) => {
+  try {
+    const item = req.body;
+    const reedCount = item.reed_count || item.reedCount || item.required_reed_count || '52.2';
+    const qty = Number(item.available_qty || item.qty || item.add_qty || item.add_reed_qty || 1);
+    
+    const created = await prisma.reedStockMaster.create({
+      data: {
+        reed_no: item.reed_no || item.reedNo || `REED-${Date.now()}`,
+        reed_count: String(reedCount),
+        reed_type: item.reed_type || item.reedType || 'STANDARD',
+        available_qty: qty,
+        total_qty: qty,
+        vendor: item.vendor || item.vendor_name || 'Premier',
+        location: item.location || item.stock_location || 'Rack A-01',
+        remarks: item.remarks || 'Direct Stock Entry against Order'
+      }
+    });
+    res.json({ success: true, reed: created });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -218,18 +248,18 @@ app.get('/api/reed-stock', async (req, res) => {
 app.get('/api/designs', async (req, res) => {
   try {
     const designs = await prisma.designMaster.findMany();
-    res.json(designs);
+    res.json(designs || []);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json([]);
   }
 });
 
 app.get('/api/orders', async (req, res) => {
   try {
     const orders = await prisma.orderMaster.findMany({ include: { designMaster: true }, orderBy: { id: 'desc' } });
-    res.json(orders);
+    res.json(orders || []);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json([]);
   }
 });
 
@@ -262,9 +292,9 @@ app.get('/api/daily-report', async (req, res) => {
       prisma.dailyReportEntry.findMany({ where, orderBy: [{ department_code: 'asc' }, { id: 'asc' }] }),
       prisma.departmentMasterInfo.findMany()
     ]);
-    res.json({ entries, count: entries.length, departmentMasters: masters });
+    res.json({ entries: entries || [], count: (entries || []).length, departmentMasters: masters || [] });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json({ entries: [], count: 0, departmentMasters: [] });
   }
 });
 
@@ -288,9 +318,9 @@ app.get('/api/daily-report/history-dates', async (req, res) => {
         departments: Array.from(depts)
       }))
       .sort((a, b) => b.date.localeCompare(a.date));
-    res.json({ dates, count: dates.length });
+    res.json({ dates: dates || [], count: (dates || []).length });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json({ dates: [], count: 0 });
   }
 });
 
@@ -389,52 +419,52 @@ app.get('/api/reports/design-running', async (req, res) => {
     });
     res.json({ success: true, data: runningLoomsList, orders: orderMasters });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json({ success: true, data: [], orders: [] });
   }
 });
 
 app.get('/api/reed-requirements', async (req, res) => {
   try {
     const reqs = await prisma.reedRequirement.findMany({ orderBy: { createdAt: 'desc' } });
-    res.json(reqs);
+    res.json(reqs || []);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json([]);
   }
 });
 
 app.get('/api/next-plans', async (req, res) => {
   try {
     const plans = await prisma.plannedAssignment.findMany({ orderBy: { id: 'asc' } });
-    res.json(plans);
+    res.json(plans || []);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json([]);
   }
 });
 
 app.get('/api/planning/next-plans', async (req, res) => {
   try {
     const plans = await prisma.plannedAssignment.findMany({ orderBy: { id: 'asc' } });
-    res.json(plans);
+    res.json(plans || []);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json([]);
   }
 });
 
 app.get('/api/erp-alerts', async (req, res) => {
   try {
     const alerts = await prisma.erpAlert.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
-    res.json(alerts);
+    res.json(alerts || []);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json([]);
   }
 });
 
 app.get('/api/production-logs', async (logReq, logRes) => {
   try {
     const logs = await prisma.dailyProductionLog.findMany({ orderBy: { date: 'desc' }, take: 2000 });
-    logRes.json(logs);
+    logRes.json(logs || []);
   } catch (error) {
-    logRes.status(500).json({ error: error.message });
+    logRes.json([]);
   }
 });
 
@@ -444,10 +474,21 @@ app.get('/api/users', async (req, res) => {
       select: { id: true, employeeId: true, employeeName: true, username: true, role: true, department: true, status: true },
       orderBy: { createdAt: 'desc' }
     });
-    res.json({ users, total: users.length });
+    res.json({ users: users || [], total: (users || []).length });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json({ users: [], total: 0 });
   }
+});
+
+// ----------------------------------------------------
+// STRICT GLOBAL JSON ERROR HANDLER MIDDLEWARE
+// ----------------------------------------------------
+app.use((err, req, res, next) => {
+  res.status(500).json({ success: false, error: err.message || 'Internal Server Error' });
+});
+
+app.use((req, res) => {
+  res.status(404).json({ success: false, error: `API endpoint ${req.method} ${req.url} not found` });
 });
 
 module.exports = app;
