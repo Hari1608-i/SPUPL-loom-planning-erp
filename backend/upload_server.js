@@ -30,9 +30,6 @@ async function safeComparePassword(inputPassword, storedHash) {
   }
 }
 
-// ----------------------------------------------------
-// SYSTEM HEALTH & ROOT
-// ----------------------------------------------------
 app.get('/api', (req, res) => res.json({ status: 'online', version: '1.0.0' }));
 
 app.get('/api/system-health', async (req, res) => {
@@ -56,9 +53,6 @@ app.get('/api/system-health', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// AUTHENTICATION
-// ----------------------------------------------------
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -120,9 +114,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// LOOMS MASTER & RUNS API (GET & POST)
-// ----------------------------------------------------
+// LOOMS MASTER & RUNS API
 app.get('/api/looms', async (req, res) => {
   try {
     const looms = await prisma.loomMaster.findMany({ orderBy: { loom_no: 'asc' } });
@@ -200,9 +192,7 @@ app.get('/api/completed-runs', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// STOCKS & ORDERS API (BEAM & REED STOCK HANDLERS)
-// ----------------------------------------------------
+// STOCKS & ORDERS API
 app.get('/api/beam-stock', async (req, res) => {
   try {
     const beams = await prisma.beamStockMaster.findMany({ orderBy: { id: 'desc' } });
@@ -289,9 +279,7 @@ app.get('/api/orders', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
 // DAILY OPERATIONAL REPORTS API
-// ----------------------------------------------------
 function computePerformanceMark(target, actual, pct) {
   if (target === null || target === undefined || target <= 0) return 'N/A';
   if (actual === null || actual === undefined) return 'NOT ENTERED';
@@ -506,9 +494,7 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// STRICT GLOBAL JSON ERROR HANDLER MIDDLEWARE
-// ----------------------------------------------------
+// GLOBAL JSON ERROR HANDLER
 app.use((err, req, res, next) => {
   res.status(500).json({ success: false, error: err.message || 'Internal Server Error' });
 });
