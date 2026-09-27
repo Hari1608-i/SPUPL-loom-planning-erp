@@ -1,8 +1,7 @@
 import axios from 'axios';
 
-// Automatically set base URL for Vercel vs Local development
 const apiClient = axios.create({
-  baseURL: '',
+  baseURL: '', // Empty string guarantees relative routing to Vercel API / serverless functions
   headers: {
     'Content-Type': 'application/json',
   },

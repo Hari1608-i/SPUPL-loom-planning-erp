@@ -115,7 +115,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// LOOMS MASTER & RUNS API (GET & POST)
+// LOOMS MASTER & RUNS API
 // ----------------------------------------------------
 app.get('/api/looms', async (req, res) => {
   try {
