@@ -212,6 +212,32 @@ app.get('/api/beam-stock', async (req, res) => {
   }
 });
 
+app.post('/api/beam-stock', async (req, res) => {
+  try {
+    const item = req.body;
+    const beamNo = item.beam_no || item.beamNo || `BM-${Date.now()}`;
+    const designNo = item.design_no || item.designNo || 'UNKNOWN';
+    const availableMeter = Number(item.available_meter || item.availableMeter || item.beam_length || 1000);
+
+    const created = await prisma.beamStockMaster.create({
+      data: {
+        beam_no: String(beamNo),
+        design_no: String(designNo),
+        available_meter: availableMeter,
+        current_balance_meter: availableMeter,
+        beam_type: item.beam_type || item.beamType || 'STANDARD',
+        vendor_name: item.vendor_name || item.vendorName || 'Premier',
+        status: item.status || 'Available',
+        unit: item.unit || 'UNIT 1',
+        remarks: item.remarks || 'Direct Beam Stock Entry'
+      }
+    });
+    res.json({ success: true, beam: created });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/reed-stock', async (req, res) => {
   try {
     const reeds = await prisma.reedStockMaster.findMany({ orderBy: { reed_count: 'asc' } });
