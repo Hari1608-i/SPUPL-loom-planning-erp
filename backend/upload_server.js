@@ -30,10 +30,8 @@ async function safeComparePassword(inputPassword, storedHash) {
   }
 }
 
-// ----------------------------------------------------
-// SYSTEM HEALTH & ROOT
-// ----------------------------------------------------
 app.get('/api', (req, res) => res.json({ status: 'online', version: '1.0.0' }));
+
 app.get('/api/system-health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -55,9 +53,6 @@ app.get('/api/system-health', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// AUTHENTICATION
-// ----------------------------------------------------
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -119,9 +114,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// DAILY OPERATIONAL REPORTS API
-// ----------------------------------------------------
 function computePerformanceMark(target, actual, pct) {
   if (target === null || target === undefined || target <= 0) return 'N/A';
   if (actual === null || actual === undefined) return 'NOT ENTERED';
@@ -243,9 +235,6 @@ app.post('/api/daily-report', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// LOOMS, RUNS, DESIGNS & HISTORY API
-// ----------------------------------------------------
 app.get('/api/looms', async (req, res) => {
   try {
     const looms = await prisma.loomMaster.findMany({ orderBy: { loom_no: 'asc' } });
@@ -318,9 +307,6 @@ app.get('/api/reports/design-running', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// ORDERS, STOCKS & PLANNING API
-// ----------------------------------------------------
 app.get('/api/orders', async (req, res) => {
   try {
     const orders = await prisma.orderMaster.findMany({ include: { designMaster: true }, orderBy: { id: 'desc' } });
@@ -405,7 +391,6 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// CRITICAL FOR VERCEL SERVERLESS EXPORT
 module.exports = app;
 
 if (!process.env.VERCEL) {
