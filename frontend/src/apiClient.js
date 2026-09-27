@@ -1,17 +1,8 @@
 import axios from 'axios';
 
-// Automatically detect production vs local environment
-const getBaseUrl = () => {
-  if (typeof window !== 'undefined') {
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      return 'http://localhost:3002';
-    }
-  }
-  return ''; // Relative path for Vercel serverless proxy
-};
-
+// Automatically set base URL for Vercel vs Local development
 const apiClient = axios.create({
-  baseURL: getBaseUrl(),
+  baseURL: '',
   headers: {
     'Content-Type': 'application/json',
   },
