@@ -115,7 +115,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// LOOMS API (GET & POST / UPSERT)
+// LOOMS MASTER & RUNS API (GET & POST)
 // ----------------------------------------------------
 app.get('/api/looms', async (req, res) => {
   try {
@@ -170,8 +170,64 @@ app.post('/api/looms', async (req, res) => {
       });
       results.push(upserted);
     }
-
     res.json({ success: true, count: results.length, looms: results });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/active-runs', async (req, res) => {
+  try {
+    const runs = await prisma.loomRunEntry.findMany({ orderBy: { loom_no: 'asc' } });
+    res.json(runs);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/completed-runs', async (req, res) => {
+  try {
+    const history = await prisma.completedWarpHistory.findMany({ orderBy: { end_date: 'desc' } });
+    res.json(history);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// STOCKS & ORDERS API
+// ----------------------------------------------------
+app.get('/api/beam-stock', async (req, res) => {
+  try {
+    const beams = await prisma.beamStockMaster.findMany({ orderBy: { id: 'desc' } });
+    res.json(beams);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/reed-stock', async (req, res) => {
+  try {
+    const reeds = await prisma.reedStockMaster.findMany({ orderBy: { reed_count: 'asc' } });
+    res.json(reeds);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/designs', async (req, res) => {
+  try {
+    const designs = await prisma.designMaster.findMany();
+    res.json(designs);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/orders', async (req, res) => {
+  try {
+    const orders = await prisma.orderMaster.findMany({ include: { designMaster: true }, orderBy: { id: 'desc' } });
+    res.json(orders);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -301,36 +357,6 @@ app.post('/api/daily-report', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// OTHER MODULES API
-// ----------------------------------------------------
-app.get('/api/designs', async (req, res) => {
-  try {
-    const designs = await prisma.designMaster.findMany();
-    res.json(designs);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/active-runs', async (req, res) => {
-  try {
-    const runs = await prisma.loomRunEntry.findMany({ orderBy: { loom_no: 'asc' } });
-    res.json(runs);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/completed-runs', async (req, res) => {
-  try {
-    const history = await prisma.completedWarpHistory.findMany({ orderBy: { end_date: 'desc' } });
-    res.json(history);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 app.get('/api/reports/design-running', async (req, res) => {
   try {
     const [activeRuns, loomMasters, designMasters, orderMasters] = await Promise.all([
@@ -362,33 +388,6 @@ app.get('/api/reports/design-running', async (req, res) => {
       };
     });
     res.json({ success: true, data: runningLoomsList, orders: orderMasters });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/orders', async (req, res) => {
-  try {
-    const orders = await prisma.orderMaster.findMany({ include: { designMaster: true }, orderBy: { id: 'desc' } });
-    res.json(orders);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/beam-stock', async (req, res) => {
-  try {
-    const beams = await prisma.beamStockMaster.findMany({ orderBy: { id: 'desc' } });
-    res.json(beams);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/reed-stock', async (req, res) => {
-  try {
-    const reeds = await prisma.reedStockMaster.findMany({ orderBy: { reed_count: 'asc' } });
-    res.json(reeds);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
