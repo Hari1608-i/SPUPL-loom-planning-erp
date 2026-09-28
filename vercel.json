@@ -1,23 +1,22 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-
   "buildCommand": "npm install --prefix backend && npm run build --prefix frontend",
   "devCommand": "npm --prefix frontend run dev -- --host 0.0.0.0",
-
   "outputDirectory": "frontend/dist",
-
   "functions": {
     "api/index.js": {
       "maxDuration": 60,
       "includeFiles": "backend/**"
     }
   },
-
   "routes": [
     {
       "src": "/api/(.*)",
       "dest": "/api/index.js?path=$1"
+    },
+    {
+      "handle": "filesystem"
     },
     {
       "src": "/(.*)",
