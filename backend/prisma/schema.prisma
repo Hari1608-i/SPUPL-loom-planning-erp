@@ -136,6 +136,7 @@ model LoomMaster {
   CompletedWarpHistory     CompletedWarpHistory[]
   LoomRunEntry             LoomRunEntry?
   PlannedAssignment        PlannedAssignment[]
+  WarpPreparationProcess WarpPreparationProcess[]
 }
 
 model LoomRunEntry {
@@ -195,6 +196,7 @@ model PlannedAssignment {
   createdAt                    DateTime  @default(now())
   updatedAt                    DateTime  @default(now())
   LoomMaster                   LoomMaster @relation(fields: [loom_no], references: [loom_no])
+  WarpPreparationProcess WarpPreparationProcess[]
 }
 
 model ReedStockMaster {
@@ -339,3 +341,77 @@ model DepartmentMasterInfo {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
+
+model BeamPreparationRequest {
+  id                      Int       @id @default(autoincrement())
+  loom_no                 Int
+  design_no               String
+  target_date             DateTime
+  status                  String    @default("WAITING FOR WARPING")
+  priority                String    @default("Medium")
+  warping_vendor          String?
+  warping_dc_no           String?
+  warping_batch           String?
+  sizing_vendor           String?
+  sizing_dc_no            String?
+  sizing_machine          String?
+  vendor_name             String?
+  vendor_beam             String?
+  set_no                  String?
+  beam_no                 String?
+  required_meter          Float?
+  actual_meter            Float?
+  warping_remarks         String?
+  sizing_remarks          String?
+  warping_start_date      DateTime?
+  warping_completion_date DateTime?
+  sizing_start_date       DateTime?
+  sizing_completion_date  DateTime?
+  beam_ready_date         DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime
+}
+
+model WarpPreparationProcess {
+  id                         Int                @id @default(autoincrement())
+  plan_id                    Int?
+  loom_no                    Int
+  process_type               String             // 'KNOTTING', 'KNOTTING_SORT_CHANGE', 'GAITING'
+  suggested_process          String             // 'KNOTTING', 'KNOTTING_SORT_CHANGE / GAITING'
+  confirmed_process          String?            // 'KNOTTING', 'KNOTTING_SORT_CHANGE', 'GAITING'
+  eligibility_status         String?            // 'ELIGIBLE', 'NOT_ELIGIBLE'
+  eligibility_reasons        String?            // Reasons when knotting is not suggested
+  current_design             String?
+  next_design                String?
+  order_no                   String?
+  current_ends               Int?
+  next_ends                  Int?
+  ends_difference            Int?
+  current_warp_colours       String?
+  next_warp_colours          String?
+  current_warp_colour_count  Int?
+  next_warp_colour_count     Int?
+  set_no                     String?
+  beam_no                    String?
+  warp_loading_date          DateTime?
+  status                     String             @default("PENDING") // 'PENDING', 'IN_PROGRESS', 'COMPLETED'
+  process_start_date         DateTime?
+  process_start_time         String?
+  process_completion_date    DateTime?
+  process_completion_time    String?
+  responsible_person         String?
+  remarks                    String?
+  created_by                 String?            @default("System")
+  confirmed_by               String?
+  confirmed_date             DateTime?
+  createdAt                  DateTime           @default(now())
+  updatedAt                  DateTime           @updatedAt
+
+  LoomMaster                 LoomMaster         @relation(fields: [loom_no], references: [loom_no])
+  PlannedAssignment          PlannedAssignment? @relation(fields: [plan_id], references: [id])
+
+  @@index([loom_no])
+  @@index([plan_id])
+  @@index([status])
+}
+

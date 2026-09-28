@@ -1,8 +1,11 @@
 ﻿require('dotenv').config();
 
 const express = require('express');
+const analyticsRouter = require('./routes/analytics');
+
 const cors = require('cors');
 const prisma = require('./prismaClient');
+const warpPreparationService = require('./services/warpPreparationService');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
@@ -14,7 +17,7 @@ const app = express();
 
 app.use(cors({
   origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type',
     'Authorization',
@@ -70,6 +73,8 @@ async function safeComparePassword(inputPassword, storedHash) {
 // ----------------------------------------------------
 // HEALTH CHECK
 // ----------------------------------------------------
+
+app.use('/api/analytics', analyticsRouter);
 
 app.get('/api', (req, res) => {
   res.json({
@@ -2677,34 +2682,290 @@ app.put('/api/users/:id/password', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// GLOBAL ERROR HANDLER
+// EXPORT EXPRESS APP
 // ----------------------------------------------------
 
-app.use(
-  (err, req, res, next) => {
-    res.status(500).json({
+
+
+
+// ============================================================
+// WARP PREPARATION - ALL ACTIVE RECORDS
+// ============================================================
+
+app.get('/api/warp-preparation/all', async (req, res) => {
+  try {
+    const data =
+      await warpPreparationService.getAllActivePreparationRecords();
+
+    return res.json({
+      success: true,
+      ...data
+    });
+  } catch (error) {
+    console.error(
+      'Warp prep all records error:',
+      error
+    );
+
+    return res.status(500).json({
       success: false,
       error:
-        err.message ||
-        'Internal Server Error'
+        error.message ||
+        'Failed to load warp preparation records.'
     });
   }
+});
+
+// ============================================================
+// WARP PREPARATION - EVALUATION DETAILS
+// ============================================================
+app.get('/api/warp-preparation/evaluate/:id', async (req, res) => {
+  try {
+    const planId = Number(req.params.id);
+
+    if (!Number.isFinite(planId) || planId <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid plan ID is required.'
+      });
+    }
+
+    const details =
+      await warpPreparationService.getPreparationDetailsByPlanId(planId);
+
+    if (!details) {
+      return res.status(404).json({
+        success: false,
+        error: 'Planned loom record not found.'
+      });
+    }
+
+    return res.json({
+      success: true,
+      details
+    });
+  } catch (error) {
+    console.error('Warp preparation evaluation error:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to evaluate warp preparation.'
+    });
+  }
+});
+
+
+// ============================================================
+// WARP PREPARATION - STATUS UPDATE
+// Supports both PUT and PATCH because existing frontend pages
+// use both methods.
+// ============================================================
+
+const updateWarpPreparationStatus = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid preparation record ID is required.'
+      });
+    }
+
+    const {
+      status,
+      processStartDate,
+      processStartTime,
+      processCompletionDate,
+      processCompletionTime,
+      responsiblePerson,
+      remarks,
+      user
+    } = req.body || {};
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        error: 'status is required.'
+      });
+    }
+
+    const result =
+      await warpPreparationService.updateProcessStatus({
+        id,
+        status,
+        processStartDate,
+        processStartTime,
+        processCompletionDate,
+        processCompletionTime,
+        responsiblePerson,
+        remarks,
+        user:
+          user ||
+          req.headers['x-user'] ||
+          req.headers['x-role'] ||
+          'Planner'
+      });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('Warp preparation status update error:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update warp preparation status.'
+    });
+  }
+};
+
+app.put(
+  '/api/warp-preparation/status/:id',
+  updateWarpPreparationStatus
 );
 
+app.patch(
+  '/api/warp-preparation/status/:id',
+  updateWarpPreparationStatus
+);
+
+
+// ============================================================
+// WARP PREPARATION - HISTORY
+// ============================================================
+app.get('/api/warp-preparation/history/:loomNo', async (req, res) => {
+  try {
+    const loomNo = Number(req.params.loomNo);
+
+    if (!Number.isFinite(loomNo) || loomNo <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid loom number is required.'
+      });
+    }
+
+    const history =
+      await warpPreparationService.getPreparationHistory(loomNo);
+
+    return res.json({
+      success: true,
+      history: Array.isArray(history) ? history : []
+    });
+  } catch (error) {
+    console.error('Warp preparation history error:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to load warp preparation history.'
+    });
+  }
+});
+
+
+// ============================================================
+// WARP PREPARATION - WARP LOADING PREREQUISITE
+// ============================================================
+app.get('/api/warp-preparation/prerequisite/:loomNo', async (req, res) => {
+  try {
+    const loomNo = Number(req.params.loomNo);
+    const planId =
+      req.query.planId !== undefined &&
+      req.query.planId !== ''
+        ? Number(req.query.planId)
+        : undefined;
+
+    if (!Number.isFinite(loomNo) || loomNo <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid loom number is required.'
+      });
+    }
+
+    if (
+      planId !== undefined &&
+      (!Number.isFinite(planId) || planId <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid plan ID.'
+      });
+    }
+
+    const result =
+      await warpPreparationService.checkWarpLoadingPrerequisite(
+        loomNo,
+        planId
+      );
+
+    return res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('Warp preparation prerequisite error:', error);
+
+    return res.status(500).json({
+      success: false,
+      error:
+        error.message ||
+        'Failed to check warp preparation prerequisite.'
+    });
+  }
+});
+
+
 // ----------------------------------------------------
+
+// ----------------------------------------------------
+// SIZING REQUESTS - LIST
+// ----------------------------------------------------
+
+app.get('/api/sizing/requests', async (req, res) => {
+  try {
+    const requests =
+      await prisma.beamPreparationRequest.findMany({
+        orderBy: [
+          { target_date: 'asc' },
+          { id: 'asc' }
+        ]
+      });
+
+    return res.json(requests || []);
+  } catch (error) {
+    console.error(
+      'Sizing requests GET error:',
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: error.message ||
+        'Failed to load sizing requests.'
+    });
+  }
+});
+
 // API 404 HANDLER
 // ----------------------------------------------------
 
-app.use(
-  (req, res) => {
-    res.status(404).json({
-      success: false,
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `API endpoint ${req.method} ${req.url} not found`
+  });
+});
 
-      error:
-        `API endpoint ${req.method} ${req.url} not found`
-    });
-  }
-);
+// ----------------------------------------------------
+// GLOBAL ERROR HANDLER
+// ----------------------------------------------------
+
+app.use((err, req, res, next) => {
+  res.status(500).json({
+    success: false,
+    error:
+      err.message ||
+      'Internal Server Error'
+  });
+});
 
 // ----------------------------------------------------
 // EXPORT EXPRESS APP
@@ -2729,3 +2990,4 @@ if (!process.env.VERCEL) {
     }
   );
 }
+
