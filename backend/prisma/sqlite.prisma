@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id             Int       @id @default(autoincrement())
+  employeeId     String    @unique
+  employeeName   String
+  username       String    @unique
+  email          String?
+  mobile         String?
+  department     String?
+  designation    String?
+  password_hash  String
+  role           String    @default("VIEWER")
+  status         String    @default("ACTIVE")
+  failedAttempts Int       @default(0)
+  lastLogin      DateTime?
+  permissions    String?
+  remarks        String?
+  createdBy      String    @default("System")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model DesignMaster {
+  design_no_sp_no         String  @id
+  construction            String?
+  weft_colours            Int
+  weft_colour_details     String?
+  frames                  Int
+  reed_count              String?
+  pick                    String?
+  greige_width            String?
+  total_ends              Int?
+  reed_space_warp_width   String
+  weave_type              String
+  beam_type               String
+  crimp_percent           Float
+  beam_dia                Int?
+  epi                     Int?
+  ppi                     Int?
+  status                  String  @default("ACTIVE")
+  remarks                 String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+}
+
+model LoomMaster {
+  loom_no        Int      @id @default(autoincrement())
+  loom_type      String?
+  shed           Int?
+  shed_name      String?
+  rpm            Int?
+  make           String?
+  model          String?
+  width          String?
+  unit           String?
+  weave          String?
+  status         String   @default("Available")
+  remarks        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+  createdBy      String   @default("System")
+}
+
+model BeamStockMaster {
+  id                    Int      @id @default(autoincrement())
+  date                  DateTime @default(now())
+  design_no             String
+  vendor_name           String?
+  beam_no               String
+  available_meter       Float
+  current_balance_meter Float?
+  beam_type             String?
+  status                String   @default("Available")
+  unit                  String?
+}
+
+model ReedStockMaster {
+  id            Int      @id @default(autoincrement())
+  reed_no       String?
+  reed_type     String?
+  reed_count    String
+  available_qty Int      @default(1)
+  total_qty     Int      @default(1)
+  vendor        String?
+  location      String?
+  status        String   @default("Available")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+}
