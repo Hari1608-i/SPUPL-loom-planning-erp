@@ -117,7 +117,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET || 'spu_loom_erp_super_secret_key_2026';
 
@@ -701,6 +701,9 @@ app.delete('/api/looms/:id', async (req, res) => {
 
     const adminUser = req.headers['x-user'] || 'System';
     const oldLoom = await prisma.loomMaster.findUnique({ where: { loom_no: loomNo } });
+    if (!oldLoom) {
+      return res.status(404).json({ error: `Loom ${loomNo} not found` });
+    }
 
     await prisma.loomMaster.delete({
       where: { loom_no: loomNo }
@@ -721,6 +724,52 @@ app.delete('/api/looms/:id', async (req, res) => {
   }
 });
 
+// PUT single loom update
+app.put('/api/looms/:id', async (req, res) => {
+  try {
+    const loomNo = parseInt(req.params.id, 10);
+    if (isNaN(loomNo)) {
+      return res.status(400).json({ error: 'Invalid Loom Number' });
+    }
+    const loom = req.body;
+    const weftColoursInt = parseInt(loom.weftColours !== undefined ? loom.weftColours : loom.weft_colours, 10) || null;
+    const beamDiaInt = parseInt(loom.beamDia !== undefined ? loom.beamDia : loom.beam_dia, 10) || null;
+    const installedLeverInt = parseInt(loom.installedLever !== undefined ? loom.installedLever : loom.installed_lever, 10) || null;
+    const frameCapacityInt = parseInt(loom.frameCapacity !== undefined ? loom.frameCapacity : loom.frame_capacity, 10) || null;
+    const maxWeftColoursInt = parseInt(loom.maxWeftColours !== undefined ? loom.maxWeftColours : loom.max_weft_colours, 10) || null;
+
+    const existing = await prisma.loomMaster.findUnique({ where: { loom_no: loomNo } });
+    if (!existing) {
+      return res.status(404).json({ error: `Loom ${loomNo} not found` });
+    }
+
+    const updated = await prisma.loomMaster.update({
+      where: { loom_no: loomNo },
+      data: {
+        loom_type: loom.loomType || loom.loom_type || existing.loom_type,
+        weft_colours: weftColoursInt !== null ? weftColoursInt : existing.weft_colours,
+        beam_type: loom.beamType || loom.beam_type || existing.beam_type,
+        beam_dia: beamDiaInt !== null ? beamDiaInt : existing.beam_dia,
+        installed_lever: installedLeverInt !== null ? installedLeverInt : existing.installed_lever,
+        width: loom.width || existing.width,
+        unit: loom.unit || existing.unit,
+        make: loom.make || existing.make,
+        model: loom.model || existing.model,
+        weave: loom.weave || existing.weave,
+        frame_capacity: frameCapacityInt !== null ? frameCapacityInt : existing.frame_capacity,
+        max_weft_colours: maxWeftColoursInt !== null ? maxWeftColoursInt : existing.max_weft_colours,
+        status: loom.status || existing.status,
+        remarks: loom.remarks !== undefined ? loom.remarks : existing.remarks,
+        modifiedBy: req.headers['x-user'] || 'System',
+      }
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST single or multiple looms
 app.post('/api/looms', async (req, res) => {
   try {
@@ -728,7 +777,7 @@ app.post('/api/looms', async (req, res) => {
 
     let count = 0;
     for (const loom of looms) {
-      const loomNoInt = parseInt(loom.loomNo, 10);
+      const loomNoInt = parseInt(loom.loomNo !== undefined ? loom.loomNo : loom.loom_no, 10);
       if (isNaN(loomNoInt)) continue;
 
       const weftColoursInt = parseInt(loom.weftColours !== undefined ? loom.weftColours : loom.weft_colours, 10) || null;
