@@ -2686,8 +2686,6 @@ app.put('/api/users/:id/password', async (req, res) => {
 // ----------------------------------------------------
 
 
-
-
 // ============================================================
 // WARP PREPARATION - ALL ACTIVE RECORDS
 // ============================================================
@@ -2947,25 +2945,13 @@ app.get('/api/sizing/requests', async (req, res) => {
 // API 404 HANDLER
 // ----------------------------------------------------
 
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: `API endpoint ${req.method} ${req.url} not found`
-  });
-});
+
 
 // ----------------------------------------------------
 // GLOBAL ERROR HANDLER
 // ----------------------------------------------------
 
-app.use((err, req, res, next) => {
-  res.status(500).json({
-    success: false,
-    error:
-      err.message ||
-      'Internal Server Error'
-  });
-});
+
 
 // ----------------------------------------------------
 // EXPORT EXPRESS APP
@@ -3144,6 +3130,29 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
       error: error.message
     });
   }
+});
+
+
+
+// ============================================================
+// FINAL EXPRESS FALLBACK HANDLERS
+// IMPORTANT: THESE MUST REMAIN AFTER ALL API ROUTES
+// ============================================================
+
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `API endpoint ${req.method} ${req.url} not found`
+  });
+});
+
+app.use((err, req, res, next) => {
+  res.status(500).json({
+    success: false,
+    error:
+      err.message ||
+      'Internal Server Error'
+  });
 });
 
 app.listen(
