@@ -1,10 +1,16 @@
 const { PrismaClient } = require('@prisma/client');
 
-const connectionUrl = process.env.DATABASE_URL || "postgresql://postgres.gjuushefiuldsebehlqv:hariph%401608@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1";
+const connectionUrl = process.env.DATABASE_URL;
+
+if (!connectionUrl) {
+  throw new Error(
+    'DATABASE_URL is not configured. Set DATABASE_URL in the environment before starting the SPUPL backend.'
+  );
+}
 
 let prisma;
 
-if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
   prisma = new PrismaClient({
     datasources: {
       db: {
@@ -22,6 +28,7 @@ if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
       },
     });
   }
+
   prisma = global.globalPrisma;
 }
 
