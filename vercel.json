@@ -1,15 +1,29 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
+
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
+
   "functions": {
     "api/index.js": {
       "maxDuration": 60,
-      "includeFiles": "backend/node_modules/.prisma/**"
+      "includeFiles": "backend/**"
     }
   },
+
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.js" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/index.html"
+    }
   ]
 }
