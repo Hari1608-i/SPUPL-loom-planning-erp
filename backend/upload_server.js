@@ -7,7 +7,13 @@ const fs = require('fs');
 const path = require('path');
 const warpPreparationService = require('./services/warpPreparationService');
 
-const prisma = new PrismaClient();
+let dbUrl = process.env.DATABASE_URL || '';
+if (dbUrl.includes('connection_limit=1')) {
+  dbUrl = dbUrl.replace('connection_limit=1', 'connection_limit=10&pool_timeout=30');
+}
+const prisma = new PrismaClient(
+  dbUrl ? { datasources: { db: { url: dbUrl } } } : undefined
+);
 const app = express();
 
 const allowedOrigins = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) : '*';
@@ -6441,49 +6447,56 @@ app.get('/api/system-health', async (req, res) => {
       return res.status(500).json({ status: 'Critical', error: 'Database connection failed' });
     }
 
-    // 2. Fetch Master Counts
-    const loomsCount = await prisma.loomMaster.count();
-    const designsCount = await prisma.designMaster.count();
-    const beamsCount = await prisma.beamStockMaster.count();
+    // 2. Fetch Master Counts, Transaction Counts & Integrity Checks in parallel
+    const [
+      loomsCount,
+      designsCount,
+      beamsCount,
+      runningLooms,
+      plannedLooms,
+      historyCount,
+      allLoomNosObj,
+      runLoomNosObj,
+      planLoomNosObj,
+      allDesignNosObj,
+      runDesignNosObj,
+      negativeBeams
+    ] = await Promise.all([
+      prisma.loomMaster.count(),
+      prisma.designMaster.count(),
+      prisma.beamStockMaster.count(),
+      prisma.loomRunEntry.count(),
+      prisma.plannedAssignment.count(),
+      prisma.completedWarpHistory.count(),
+      prisma.loomMaster.findMany({ select: { loom_no: true } }),
+      prisma.loomRunEntry.findMany({ select: { loom_no: true } }),
+      prisma.plannedAssignment.findMany({ select: { loom_no: true } }),
+      prisma.designMaster.findMany({ select: { design_no_sp_no: true } }),
+      prisma.loomRunEntry.findMany({ select: { design_no_sp_no: true } }),
+      prisma.beamStockMaster.findMany({ where: { available_meter: { lt: 0 } }, take: 10 })
+    ]);
 
-    // 3. Fetch Transaction Counts
-    const runningLooms = await prisma.loomRunEntry.count();
-    const plannedLooms = await prisma.plannedAssignment.count();
-    const historyCount = await prisma.completedWarpHistory.count();
-
-    // 4. Data Integrity Checks (Orphans & Duplicates)
-    // - Orphaned Runs
-    const allLoomNos = (await prisma.loomMaster.findMany({ select: { loom_no: true } })).map(l => l.loom_no);
-    const runLoomNos = (await prisma.loomRunEntry.findMany({ select: { loom_no: true } })).map(r => r.loom_no);
+    const allLoomNos = allLoomNosObj.map(l => l.loom_no);
+    const runLoomNos = runLoomNosObj.map(r => r.loom_no);
+    const planLoomNos = planLoomNosObj.map(p => p.loom_no);
+    const allDesignNos = allDesignNosObj.map(d => d.design_no_sp_no);
+    const runDesignNos = runDesignNosObj.map(r => r.design_no_sp_no).filter(Boolean);
 
     let orphanRunsCount = runLoomNos.filter(no => !allLoomNos.includes(no)).length;
     if (orphanRunsCount > 0) {
       errors.push(`${orphanRunsCount} Active Runs found without a matching Loom in LoomMaster.`);
     }
 
-    // - Orphaned Plans
-    const planLoomNos = (await prisma.plannedAssignment.findMany({ select: { loom_no: true } })).map(p => p.loom_no);
     let orphanPlansCount = planLoomNos.filter(no => !allLoomNos.includes(no)).length;
-
     if (orphanPlansCount > 0) {
       errors.push(`${orphanPlansCount} Planned Assignments found without a matching Loom in LoomMaster.`);
     }
 
-    // - Beams with negative balance
-    const negativeBeams = await prisma.beamStockMaster.findMany({
-      where: { available_meter: { lt: 0 } }
-    });
     if (negativeBeams.length > 0) {
       warnings.push(`${negativeBeams.length} Beams have negative available meters.`);
     }
 
-    // 5. Workflow Health
-    // Ensure all running looms have valid designs
-    const allDesignNos = (await prisma.designMaster.findMany({ select: { design_no_sp_no: true } })).map(d => d.design_no_sp_no);
-    const runDesignNos = (await prisma.loomRunEntry.findMany({ select: { design_no_sp_no: true } })).map(r => r.design_no_sp_no).filter(Boolean);
-
     let invalidDesignRunsCount = runDesignNos.filter(no => !allDesignNos.includes(no)).length;
-
     if (invalidDesignRunsCount > 0) {
       errors.push(`${invalidDesignRunsCount} Active Runs reference a missing Design.`);
     }
