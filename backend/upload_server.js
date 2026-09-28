@@ -8440,7 +8440,16 @@ async function reconcileBeamAssignmentsOnStartup() {
 }
 
 const PORT = process.env.PORT || 3002;
-app.listen(PORT, async () => {
-  console.log(`API server running on port ${PORT}`);
-  await reconcileBeamAssignmentsOnStartup();
-});
+if (require.main === module) {
+  app.listen(PORT, async () => {
+    console.log(`API server running on port ${PORT}`);
+    await reconcileBeamAssignmentsOnStartup();
+  });
+} else {
+  // Called by Vercel's api/index.js — reconcile on first cold start
+  reconcileBeamAssignmentsOnStartup().catch(err =>
+    console.error('Startup reconcile error (serverless):', err.message)
+  );
+}
+
+module.exports = app;
