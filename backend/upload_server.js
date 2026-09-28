@@ -743,6 +743,8 @@ app.put('/api/looms/:id', async (req, res) => {
     const installedLeverInt = parseInt(loom.installedLever !== undefined ? loom.installedLever : loom.installed_lever, 10) || null;
     const frameCapacityInt = parseInt(loom.frameCapacity !== undefined ? loom.frameCapacity : loom.frame_capacity, 10) || null;
     const maxWeftColoursInt = parseInt(loom.maxWeftColours !== undefined ? loom.maxWeftColours : loom.max_weft_colours, 10) || null;
+    const rpmInt = loom.rpm !== undefined ? (parseInt(loom.rpm, 10) || null) : undefined;
+    const widthStr = loom.width !== undefined ? (loom.width !== null ? String(loom.width) : null) : undefined;
 
     const existing = await prisma.loomMaster.findUnique({ where: { loom_no: loomNo } });
     if (!existing) {
@@ -752,16 +754,17 @@ app.put('/api/looms/:id', async (req, res) => {
     const updated = await prisma.loomMaster.update({
       where: { loom_no: loomNo },
       data: {
-        loom_type: loom.loomType || loom.loom_type || existing.loom_type,
+        loom_type: loom.loomType || loom.loom_type !== undefined ? (loom.loomType || loom.loom_type) : existing.loom_type,
         weft_colours: weftColoursInt !== null ? weftColoursInt : existing.weft_colours,
-        beam_type: loom.beamType || loom.beam_type || existing.beam_type,
+        beam_type: loom.beamType || loom.beam_type !== undefined ? (loom.beamType || loom.beam_type) : existing.beam_type,
         beam_dia: beamDiaInt !== null ? beamDiaInt : existing.beam_dia,
         installed_lever: installedLeverInt !== null ? installedLeverInt : existing.installed_lever,
-        width: loom.width || existing.width,
-        unit: loom.unit || existing.unit,
-        make: loom.make || existing.make,
-        model: loom.model || existing.model,
-        weave: loom.weave || existing.weave,
+        width: widthStr !== undefined ? widthStr : existing.width,
+        unit: loom.unit !== undefined ? (loom.unit ? String(loom.unit) : null) : existing.unit,
+        make: loom.make !== undefined ? (loom.make ? String(loom.make) : null) : existing.make,
+        model: loom.model !== undefined ? (loom.model ? String(loom.model) : null) : existing.model,
+        weave: loom.weave !== undefined ? (loom.weave ? String(loom.weave) : null) : existing.weave,
+        rpm: rpmInt !== undefined ? rpmInt : existing.rpm,
         frame_capacity: frameCapacityInt !== null ? frameCapacityInt : existing.frame_capacity,
         max_weft_colours: maxWeftColoursInt !== null ? maxWeftColoursInt : existing.max_weft_colours,
         status: loom.status || existing.status,
@@ -791,43 +794,55 @@ app.post('/api/looms', async (req, res) => {
       const installedLeverInt = parseInt(loom.installedLever !== undefined ? loom.installedLever : loom.installed_lever, 10) || null;
       const frameCapacityInt = parseInt(loom.frameCapacity !== undefined ? loom.frameCapacity : loom.frame_capacity, 10) || null;
       const maxWeftColoursInt = parseInt(loom.maxWeftColours !== undefined ? loom.maxWeftColours : loom.max_weft_colours, 10) || null;
+      const rpmInt = parseInt(loom.rpm, 10) || null;
+      const widthStr = loom.width !== undefined && loom.width !== null ? String(loom.width) : null;
+      const shedVal = loom.shed !== undefined ? loom.shed : loom.shed_no;
+      const shedInt = parseInt(shedVal, 10);
+      const shed = !isNaN(shedInt) ? shedInt : null;
+      const shedName = loom.shed_name || loom.shedName || (isNaN(shedInt) && shedVal ? String(shedVal) : null);
 
       // Upsert to handle both create and update
       await prisma.loomMaster.upsert({
         where: { loom_no: loomNoInt },
         update: {
-          loom_type: loom.loomType || loom.loom_type,
+          loom_type: loom.loomType || loom.loom_type || undefined,
+          shed: shed !== null ? shed : undefined,
+          shed_name: shedName || undefined,
           weft_colours: weftColoursInt,
           beam_type: loom.beamType || loom.beam_type,
           beam_dia: beamDiaInt,
           installed_lever: installedLeverInt,
-          width: loom.width,
-          unit: loom.unit,
-          make: loom.make,
-          model: loom.model,
-          weave: loom.weave,
+          width: widthStr,
+          unit: loom.unit ? String(loom.unit) : undefined,
+          make: loom.make ? String(loom.make) : undefined,
+          model: loom.model ? String(loom.model) : undefined,
+          weave: loom.weave ? String(loom.weave) : undefined,
+          rpm: rpmInt,
           frame_capacity: frameCapacityInt,
           max_weft_colours: maxWeftColoursInt,
-          status: loom.status,
-          remarks: loom.remarks,
+          status: loom.status || undefined,
+          remarks: loom.remarks !== undefined ? loom.remarks : undefined,
           modifiedBy: req.headers['x-user'] || 'System',
         },
         create: {
           loom_no: loomNoInt,
-          loom_type: loom.loomType || loom.loom_type,
+          loom_type: loom.loomType || loom.loom_type || null,
+          shed: shed,
+          shed_name: shedName,
           weft_colours: weftColoursInt,
-          beam_type: loom.beamType || loom.beam_type,
+          beam_type: loom.beamType || loom.beam_type || null,
           beam_dia: beamDiaInt,
           installed_lever: installedLeverInt,
-          width: loom.width,
-          unit: loom.unit,
-          make: loom.make,
-          model: loom.model,
-          weave: loom.weave,
+          width: widthStr,
+          unit: loom.unit ? String(loom.unit) : null,
+          make: loom.make ? String(loom.make) : null,
+          model: loom.model ? String(loom.model) : null,
+          weave: loom.weave ? String(loom.weave) : null,
+          rpm: rpmInt,
           frame_capacity: frameCapacityInt,
           max_weft_colours: maxWeftColoursInt,
           status: loom.status || 'Available',
-          remarks: loom.remarks,
+          remarks: loom.remarks || null,
           createdBy: req.headers['x-user'] || 'System',
         }
       });
