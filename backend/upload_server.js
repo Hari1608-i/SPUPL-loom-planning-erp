@@ -4479,8 +4479,15 @@ app.get('/api/recommendations/:design_no', async (req, res) => {
 
 app.post('/api/planning/next-plan/save', async (req, res) => {
   try {
-    const { loomNo, nextDesign, orderNo, ibpoNo, expectedStartDate, targetRunoutDate, remarks, allowOverplan } = req.body;
-    const loomNum = Number(loomNo);
+    const loomNoInput = req.body.loomNo !== undefined ? req.body.loomNo : req.body.loom_no;
+    const loomNum = Number(loomNoInput);
+    const nextDesign = req.body.nextDesign || req.body.next_design || req.body.sort_no || req.body.sortNo;
+    const orderNo = req.body.orderNo || req.body.order_no;
+    const ibpoNo = req.body.ibpoNo || req.body.ibpo_no;
+    const expectedStartDate = req.body.expectedStartDate || req.body.expected_start_date || req.body.startDate || req.body.start_date;
+    const targetRunoutDate = req.body.targetRunoutDate || req.body.target_runout_date;
+    const remarks = req.body.remarks;
+    const allowOverplan = req.body.allowOverplan || req.body.allow_overplan;
 
     if (!loomNum || (!nextDesign && !orderNo && !ibpoNo)) {
       return res.status(400).json({ error: 'Loom Number and Order/Design information are required.' });
