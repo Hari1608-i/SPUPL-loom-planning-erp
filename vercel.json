@@ -15,14 +15,14 @@
   "rewrites": [
     {
       "source": "/api",
-      "destination": "/api/index"
+      "destination": "/api/index.js"
     },
     {
       "source": "/api/:path*",
-      "destination": "/api/index"
+      "destination": "/api/index.js?path=:path*"
     },
     {
-      "source": "/:path*",
+      "source": "/:path((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }
   ]
