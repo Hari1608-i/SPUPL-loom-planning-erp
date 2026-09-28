@@ -679,6 +679,25 @@ app.delete('/api/looms/clear-running-planned', async (req, res) => {
   }
 });
 
+// GET single loom
+app.get('/api/looms/:id', async (req, res) => {
+  try {
+    const loomNo = parseInt(req.params.id, 10);
+    if (isNaN(loomNo)) {
+      return res.status(400).json({ error: 'Invalid Loom Number' });
+    }
+    const loom = await prisma.loomMaster.findUnique({
+      where: { loom_no: loomNo }
+    });
+    if (!loom) {
+      return res.status(404).json({ error: `Loom ${loomNo} not found` });
+    }
+    res.json(loom);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // DELETE single loom
 app.delete('/api/looms/:id', async (req, res) => {
   try {
@@ -1701,20 +1720,22 @@ app.post('/api/beam-stock', async (req, res) => {
         reserved_for: isStatusAvailable && !b.reserved_for ? null : (b.reserved_for || null)
       };
 
+      let record;
       if (existing) {
-        await prisma.beamStockMaster.update({
+        record = await prisma.beamStockMaster.update({
           where: { id: existing.id },
           data: payloadData
         });
       } else {
-        await prisma.beamStockMaster.create({
+        record = await prisma.beamStockMaster.create({
           data: payloadData
         });
       }
       count++;
+      if (!req._lastBeam) req._lastBeam = record;
     }
 
-    res.json({ success: true, count });
+    res.json({ success: true, count, id: req._lastBeam ? req._lastBeam.id : null, beam: req._lastBeam || null });
   } catch (error) {
     console.error('Beam Stock Save Error:', error);
     res.status(500).json({ error: error.message });
@@ -3867,8 +3888,9 @@ app.post('/api/reed-stock', async (req, res) => {
         }
       });
 
+      let record;
       if (existing) {
-        await prisma.reedStockMaster.update({
+        record = await prisma.reedStockMaster.update({
           where: { id: existing.id },
           data: {
             available_qty: (existing.available_qty || 1) + inputAvailableQty,
@@ -3881,7 +3903,7 @@ app.post('/api/reed-stock', async (req, res) => {
           }
         });
       } else {
-        await prisma.reedStockMaster.create({
+        record = await prisma.reedStockMaster.create({
           data: {
             reed_count: reedCount,
             dents_per_inch: dentsPerInch,
@@ -3899,8 +3921,9 @@ app.post('/api/reed-stock', async (req, res) => {
         });
       }
       count++;
+      if (!req._lastReed) req._lastReed = record;
     }
-    res.json({ success: true, count });
+    res.json({ success: true, count, id: req._lastReed ? req._lastReed.id : null, reed: req._lastReed || null });
   } catch (error) {
     console.error('Reed stock POST error:', error);
     res.status(500).json({ error: error.message });
