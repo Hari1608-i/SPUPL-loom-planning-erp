@@ -25,3 +25,7 @@ apiClient.interceptors.request.use((config) => {
 });
 
 export default apiClient;
+// Add inside your API response handler
+if (typeof response.data === 'string' && response.data.trim().startsWith('<')) {
+  throw new Error("Server error: Received HTML instead of JSON. Check backend server logs.");
+}

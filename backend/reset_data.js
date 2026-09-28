@@ -3,10 +3,10 @@ const prisma = new PrismaClient();
 
 async function resetData() {
   console.log('========================================================');
-  console.log('STARTING CONTROLLED TRANSACTION DATA RESET');
+  console.log('STARTING CONTROLLED TRANSACTION & RUNNING LOOM DATA RESET');
   console.log('========================================================');
 
-  // 1. Delete all transactional / entry records
+  // 1. Delete all transactional / running loom / entry records
   const deleteCounts = {};
 
   deleteCounts.LoomRunEntry = (await prisma.loomRunEntry.deleteMany({})).count;
@@ -16,7 +16,6 @@ async function resetData() {
   deleteCounts.BeamRequirement = (await prisma.beamRequirement.deleteMany({})).count;
   deleteCounts.BeamHistory = (await prisma.beamHistory.deleteMany({})).count;
   deleteCounts.BeamPreparationRequest = (await prisma.beamPreparationRequest.deleteMany({})).count;
-  deleteCounts.ReedStockMaster = (await prisma.reedStockMaster.deleteMany({})).count;
   deleteCounts.ReedRequirement = (await prisma.reedRequirement.deleteMany({})).count;
   deleteCounts.YarnConfirmation = (await prisma.yarnConfirmation.deleteMany({})).count;
   deleteCounts.SizingConfirmation = (await prisma.sizingConfirmation.deleteMany({})).count;
@@ -38,7 +37,20 @@ async function resetData() {
     }
   });
 
-  // 3. Reset OrderMaster tracking & status fields while preserving 100% of master order records
+  // 3. Reset ReedStockMaster reserved & running quantities back to 0 and status to Available
+  await prisma.reedStockMaster.updateMany({
+    data: {
+      reserved_qty: 0,
+      running_qty: 0,
+      available_qty: 1,
+      status: 'Available',
+      reserved_for_loom: null,
+      reserved_for_order: null,
+      reserved_for_design: null
+    }
+  });
+
+  // 4. Reset OrderMaster tracking & status fields while preserving 100% of master order records
   await prisma.orderMaster.updateMany({
     data: {
       produced_qty: 0,
@@ -66,6 +78,7 @@ async function resetData() {
   console.log(`LoomMaster                : ${await prisma.loomMaster.count()} (100% PRESERVED)`);
   console.log(`OrderMaster               : ${await prisma.orderMaster.count()} (100% PRESERVED)`);
   console.log(`DesignMaster              : ${await prisma.designMaster.count()} (100% PRESERVED)`);
+  console.log(`ReedStockMaster           : ${await prisma.reedStockMaster.count()} (100% PRESERVED)`);
   console.log(`User                      : ${await prisma.user.count()} (100% PRESERVED)`);
   console.log('========================================================\n');
 }
@@ -74,3 +87,4 @@ resetData()
   .then(() => console.log('DATA RESET COMPLETED SUCCESSFULLY!'))
   .catch(err => console.error('RESET FAILED:', err))
   .finally(() => prisma.$disconnect());
+
