@@ -1,0 +1,2 @@
+◇ injected env (7) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+Backend server running locally on port 3002

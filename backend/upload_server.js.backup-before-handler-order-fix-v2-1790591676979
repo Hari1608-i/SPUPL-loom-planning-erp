@@ -1,0 +1,5046 @@
+﻿require('dotenv').config();
+
+const express = require('express');
+const analyticsRouter = require('./routes/analytics');
+
+const cors = require('cors');
+const prisma = require('./prismaClient');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+
+const app = express();
+
+// ----------------------------------------------------
+// MIDDLEWARE
+// ----------------------------------------------------
+
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'x-role',
+    'x-user-role',
+    'x-user'
+  ]
+}));
+
+app.use(express.json({ limit: '50mb' }));
+app.use(express.text({ limit: '50mb' }));
+
+// ----------------------------------------------------
+// ENVIRONMENT
+// ----------------------------------------------------
+
+const JWT_SECRET =
+  process.env.JWT_SECRET ||
+  'spu_loom_erp_super_secret_key_2026';
+
+const DEFAULT_ADMIN_USERNAME =
+  process.env.DEFAULT_ADMIN_USERNAME ||
+  'ADMIN';
+
+const DEFAULT_ADMIN_PASSWORD =
+  process.env.DEFAULT_ADMIN_PASSWORD ||
+  'spupl!@#$%';
+
+// ----------------------------------------------------
+// PASSWORD HELPER
+// ----------------------------------------------------
+
+async function safeComparePassword(inputPassword, storedHash) {
+  if (!inputPassword || !storedHash) {
+    return false;
+  }
+
+  if (inputPassword === storedHash) {
+    return true;
+  }
+
+  try {
+    return await bcrypt.compare(
+      inputPassword,
+      storedHash
+    );
+  } catch (err) {
+    return false;
+  }
+}
+
+// ----------------------------------------------------
+// HEALTH CHECK
+// ----------------------------------------------------
+
+app.use('/api/analytics', analyticsRouter);
+
+app.get('/api', (req, res) => {
+  res.json({
+    status: 'online',
+    version: '1.0.0'
+  });
+});
+
+app.get('/api/system-health', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+
+    res.json({
+      status: 'Healthy',
+      dbConnected: true
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'Critical',
+      error: error.message
+    });
+  }
+});
+
+// ----------------------------------------------------
+// AUTHENTICATION
+// ----------------------------------------------------
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    const cleanUsername = username
+      ? username.trim()
+      : '';
+
+    if (!cleanUsername || !password) {
+      return res.status(401).json({
+        error: 'Invalid Username or Password'
+      });
+    }
+
+    let user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { username: cleanUsername },
+          {
+            username:
+              cleanUsername.toUpperCase()
+          },
+          {
+            username:
+              cleanUsername.toLowerCase()
+          }
+        ]
+      }
+    });
+
+    const isAdminAttempt =
+      cleanUsername.toUpperCase() ===
+      DEFAULT_ADMIN_USERNAME.toUpperCase();
+
+    const hash = await bcrypt.hash(
+      DEFAULT_ADMIN_PASSWORD,
+      10
+    );
+
+    if (!user && isAdminAttempt) {
+      user = await prisma.user.create({
+        data: {
+          employeeId: 'ADMIN001',
+          employeeName: 'System Administrator',
+          username: DEFAULT_ADMIN_USERNAME,
+          password_hash: hash,
+          role: 'ADMINISTRATOR',
+          status: 'ACTIVE'
+        }
+      });
+    }
+
+    if (!user) {
+      return res.status(401).json({
+        error: 'Invalid Username or Password'
+      });
+    }
+
+    let isValid =
+      await safeComparePassword(
+        password,
+        user.password_hash
+      );
+
+    if (
+      !isValid &&
+      isAdminAttempt &&
+      password === DEFAULT_ADMIN_PASSWORD
+    ) {
+      isValid = true;
+
+      await prisma.user.update({
+        where: {
+          id: user.id
+        },
+        data: {
+          password_hash: hash
+        }
+      }).catch(() => {});
+    }
+
+    if (!isValid) {
+      return res.status(401).json({
+        error: 'Invalid Username or Password'
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role: user.role,
+        username: user.username
+      },
+      JWT_SECRET,
+      {
+        expiresIn: '8h'
+      }
+    );
+
+    const {
+      password_hash,
+      ...safeUser
+    } = user;
+
+    return res.json({
+      token,
+      user: safeUser
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error:
+        error.message ||
+        'Internal Server Error'
+    });
+  }
+});
+
+// ----------------------------------------------------
+// LOOMS MASTER API
+// ----------------------------------------------------
+
+app.get('/api/looms', async (req, res) => {
+  try {
+    const looms =
+      await prisma.loomMaster.findMany({
+        orderBy: {
+          loom_no: 'asc'
+        }
+      });
+
+    res.json(looms || []);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+app.post('/api/looms', async (req, res) => {
+  try {
+    const data = req.body;
+
+    const loomNo = Number(
+      data.loom_no ||
+      data.loomNo
+    );
+
+    if (!loomNo) {
+      return res.status(400).json({
+        error: 'Loom Number is required'
+      });
+    }
+
+    const upserted =
+      await prisma.loomMaster.upsert({
+        where: {
+          loom_no: loomNo
+        },
+
+        update: {
+          loom_type:
+            data.loom_type ||
+            data.loomType ||
+            null,
+
+          shed:
+            data.shed !== undefined
+              ? Number(data.shed)
+              : null,
+
+          shed_name:
+            data.shed_name ||
+            data.shedName ||
+            null,
+
+          rpm:
+            data.rpm !== undefined
+              ? Number(data.rpm)
+              : null,
+
+          make:
+            data.make || null,
+
+          model:
+            data.model || null,
+
+          width:
+            data.width || null,
+
+          unit:
+            data.unit || 'UNIT 1',
+
+          weave:
+            data.weave || null,
+
+          status:
+            data.status || 'Available',
+
+          remarks:
+            data.remarks || null
+        },
+
+        create: {
+          loom_no: loomNo,
+
+          loom_type:
+            data.loom_type ||
+            data.loomType ||
+            'AIRJET',
+
+          shed:
+            data.shed !== undefined
+              ? Number(data.shed)
+              : 1,
+
+          shed_name:
+            data.shed_name ||
+            data.shedName ||
+            'SHED 1',
+
+          rpm:
+            data.rpm !== undefined
+              ? Number(data.rpm)
+              : 650,
+
+          make:
+            data.make || null,
+
+          model:
+            data.model || null,
+
+          width:
+            data.width || null,
+
+          unit:
+            data.unit || 'UNIT 1',
+
+          weave:
+            data.weave || null,
+
+          status:
+            data.status || 'Available',
+
+          remarks:
+            data.remarks || null
+        }
+      });
+
+    res.json({
+      success: true,
+      loom: upserted
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+app.put('/api/looms/:id', async (req, res) => {
+  try {
+    const id =
+      Number(req.params.id);
+
+    const data = req.body;
+
+    const updated =
+      await prisma.loomMaster.update({
+        where: {
+          loom_no: id
+        },
+
+        data: {
+          loom_type:
+            data.loom_type ||
+            data.loomType,
+
+          shed:
+            data.shed !== undefined
+              ? Number(data.shed)
+              : undefined,
+
+          shed_name:
+            data.shed_name ||
+            data.shedName,
+
+          rpm:
+            data.rpm !== undefined
+              ? Number(data.rpm)
+              : undefined,
+
+          make:
+            data.make,
+
+          model:
+            data.model,
+
+          width:
+            data.width,
+
+          status:
+            data.status,
+
+          remarks:
+            data.remarks
+        }
+      });
+
+    res.json({
+      success: true,
+      loom: updated
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+app.delete('/api/looms/:id', async (req, res) => {
+  try {
+    const id =
+      Number(req.params.id);
+
+    await prisma.loomRunEntry
+      .deleteMany({
+        where: {
+          loom_no: id
+        }
+      })
+      .catch(() => {});
+
+    await prisma.plannedAssignment
+      .deleteMany({
+        where: {
+          loom_no: id
+        }
+      })
+      .catch(() => {});
+
+    await prisma.loomMaster.delete({
+      where: {
+        loom_no: id
+      }
+    });
+
+    res.json({
+      success: true,
+      message:
+        `Loom ${id} deleted successfully`
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ----------------------------------------------------
+// BEAM STOCK API
+// ----------------------------------------------------
+
+app.get('/api/beam-stock', async (req, res) => {
+  try {
+    const beams =
+      await prisma.beamStockMaster.findMany({
+        orderBy: {
+          id: 'desc'
+        }
+      });
+
+    res.json(beams || []);
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+app.post('/api/beam-stock', async (req, res) => {
+  try {
+    const item = req.body;
+
+    const beamNo =
+      item.beam_no ||
+      item.beamNo ||
+      `BM-${Date.now()}`;
+
+    const designNo =
+      item.design_no ||
+      item.designNo ||
+      'UNKNOWN';
+
+    const availableMeter =
+      Number(
+        item.available_meter ||
+        item.availableMeter ||
+        item.beam_length ||
+        1000
+      );
+
+    const created =
+      await prisma.beamStockMaster.create({
+        data: {
+          beam_no: String(beamNo),
+          design_no: String(designNo),
+          available_meter: availableMeter,
+          current_balance_meter:
+            availableMeter,
+
+          beam_type:
+            item.beam_type ||
+            item.beamType ||
+            'STANDARD',
+
+          vendor_name:
+            item.vendor_name ||
+            item.vendorName ||
+            'Premier',
+
+          status:
+            item.status ||
+            'Available',
+
+          unit:
+            item.unit ||
+            'UNIT 1',
+
+          remarks:
+            item.remarks ||
+            'Beam Stock Entry'
+        }
+      });
+
+    res.json({
+      success: true,
+      beam: created
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+app.put('/api/beam-stock/:id', async (req, res) => {
+  try {
+    const id =
+      Number(req.params.id);
+
+    const item = req.body;
+
+    const updated =
+      await prisma.beamStockMaster.update({
+        where: {
+          id
+        },
+
+        data: {
+          beam_no:
+            item.beam_no ||
+            item.beamNo,
+
+          design_no:
+            item.design_no ||
+            item.designNo,
+
+          available_meter:
+            item.available_meter !== undefined
+              ? Number(item.available_meter)
+              : undefined,
+
+          vendor_name:
+            item.vendor_name ||
+            item.vendorName,
+
+          status:
+            item.status,
+
+          remarks:
+            item.remarks
+        }
+      });
+
+    res.json({
+      success: true,
+      beam: updated
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+app.delete('/api/beam-stock/:id', async (req, res) => {
+  try {
+    const id =
+      Number(req.params.id);
+
+    await prisma.beamStockMaster.delete({
+      where: {
+        id
+      }
+    });
+
+    res.json({
+      success: true,
+      message:
+        `Beam stock ${id} deleted successfully`
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ----------------------------------------------------
+// REED STOCK API
+// ----------------------------------------------------
+
+app.get('/api/reed-stock', async (req, res) => {
+  try {
+    const reeds =
+      await prisma.reedStockMaster.findMany({
+        orderBy: {
+          id: 'desc'
+        }
+      });
+
+    res.json(reeds || []);
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+app.post('/api/reed-stock', async (req, res) => {
+  try {
+    const item = req.body;
+
+    const reedCount =
+      item.reed_count ||
+      item.reedCount ||
+      '52.2';
+
+    const qty =
+      Number(
+        item.available_qty ||
+        item.qty ||
+        1
+      );
+
+    const created =
+      await prisma.reedStockMaster.create({
+        data: {
+          reed_no:
+            item.reed_no ||
+            item.reedNo ||
+            `REED-${Date.now()}`,
+
+          reed_count:
+            String(reedCount),
+
+          reed_type:
+            item.reed_type ||
+            item.reedType ||
+            'STANDARD',
+
+          available_qty:
+            qty,
+
+          total_qty:
+            qty,
+
+          vendor:
+            item.vendor ||
+            'Premier',
+
+          location:
+            item.location ||
+            'Rack A-01',
+
+          status:
+            item.status ||
+            'Available',
+
+          remarks:
+            item.remarks ||
+            'Reed Stock Entry'
+        }
+      });
+
+    res.json({
+      success: true,
+      reed: created
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+app.put('/api/reed-stock/:id', async (req, res) => {
+  try {
+    const id =
+      Number(req.params.id);
+
+    const item = req.body;
+
+    const updated =
+      await prisma.reedStockMaster.update({
+        where: {
+          id
+        },
+
+        data: {
+          reed_no:
+            item.reed_no ||
+            item.reedNo,
+
+          reed_count:
+            item.reed_count ||
+            item.reedCount,
+
+          available_qty:
+            item.available_qty !== undefined
+              ? Number(item.available_qty)
+              : undefined,
+
+          location:
+            item.location,
+
+          status:
+            item.status,
+
+          remarks:
+            item.remarks
+        }
+      });
+
+    res.json({
+      success: true,
+      reed: updated
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+app.delete('/api/reed-stock/:id', async (req, res) => {
+  try {
+    const id =
+      Number(req.params.id);
+
+    await prisma.reedStockMaster.delete({
+      where: {
+        id
+      }
+    });
+
+    res.json({
+      success: true,
+      message:
+        `Reed stock ${id} deleted successfully`
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ----------------------------------------------------
+// DAILY REPORT - GET
+// ----------------------------------------------------
+
+app.get('/api/daily-report', async (req, res) => {
+  try {
+    const {
+      date,
+      department,
+      startDate,
+      endDate
+    } = req.query;
+
+    let where = {};
+
+    if (startDate && endDate) {
+      where.report_date =
+        startDate === endDate
+          ? String(startDate)
+          : {
+              gte: String(startDate),
+              lte: String(endDate)
+            };
+    } else if (date) {
+      where.report_date =
+        String(date);
+    }
+
+    if (department) {
+      where.department_code =
+        String(department)
+          .toUpperCase();
+    }
+
+    const entries =
+      await prisma.dailyReportEntry.findMany({
+        where,
+
+        orderBy: [
+          {
+            department_code: 'asc'
+          },
+          {
+            id: 'asc'
+          }
+        ]
+      }).catch(() => []);
+
+    const masters =
+      await prisma.departmentMasterInfo
+        .findMany()
+        .catch(() => []);
+
+    res.json({
+      entries: entries || [],
+      count:
+        (entries || []).length,
+      departmentMasters:
+        masters || []
+    });
+  } catch (error) {
+    res.json({
+      entries: [],
+      count: 0,
+      departmentMasters: []
+    });
+  }
+});
+
+// ----------------------------------------------------
+// DAILY REPORT - HISTORY DATES
+// ----------------------------------------------------
+
+app.get(
+  '/api/daily-report/history-dates',
+  async (req, res) => {
+    try {
+      const rawDates =
+        await prisma.dailyReportEntry.groupBy({
+          by: [
+            'report_date',
+            'department_code'
+          ],
+
+          _count: {
+            id: true
+          }
+        }).catch(() => []);
+
+      const dateMap =
+        new Map();
+
+      (rawDates || []).forEach(
+        row => {
+          if (
+            !dateMap.has(
+              row.report_date
+            )
+          ) {
+            dateMap.set(
+              row.report_date,
+              new Set()
+            );
+          }
+
+          dateMap
+            .get(row.report_date)
+            .add(
+              row.department_code
+            );
+        }
+      );
+
+      const dates =
+        Array.from(
+          dateMap.entries()
+        )
+          .map(
+            ([date, departments]) => ({
+              date,
+
+              enteredDepartmentsCount:
+                departments.size,
+
+              departments:
+                Array.from(
+                  departments
+                )
+            })
+          )
+          .sort(
+            (a, b) =>
+              b.date.localeCompare(
+                a.date
+              )
+          );
+
+      res.json({
+        dates: dates || [],
+        count:
+          (dates || []).length
+      });
+    } catch (error) {
+      res.json({
+        dates: [],
+        count: 0
+      });
+    }
+  }
+);
+
+// ----------------------------------------------------
+// DAILY REPORT - MONTHLY SUMMARY
+// ----------------------------------------------------
+
+app.get(
+  '/api/daily-report/monthly',
+  async (req, res) => {
+    try {
+      const month =
+        String(
+          req.query.month || ''
+        ).trim();
+
+      const endDateParam =
+        String(
+          req.query.endDate || ''
+        ).trim();
+
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({
+          success: false,
+          error:
+            'Invalid month. Expected YYYY-MM.'
+        });
+      }
+
+      const [
+        year,
+        monthNumber
+      ] =
+        month
+          .split('-')
+          .map(Number);
+
+      if (
+        monthNumber < 1 ||
+        monthNumber > 12
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid month.'
+        });
+      }
+
+      const monthStart =
+        `${month}-01`;
+
+      const lastDay =
+        new Date(
+          Date.UTC(
+            year,
+            monthNumber,
+            0
+          )
+        ).getUTCDate();
+
+      const defaultMonthEnd =
+        `${month}-${String(
+          lastDay
+        ).padStart(2, '0')}`;
+
+      const monthEnd =
+        /^\d{4}-\d{2}-\d{2}$/.test(
+          endDateParam
+        ) &&
+        endDateParam >= monthStart &&
+        endDateParam <= defaultMonthEnd
+          ? endDateParam
+          : defaultMonthEnd;
+
+      const entries =
+        await prisma.dailyReportEntry.findMany({
+          where: {
+            report_date: {
+              gte: monthStart,
+              lte: monthEnd
+            }
+          },
+
+          orderBy: [
+            {
+              metric_code: 'asc'
+            },
+            {
+              report_date: 'asc'
+            },
+            {
+              department_code: 'asc'
+            },
+            {
+              id: 'asc'
+            }
+          ]
+        });
+
+      const grouped =
+        new Map();
+
+      for (
+        const entry of entries
+      ) {
+        const metricCode =
+          String(
+            entry.metric_code ||
+              ''
+          ).trim();
+
+        if (!metricCode) {
+          continue;
+        }
+
+        if (
+          !grouped.has(
+            metricCode
+          )
+        ) {
+          grouped.set(
+            metricCode,
+            {
+              metric_code:
+                metricCode,
+
+              metric_name:
+                entry.metric_name ||
+                metricCode,
+
+              actualTotal: 0,
+
+              targetTotal: 0,
+
+              actualDates:
+                new Set()
+            }
+          );
+        }
+
+        const item =
+          grouped.get(
+            metricCode
+          );
+
+        const actualValue =
+          entry.actual_value !== null &&
+          entry.actual_value !== undefined &&
+          Number.isFinite(
+            Number(
+              entry.actual_value
+            )
+          )
+            ? Number(
+                entry.actual_value
+              )
+            : null;
+
+        const targetValue =
+          entry.target_value !== null &&
+          entry.target_value !== undefined &&
+          Number.isFinite(
+            Number(
+              entry.target_value
+            )
+          )
+            ? Number(
+                entry.target_value
+              )
+            : null;
+
+        if (
+          actualValue !== null
+        ) {
+          item.actualTotal +=
+            actualValue;
+
+          item.actualDates.add(
+            String(
+              entry.report_date
+            )
+          );
+        }
+
+        if (
+          targetValue !== null &&
+          targetValue > 0
+        ) {
+          item.targetTotal +=
+            targetValue;
+        }
+      }
+
+      const summary =
+        Array.from(
+          grouped.values()
+        )
+          .map(item => {
+            const daysEntered =
+              item.actualDates.size;
+
+            const monthlyAverage =
+              daysEntered > 0
+                ? item.actualTotal /
+                  daysEntered
+                : 0;
+
+            const achievementPct =
+              item.targetTotal > 0
+                ? (
+                    item.actualTotal /
+                    item.targetTotal
+                  ) * 100
+                : null;
+
+            return {
+              metric_code:
+                item.metric_code,
+
+              metric_name:
+                item.metric_name,
+
+              monthlyTotal:
+                Number(
+                  item.actualTotal.toFixed(
+                    2
+                  )
+                ),
+
+              monthlyAverage:
+                Number(
+                  monthlyAverage.toFixed(
+                    2
+                  )
+                ),
+
+              achievementPct:
+                achievementPct === null
+                  ? null
+                  : Number(
+                      achievementPct.toFixed(
+                        2
+                      )
+                    ),
+
+              targetTotal:
+                Number(
+                  item.targetTotal.toFixed(
+                    2
+                  )
+                ),
+
+              daysEntered
+            };
+          })
+          .sort(
+            (a, b) =>
+              String(
+                a.metric_code
+              ).localeCompare(
+                String(
+                  b.metric_code
+                )
+              )
+          );
+
+      return res.json({
+        success: true,
+
+        month,
+
+        startDate:
+          monthStart,
+
+        endDate:
+          monthEnd,
+
+        summary,
+
+        count:
+          summary.length
+      });
+    } catch (error) {
+      console.error(
+        'Monthly Daily Report Error:',
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          error.message ||
+          'Failed to load monthly daily report'
+      });
+    }
+  }
+);
+
+// ----------------------------------------------------
+// DAILY REPORT - WEEKLY MATRIX
+// ----------------------------------------------------
+
+app.get(
+  '/api/daily-report/weekly',
+  async (req, res) => {
+    try {
+      const startDate =
+        String(
+          req.query.startDate || ''
+        ).trim();
+
+      const endDate =
+        String(
+          req.query.endDate || ''
+        ).trim();
+
+      const departmentParam =
+        String(
+          req.query.department || ''
+        ).trim();
+
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          startDate
+        ) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          endDate
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            'Invalid dates. Expected YYYY-MM-DD.'
+        });
+      }
+
+      if (
+        startDate > endDate
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            'startDate cannot be greater than endDate.'
+        });
+      }
+
+      const start =
+        new Date(
+          `${startDate}T00:00:00Z`
+        );
+
+      const end =
+        new Date(
+          `${endDate}T00:00:00Z`
+        );
+
+      if (
+        Number.isNaN(
+          start.getTime()
+        ) ||
+        Number.isNaN(
+          end.getTime()
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            'Invalid date range.'
+        });
+      }
+
+      const dates = [];
+
+      for (
+        let current =
+          new Date(start);
+
+        current <= end;
+
+        current.setUTCDate(
+          current.getUTCDate() + 1
+        )
+      ) {
+        dates.push(
+          current
+            .toISOString()
+            .slice(0, 10)
+        );
+      }
+
+      const where = {
+        report_date: {
+          gte: startDate,
+          lte: endDate
+        }
+      };
+
+      if (
+        departmentParam &&
+        departmentParam
+          .toUpperCase() !== 'ALL'
+      ) {
+        where.department_code =
+          departmentParam.toUpperCase();
+      }
+
+      const entries =
+        await prisma.dailyReportEntry.findMany({
+          where,
+
+          orderBy: [
+            {
+              department_code: 'asc'
+            },
+            {
+              metric_code: 'asc'
+            },
+            {
+              report_date: 'asc'
+            },
+            {
+              id: 'asc'
+            }
+          ]
+        });
+
+      const matrixMap =
+        new Map();
+
+      for (
+        const entry of entries
+      ) {
+        const departmentCode =
+          String(
+            entry.department_code ||
+              ''
+          ).trim();
+
+        const metricCode =
+          String(
+            entry.metric_code ||
+              ''
+          ).trim();
+
+        if (!metricCode) {
+          continue;
+        }
+
+        const rowKey =
+          `${departmentCode}__${metricCode}`;
+
+        if (
+          !matrixMap.has(
+            rowKey
+          )
+        ) {
+          matrixMap.set(
+            rowKey,
+            {
+              department_code:
+                departmentCode,
+
+              metric_code:
+                metricCode,
+
+              metric_name:
+                entry.metric_name ||
+                metricCode,
+
+              values: {}
+            }
+          );
+        }
+
+        const row =
+          matrixMap.get(
+            rowKey
+          );
+
+        const actualValue =
+          entry.actual_value !== null &&
+          entry.actual_value !== undefined &&
+          Number.isFinite(
+            Number(
+              entry.actual_value
+            )
+          )
+            ? Number(
+                entry.actual_value
+              )
+            : null;
+
+        row.values[
+          String(
+            entry.report_date
+          )
+        ] = actualValue;
+      }
+
+      const matrix =
+        Array.from(
+          matrixMap.values()
+        )
+          .map(row => {
+            const result = {
+              department_code:
+                row.department_code,
+
+              metric_code:
+                row.metric_code,
+
+              metric_name:
+                row.metric_name,
+
+              values: {}
+            };
+
+            for (
+              const date of dates
+            ) {
+              const value =
+                Object.prototype.hasOwnProperty.call(
+                  row.values,
+                  date
+                )
+                  ? row.values[
+                      date
+                    ]
+                  : null;
+
+              result.values[
+                date
+              ] = value;
+
+              result[
+                date
+              ] = value;
+            }
+
+            return result;
+          })
+          .sort(
+            (a, b) => {
+              const departmentCompare =
+                String(
+                  a.department_code
+                ).localeCompare(
+                  String(
+                    b.department_code
+                  )
+                );
+
+              if (
+                departmentCompare !== 0
+              ) {
+                return departmentCompare;
+              }
+
+              return String(
+                a.metric_code
+              ).localeCompare(
+                String(
+                  b.metric_code
+                )
+              );
+            }
+          );
+
+      return res.json({
+        success: true,
+
+        startDate,
+
+        endDate,
+
+        dates,
+
+        matrix,
+
+        count:
+          matrix.length
+      });
+    } catch (error) {
+      console.error(
+        'Weekly Daily Report Error:',
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          error.message ||
+          'Failed to load weekly daily report'
+      });
+    }
+  }
+);
+
+// ----------------------------------------------------
+// DAILY REPORT - POST / SAVE
+// ----------------------------------------------------
+
+app.post('/api/daily-report', async (req, res) => {
+  try {
+    const {
+      report_date,
+      department_code,
+      department_head,
+      mentor,
+      entries,
+      metrics,
+      remarks,
+      entered_by
+    } = req.body;
+
+    const items =
+      Array.isArray(entries)
+        ? entries
+        : (
+            Array.isArray(metrics)
+              ? metrics
+              : []
+          );
+
+    const dateStr =
+      String(
+        report_date ||
+        new Date()
+          .toISOString()
+          .split('T')[0]
+      ).trim();
+
+    const deptCode =
+      String(
+        department_code ||
+        'GENERAL'
+      )
+        .trim()
+        .toUpperCase();
+
+    const results = [];
+
+    for (
+      const item of items
+    ) {
+      const metricCode =
+        String(
+          item.metric_code ||
+          item.code ||
+          ''
+        ).trim();
+
+      if (!metricCode) {
+        continue;
+      }
+
+      const numVal =
+        item.actual_value !== undefined &&
+        item.actual_value !== null
+          ? Number(
+              item.actual_value
+            )
+          : null;
+
+      const targetVal =
+        item.target_value !== undefined &&
+        item.target_value !== null
+          ? Number(
+              item.target_value
+            )
+          : null;
+
+      const diffVal =
+        targetVal !== null &&
+        numVal !== null
+          ? Number(
+              (
+                numVal -
+                targetVal
+              ).toFixed(2)
+            )
+          : null;
+
+      const pctVal =
+        targetVal !== null &&
+        targetVal > 0 &&
+        numVal !== null
+          ? Number(
+              (
+                (
+                  numVal /
+                  targetVal
+                ) * 100
+              ).toFixed(2)
+            )
+          : null;
+
+      const performanceMark =
+        targetVal === null ||
+        targetVal === undefined ||
+        targetVal <= 0
+          ? 'N/A'
+          : numVal === null
+            ? 'NOT ENTERED'
+            : pctVal >= 100
+              ? 'EXCELLENT'
+              : pctVal >= 90
+                ? 'GOOD'
+                : pctVal >= 80
+                  ? 'ON PLAN'
+                  : 'BELOW TARGET';
+
+      const upserted =
+        await prisma.dailyReportEntry.upsert({
+          where: {
+            report_date_department_code_metric_code: {
+              report_date: dateStr,
+
+              department_code:
+                deptCode,
+
+              metric_code:
+                metricCode
+            }
+          },
+
+          update: {
+            metric_name:
+              item.metric_name ||
+              item.name ||
+              metricCode,
+
+            raw_value:
+              item.raw_value
+                ? String(
+                    item.raw_value
+                  )
+                : null,
+
+            actual_value:
+              numVal,
+
+            target_value:
+              targetVal,
+
+            diff_value:
+              diffVal,
+
+            pct_value:
+              pctVal,
+
+            department_head:
+              department_head ||
+              null,
+
+            mentor:
+              mentor ||
+              null,
+
+            remarks:
+              item.remarks ||
+              remarks ||
+              '',
+
+            entered_by:
+              entered_by ||
+              'ADMIN',
+
+            performance_mark:
+              performanceMark
+          },
+
+          create: {
+            report_date:
+              dateStr,
+
+            department_code:
+              deptCode,
+
+            metric_code:
+              metricCode,
+
+            metric_name:
+              item.metric_name ||
+              item.name ||
+              metricCode,
+
+            raw_value:
+              item.raw_value
+                ? String(
+                    item.raw_value
+                  )
+                : null,
+
+            actual_value:
+              numVal,
+
+            target_value:
+              targetVal,
+
+            diff_value:
+              diffVal,
+
+            pct_value:
+              pctVal,
+
+            department_head:
+              department_head ||
+              null,
+
+            mentor:
+              mentor ||
+              null,
+
+            remarks:
+              item.remarks ||
+              remarks ||
+              '',
+
+            entered_by:
+              entered_by ||
+              'ADMIN',
+
+            performance_mark:
+              performanceMark
+          }
+        });
+
+      results.push(
+        upserted
+      );
+    }
+
+    res.json({
+      success: true,
+      count:
+        results.length,
+      entries:
+        results
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ----------------------------------------------------
+// DESIGNS
+// ----------------------------------------------------
+
+app.get('/api/designs', async (req, res) => {
+  try {
+    const designs =
+      await prisma.designMaster.findMany();
+
+    res.json(
+      designs || []
+    );
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+// ----------------------------------------------------
+// ORDERS
+// ----------------------------------------------------
+
+app.get('/api/orders', async (req, res) => {
+  try {
+    const orders =
+      await prisma.orderMaster.findMany({
+        include: {
+          designMaster: true
+        },
+
+        orderBy: {
+          id: 'desc'
+        }
+      });
+
+    res.json(
+      orders || []
+    );
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+// ----------------------------------------------------
+// ACTIVE RUNS
+// ----------------------------------------------------
+
+app.get('/api/active-runs', async (req, res) => {
+  try {
+    const runs =
+      await prisma.loomRunEntry.findMany({
+        orderBy: {
+          loom_no: 'asc'
+        }
+      });
+
+    res.json(
+      runs || []
+    );
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+// ----------------------------------------------------
+// COMPLETED RUNS
+// ----------------------------------------------------
+
+app.get('/api/completed-runs', async (req, res) => {
+  try {
+    const history =
+      await prisma.completedWarpHistory.findMany({
+        orderBy: {
+          end_date: 'desc'
+        }
+      });
+
+    res.json(
+      history || []
+    );
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+// ----------------------------------------------------
+// DESIGN RUNNING REPORT
+// ----------------------------------------------------
+
+app.get(
+  '/api/reports/design-running',
+  async (req, res) => {
+    try {
+      const [
+        activeRuns,
+        loomMasters,
+        orderMasters
+      ] =
+        await Promise.all([
+          prisma.loomRunEntry
+            .findMany()
+            .catch(() => []),
+
+          prisma.loomMaster
+            .findMany()
+            .catch(() => []),
+
+          prisma.orderMaster
+            .findMany()
+            .catch(() => [])
+        ]);
+
+      const loomMap =
+        new Map(
+          (loomMasters || [])
+            .map(
+              loom => [
+                loom.loom_no,
+                loom
+              ]
+            )
+        );
+
+      const runningLoomsList =
+        (activeRuns || [])
+          .map(run => {
+            const loomInfo =
+              loomMap.get(
+                run.loom_no
+              );
+
+            return {
+              loomNo:
+                run.loom_no,
+
+              designNo:
+                run.design_no_sp_no,
+
+              loomStartDate:
+                run.loom_start_date,
+
+              warpedMeter:
+                run.warped_meter ||
+                0,
+
+              dailyProduction:
+                run.daily_production ||
+                0,
+
+              rpm:
+                run.rpm ||
+                loomInfo?.rpm ||
+                650,
+
+              efficiency:
+                run.efficiency ||
+                90,
+
+              currentReedNo:
+                run.current_reed_no ||
+                '',
+
+              currentBeamNo:
+                run.current_beam_no ||
+                '',
+
+              setNo:
+                run.set_no ||
+                '',
+
+              orderNo:
+                run.order_no ||
+                '',
+
+              unit:
+                loomInfo?.unit ||
+                'UNIT 1',
+
+              loomType:
+                loomInfo?.loom_type ||
+                'AIRJET',
+
+              status:
+                loomInfo?.status ||
+                'Running'
+            };
+          });
+
+      res.json({
+        success: true,
+        data:
+          runningLoomsList,
+
+        orders:
+          orderMasters
+      });
+    } catch (error) {
+      res.json({
+        success: true,
+        data: [],
+        orders: []
+      });
+    }
+  }
+);
+
+// ----------------------------------------------------
+// REED REQUIREMENTS
+// ----------------------------------------------------
+
+app.get(
+  '/api/reed-requirements',
+  async (req, res) => {
+    try {
+      const reqs =
+        await prisma.reedRequirement.findMany({
+          orderBy: {
+            createdAt: 'desc'
+          }
+        });
+
+      res.json(
+        reqs || []
+      );
+    } catch (error) {
+      res.json([]);
+    }
+  }
+);
+
+// ----------------------------------------------------
+// NEXT PLANS
+// ----------------------------------------------------
+
+app.get(
+  '/api/next-plans',
+  async (req, res) => {
+    try {
+      const plans =
+        await prisma.plannedAssignment.findMany({
+          orderBy: {
+            id: 'asc'
+          }
+        });
+
+      res.json(
+        plans || []
+      );
+    } catch (error) {
+      res.json([]);
+    }
+  }
+);
+
+app.get(
+  '/api/planning/next-plans',
+  async (req, res) => {
+    try {
+      const plans =
+        await prisma.plannedAssignment.findMany({
+          orderBy: {
+            id: 'asc'
+          }
+        });
+
+      res.json(
+        plans || []
+      );
+    } catch (error) {
+      res.json([]);
+    }
+  }
+);
+
+// ----------------------------------------------------
+// PRODUCTION LOGS
+// ----------------------------------------------------
+
+app.get(
+  '/api/production-logs',
+  async (req, res) => {
+    try {
+      const logs =
+        await prisma.dailyProductionLog.findMany({
+          orderBy: {
+            date: 'desc'
+          },
+
+          take: 2000
+        });
+
+      res.json(
+        logs || []
+      );
+    } catch (error) {
+      res.json([]);
+    }
+  }
+);
+
+// ----------------------------------------------------
+// ERP ALERTS
+// ----------------------------------------------------
+
+app.get('/api/erp-alerts', async (req, res) => {
+  try {
+    res.json([]);
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+// ----------------------------------------------------
+// USERS
+// ----------------------------------------------------
+
+// GET USERS
+app.get('/api/users', async (req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        employeeId: true,
+        employeeName: true,
+        username: true,
+        role: true,
+        department: true,
+        status: true,
+        email: true,
+        mobile: true,
+        designation: true,
+        permissions: true,
+        remarks: true,
+        createdBy: true,
+        createdAt: true,
+        updatedAt: true,
+        lastLogin: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    res.json({
+      success: true,
+      users: users || [],
+      total: (users || []).length
+    });
+  } catch (error) {
+    console.error('GET USERS ERROR:', error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to load users'
+    });
+  }
+});
+
+// CREATE USER
+app.post('/api/users', async (req, res) => {
+  try {
+    const body = req.body || {};
+
+    const employeeId = String(
+      body.employeeId ?? body.employee_id ?? ''
+    ).trim();
+
+    const employeeName = String(
+      body.employeeName ?? body.employee_name ?? ''
+    ).trim();
+
+    const username = String(
+      body.username ?? ''
+    ).trim();
+
+    const password = String(
+      body.password ?? ''
+    ).trim();
+
+    if (!employeeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Employee ID is required'
+      });
+    }
+
+    if (!employeeName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Employee Name is required'
+      });
+    }
+
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username is required'
+      });
+    }
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Password is required'
+      });
+    }
+
+    const existingEmployee = await prisma.user.findUnique({
+      where: {
+        employeeId
+      }
+    });
+
+    if (existingEmployee) {
+      return res.status(409).json({
+        success: false,
+        error: 'Employee ID already exists'
+      });
+    }
+
+    const existingUsername = await prisma.user.findUnique({
+      where: {
+        username
+      }
+    });
+
+    if (existingUsername) {
+      return res.status(409).json({
+        success: false,
+        error: 'Username already exists'
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const permissions =
+      body.permissions === undefined ||
+      body.permissions === null ||
+      body.permissions === ''
+        ? null
+        : typeof body.permissions === 'string'
+          ? body.permissions
+          : JSON.stringify(body.permissions);
+
+    const user = await prisma.user.create({
+      data: {
+        employeeId,
+        employeeName,
+        username,
+        email: body.email
+          ? String(body.email).trim()
+          : null,
+        mobile: body.mobile
+          ? String(body.mobile).trim()
+          : null,
+        department: body.department
+          ? String(body.department).trim()
+          : null,
+        designation: body.designation
+          ? String(body.designation).trim()
+          : null,
+        password_hash: passwordHash,
+        role: String(
+          body.role || 'VIEWER'
+        ).trim().toUpperCase(),
+        status: String(
+          body.status || 'ACTIVE'
+        ).trim().toUpperCase(),
+        permissions,
+        remarks: body.remarks
+          ? String(body.remarks).trim()
+          : null,
+        createdBy: String(
+          body.adminUser ||
+          body.createdBy ||
+          req.headers['x-user'] ||
+          'ADMIN'
+        ).trim()
+      }
+    });
+
+    const {
+      password_hash,
+      ...safeUser
+    } = user;
+
+    res.status(201).json({
+      success: true,
+      message: 'User created successfully',
+      user: safeUser
+    });
+
+  } catch (error) {
+    console.error('CREATE USER ERROR:', error);
+
+    if (error?.code === 'P2002') {
+      return res.status(409).json({
+        success: false,
+        error: 'Employee ID or Username already exists'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to create user'
+    });
+  }
+});
+
+// UPDATE USER
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid user ID'
+      });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: {
+        id
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const body = req.body || {};
+    const data = {};
+
+    if (
+      body.employeeId !== undefined ||
+      body.employee_id !== undefined
+    ) {
+      data.employeeId = String(
+        body.employeeId ??
+        body.employee_id ??
+        ''
+      ).trim();
+    }
+
+    if (
+      body.employeeName !== undefined ||
+      body.employee_name !== undefined
+    ) {
+      data.employeeName = String(
+        body.employeeName ??
+        body.employee_name ??
+        ''
+      ).trim();
+    }
+
+    if (body.username !== undefined) {
+      data.username = String(
+        body.username
+      ).trim();
+    }
+
+    if (body.email !== undefined) {
+      data.email = body.email
+        ? String(body.email).trim()
+        : null;
+    }
+
+    if (body.mobile !== undefined) {
+      data.mobile = body.mobile
+        ? String(body.mobile).trim()
+        : null;
+    }
+
+    if (body.department !== undefined) {
+      data.department = body.department
+        ? String(body.department).trim()
+        : null;
+    }
+
+    if (body.designation !== undefined) {
+      data.designation = body.designation
+        ? String(body.designation).trim()
+        : null;
+    }
+
+    if (body.role !== undefined) {
+      data.role = String(
+        body.role || 'VIEWER'
+      ).trim().toUpperCase();
+    }
+
+    if (body.status !== undefined) {
+      data.status = String(
+        body.status || 'ACTIVE'
+      ).trim().toUpperCase();
+    }
+
+    if (body.permissions !== undefined) {
+      data.permissions =
+        body.permissions === null ||
+        body.permissions === ''
+          ? null
+          : typeof body.permissions === 'string'
+            ? body.permissions
+            : JSON.stringify(body.permissions);
+    }
+
+    if (body.remarks !== undefined) {
+      data.remarks = body.remarks
+        ? String(body.remarks).trim()
+        : null;
+    }
+
+    if (
+      body.password !== undefined &&
+      String(body.password).trim()
+    ) {
+      data.password_hash =
+        await bcrypt.hash(
+          String(body.password).trim(),
+          10
+        );
+    }
+
+    const updated = await prisma.user.update({
+      where: {
+        id
+      },
+      data
+    });
+
+    const {
+      password_hash,
+      ...safeUser
+    } = updated;
+
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      user: safeUser
+    });
+
+  } catch (error) {
+    console.error('UPDATE USER ERROR:', error);
+
+    if (error?.code === 'P2002') {
+      return res.status(409).json({
+        success: false,
+        error: 'Employee ID or Username already exists'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update user'
+    });
+  }
+});
+
+// PATCH USER
+app.patch('/api/users/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid user ID'
+      });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: {
+        id
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const body = req.body || {};
+    const data = {};
+
+    if (body.employeeId !== undefined) {
+      data.employeeId =
+        String(body.employeeId).trim();
+    }
+
+    if (body.employeeName !== undefined) {
+      data.employeeName =
+        String(body.employeeName).trim();
+    }
+
+    if (body.username !== undefined) {
+      data.username =
+        String(body.username).trim();
+    }
+
+    if (body.email !== undefined) {
+      data.email = body.email
+        ? String(body.email).trim()
+        : null;
+    }
+
+    if (body.mobile !== undefined) {
+      data.mobile = body.mobile
+        ? String(body.mobile).trim()
+        : null;
+    }
+
+    if (body.department !== undefined) {
+      data.department = body.department
+        ? String(body.department).trim()
+        : null;
+    }
+
+    if (body.designation !== undefined) {
+      data.designation = body.designation
+        ? String(body.designation).trim()
+        : null;
+    }
+
+    if (body.role !== undefined) {
+      data.role =
+        String(body.role).toUpperCase();
+    }
+
+    if (body.status !== undefined) {
+      data.status =
+        String(body.status).toUpperCase();
+    }
+
+    if (body.permissions !== undefined) {
+      data.permissions =
+        typeof body.permissions === 'string'
+          ? body.permissions
+          : JSON.stringify(body.permissions);
+    }
+
+    if (body.remarks !== undefined) {
+      data.remarks = body.remarks
+        ? String(body.remarks).trim()
+        : null;
+    }
+
+    if (
+      body.password !== undefined &&
+      String(body.password).trim()
+    ) {
+      data.password_hash =
+        await bcrypt.hash(
+          String(body.password).trim(),
+          10
+        );
+    }
+
+    const updated = await prisma.user.update({
+      where: {
+        id
+      },
+      data
+    });
+
+    const {
+      password_hash,
+      ...safeUser
+    } = updated;
+
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      user: safeUser
+    });
+
+  } catch (error) {
+    console.error('PATCH USER ERROR:', error);
+
+    if (error?.code === 'P2002') {
+      return res.status(409).json({
+        success: false,
+        error: 'Employee ID or Username already exists'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update user'
+    });
+  }
+});
+
+// DELETE USER
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid user ID'
+      });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: {
+        id
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    await prisma.user.delete({
+      where: {
+        id
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('DELETE USER ERROR:', error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to delete user'
+    });
+  }
+});
+
+// RESET PASSWORD
+app.put('/api/users/:id/password', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    const password = String(
+      req.body?.password ??
+      req.body?.newPassword ??
+      ''
+    ).trim();
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid user ID'
+      });
+    }
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        error: 'New password is required'
+      });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: {
+        id
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const passwordHash =
+      await bcrypt.hash(password, 10);
+
+    await prisma.user.update({
+      where: {
+        id
+      },
+      data: {
+        password_hash: passwordHash,
+        failedAttempts: 0
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+
+  } catch (error) {
+    console.error('RESET PASSWORD ERROR:', error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to reset password'
+    });
+  }
+});
+
+// ----------------------------------------------------
+// GLOBAL ERROR HANDLER
+// ----------------------------------------------------
+
+app.use(
+  (err, req, res, next) => {
+    res.status(500).json({
+      success: false,
+      error:
+        err.message ||
+        'Internal Server Error'
+    });
+  }
+);
+
+// ----------------------------------------------------
+// API 404 HANDLER
+// ----------------------------------------------------
+
+
+
+// ============================================================
+// RECOVERED API ROUTES FROM PROJECT GIT HISTORY
+// ============================================================
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.get('/api/analytics', async (req, res) => {
+  try {
+    const [orders, looms, activeRuns, completedHistory, beams] = await Promise.all([
+      prisma.orderMaster.findMany(),
+      prisma.loomMaster.findMany(),
+      prisma.loomRunEntry.findMany(),
+      prisma.completedWarpHistory.findMany(),
+      prisma.beamStockMaster.findMany()
+    ]);
+
+    const totalOrders = orders.length;
+    const completedOrders = orders.filter(o => o.status === 'ORDER COMPLETED' || o.status === 'Completed' || o.order_completion_status === 'COMPLETED').length;
+    const activeOrders = totalOrders - completedOrders;
+
+    const availableBeams = beams.filter(b => b.status === 'Available' || b.status === 'AVAILABLE').length;
+    const reservedBeams = beams.filter(b => b.status === 'Reserved' || b.status === 'RESERVED').length;
+    const runningBeams = beams.filter(b => b.status === 'Running' || b.status === 'RUNNING').length;
+
+    const ordersProgress = orders.map(o => {
+      const prod = Number(o.produced_qty || 0);
+      const target = Number(o.order_qty || 1000);
+      return {
+        orderNo: o.ibpo_no || o.order_no,
+        customer: o.customer_name,
+        designNo: o.design_no_sp_no,
+        orderQty: target,
+        completedQty: prod,
+        balanceQty: Math.max(0, target - prod),
+        completionPct: Math.min(100, Math.round((prod / target) * 100)),
+        status: o.status
+      };
+    });
+
+    res.json({
+      success: true,
+      kpis: {
+        totalOrders,
+        activeOrders,
+        completedOrders,
+        totalLooms: looms.length,
+        runningLooms: activeRuns.length,
+        availableBeams,
+        reservedBeams,
+        runningBeams,
+        completedWarpsCount: completedHistory.length
+      },
+      ordersProgress
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/auth/verify-admin-password', async (req, res) => {
+  try {
+    const { password, username } = req.body;
+    if (!password) {
+      return res.status(400).json({ success: false, error: 'Password is required' });
+    }
+
+    const authUser = authenticateUser(req);
+    let targetUser = null;
+
+    // 1. If token provided and user is admin, use authUser
+    if (authUser) {
+      targetUser = await prisma.user.findUnique({ where: { id: authUser.id } });
+    }
+
+    // 2. If username provided, find user by username
+    if (!targetUser && username) {
+      const cleanUsername = String(username).trim();
+      targetUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { username: cleanUsername },
+            { username: cleanUsername.toUpperCase() },
+            { username: cleanUsername.toLowerCase() }
+          ]
+        }
+      });
+    }
+
+    // 3. Fallback: find primary administrator user if no specific target
+    if (!targetUser) {
+      targetUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { role: 'ADMIN' },
+            { role: 'ADMINISTRATOR' },
+            { role: 'System Administrator' },
+            { username: 'admin' },
+            { username: 'Admin' }
+          ]
+        }
+      });
+    }
+
+    if (!targetUser) {
+      return res.status(404).json({ success: false, error: 'Administrator user not found' });
+    }
+
+    const roleUpper = (targetUser.role || '').toUpperCase();
+    const isAdminRole = ['ADMIN', 'ADMINISTRATOR', 'SYSTEM ADMINISTRATOR'].includes(roleUpper) || targetUser.username.toLowerCase() === 'admin';
+    if (!isAdminRole) {
+      return res.status(403).json({ success: false, error: 'User does not have Administrator privileges' });
+    }
+
+    const valid = await bcrypt.compare(password, targetUser.password_hash);
+    if (!valid) {
+      return res.status(401).json({ success: false, error: 'Incorrect Administrator Password' });
+    }
+
+    return res.json({ success: true, message: 'Administrator password verified' });
+  } catch (error) {
+    console.error('Error verifying admin password:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.delete('/api/beam-stock/clean-empty', async (req, res) => {
+  try {
+    const result = await prisma.beamStockMaster.deleteMany({
+      where: {
+        OR: [
+          { status: '' },
+          { status: null }
+        ]
+      }
+    });
+    res.json({ success: true, deleted: result.count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.delete('/api/beam-stock/clear-all', async (req, res) => {
+  try {
+    const result = await prisma.beamStockMaster.deleteMany({});
+    res.json({ success: true, count: result.count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/beam-stock/upload-image', async (req, res) => {
+  try {
+    let rowsToProcess = [];
+    if (Array.isArray(req.body.rows) && req.body.rows.length > 0) {
+      rowsToProcess = req.body.rows;
+    } else {
+      // Default to complete verified dataset extracted from uploaded Beam Stock workbook image
+      const datasetPath = path.join(__dirname, 'data', 'beam_image_dataset.json');
+      if (fs.existsSync(datasetPath)) {
+        rowsToProcess = JSON.parse(fs.readFileSync(datasetPath, 'utf8'));
+      }
+    }
+
+    if (!rowsToProcess || rowsToProcess.length === 0) {
+      return res.status(400).json({ error: 'No beam stock records could be parsed from the image.' });
+    }
+
+    let createdCount = 0;
+    let updatedCount = 0;
+    let existingCount = 0;
+    let conflictCount = 0;
+    const conflicts = [];
+    const errors = [];
+
+    for (let i = 0; i < rowsToProcess.length; i++) {
+      const row = rowsToProcess[i];
+      try {
+        if (!row.beam_no || !String(row.beam_no).trim()) {
+          errors.push({ row: i + 1, beam_no: 'MISSING', error: 'Missing Beam No' });
+          continue;
+        }
+
+        const beamNoStr = String(row.beam_no).trim();
+        const setNoStr = String(row.set_no || '').trim();
+        const designNoStr = String(row.sp_no || row.design_no || '').trim();
+
+        let dateObj = new Date(row.date);
+        if (isNaN(dateObj.getTime())) {
+          errors.push({ row: i + 1, beam_no: beamNoStr, error: `Invalid Date: ${row.date}` });
+          continue;
+        }
+
+        const existing = await prisma.beamStockMaster.findFirst({
+          where: { beam_no: beamNoStr }
+        });
+
+        const payload = {
+          date: dateObj,
+          warp_dc_no: row.dc_no ? String(row.dc_no).trim() : null,
+          vendor_name: row.weaver_name || row.vendor_name || null,
+          party: row.sizing_name || row.party || null,
+          set_no: setNoStr,
+          design_no: designNoStr,
+          count: row.count || null,
+          ends: row.ends !== null && row.ends !== undefined ? Number(row.ends) : null,
+          beam_no: beamNoStr,
+          total_warped_meter: row.sized_mtr !== null && row.sized_mtr !== undefined ? Number(row.sized_mtr) : (Number(row.total_warped_meter) || null),
+          available_meter: row.sized_mtr !== null && row.sized_mtr !== undefined ? Number(row.sized_mtr) : (Number(row.available_meter) || 0),
+          current_balance_meter: row.sized_mtr !== null && row.sized_mtr !== undefined ? Number(row.sized_mtr) : (Number(row.current_balance_meter) || null),
+          net_wt: row.net_wt !== null && row.net_wt !== undefined ? Number(row.net_wt) : null,
+          tare: row.tare !== null && row.tare !== undefined ? Number(row.tare) : null,
+          gross_wt: row.grs_wt !== null && row.grs_wt !== undefined ? Number(row.grs_wt) : (Number(row.gross_wt) || null),
+          status: 'Available',
+          sizing_status: 'COMPLETED',
+          location: row.location || 'At Sizing',
+          remarks: row.remarks || `Imported via Beam Stock Image (DC ${row.dc_no || ''})`.trim()
+        };
+
+        if (!existing) {
+          await prisma.beamStockMaster.create({ data: payload });
+          createdCount++;
+        } else {
+          // Check for conflict: same beam number but conflicting set and design
+          const normalize = s => (s || '').replace(/\s+/g, '').toUpperCase();
+          const setMatches = normalize(existing.set_no) === normalize(setNoStr);
+          const designMatches = normalize(existing.design_no) === normalize(designNoStr);
+
+          if (!setMatches && !designMatches) {
+            conflictCount++;
+            conflicts.push({
+              row: i + 1,
+              beam_no: beamNoStr,
+              source: { set_no: setNoStr, design_no: designNoStr, date: row.date },
+              existing: { set_no: existing.set_no, design_no: existing.design_no, date: existing.date },
+              reason: 'BEAM CONFLICT: Conflicting Set No and Design No for existing Beam No'
+            });
+            continue;
+          }
+
+          existingCount++;
+          await prisma.beamStockMaster.update({
+            where: { id: existing.id },
+            data: payload
+          });
+          updatedCount++;
+        }
+      } catch (err) {
+        errors.push({ row: i + 1, beam_no: row.beam_no, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'BEAM STOCK IMPORT COMPLETED',
+      summary: {
+        totalRead: rowsToProcess.length,
+        created: createdCount,
+        updated: updatedCount,
+        existing: existingCount,
+        conflicts: conflictCount,
+        errors: errors.length
+      },
+      conflicts,
+      errors
+    });
+  } catch (error) {
+    console.error('Beam Stock Image Upload Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/confirm-plan', async (req, res) => {
+  try {
+    const { loomNo, nextDesign, startDate, warpMeter, dailyProduction, beamNo, setNo, beamId } = req.body;
+    const loomNum = parseInt(loomNo, 10);
+    if (isNaN(loomNum)) {
+      return res.status(400).json({ error: `Invalid loom number: ${loomNo}` });
+    }
+
+    // Helper: derive unit from loom number ranges (matches mockData.ts layout)
+    const getLoomUnit = (no) => {
+      if (no <= 56) return 'I';
+      if (no <= 112) return 'II';
+      if (no <= 168) return 'III';
+      return 'IV';
+    };
+
+    // 1. Fetch current run and loom unit
+    const currentRun = await prisma.loomRunEntry.findUnique({ where: { loom_no: loomNum } });
+    const loom = await prisma.loomMaster.findUnique({ where: { loom_no: loomNum } });
+
+    // Use DB loom unit first, then fallback to range-based lookup
+    const loomUnit = (loom && loom.unit && loom.unit !== 'Unknown') ? loom.unit : getLoomUnit(loomNum);
+
+    // Fetch planned assignment details if any
+    const planEntry = await prisma.plannedAssignment.findFirst({
+      where: { loom_no: loomNum, status: { not: 'CANCELLED' } }
+    });
+
+    // 2. Archive to CompletedWarpHistory if a current run exists
+    const designToArchive = (currentRun && currentRun.design_no_sp_no && currentRun.design_no_sp_no !== '—')
+      ? currentRun.design_no_sp_no
+      : (req.body.currentDesign && req.body.currentDesign !== '—' ? req.body.currentDesign : null);
+
+    if (designToArchive) {
+      const start = (currentRun && currentRun.loom_start_date) ? new Date(currentRun.loom_start_date) : new Date();
+      const end = new Date(startDate || new Date());
+
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      let runningDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      if (runningDays <= 0) runningDays = 1;
+
+      // Sum actual logs for current design run
+      const logs = await prisma.dailyProductionLog.findMany({
+        where: {
+          loom_no: loomNum,
+          design_no: designToArchive
+        }
+      });
+      const totalProductionFromLogs = logs.reduce((sum, l) => sum + (l.produced_meter || 0), 0);
+      const totalProduction = totalProductionFromLogs > 0
+        ? totalProductionFromLogs
+        : (req.body.producedMeter !== undefined && Number(req.body.producedMeter) > 0
+          ? Number(req.body.producedMeter)
+          : (runningDays * ((currentRun && currentRun.daily_production) || 200)));
+
+      const avgDailyProd = runningDays > 0 ? totalProduction / runningDays : ((currentRun && currentRun.daily_production) || 300);
+      const efficiency = (currentRun && currentRun.daily_production > 0)
+        ? (avgDailyProd / currentRun.daily_production) * 100
+        : 100.0;
+
+      const warpedMtr = (currentRun && currentRun.warped_meter)
+        ? currentRun.warped_meter
+        : (req.body.warpedMeter ? Number(req.body.warpedMeter) : totalProduction);
+
+      const sortChangeToArchive = currentRun?.sort_change_type || req.body.sort_change_type || req.body.sortChangeType || null;
+
+      const historyData = {
+        loom_no: loomNum,
+        design_no_sp_no: designToArchive,
+        start_date: start,
+        end_date: end,
+        warp_meter: warpedMtr,
+        total_production_meter: Math.round(totalProduction),
+        running_days: runningDays,
+        avg_daily_production: Math.round(avgDailyProd),
+        efficiency_pct: Math.min(100, Math.round(efficiency)),
+        unit: loomUnit
+      };
+
+      try {
+        if (sortChangeToArchive) {
+          await prisma.completedWarpHistory.create({
+            data: { ...historyData, sort_change_type: sortChangeToArchive }
+          });
+        } else {
+          await prisma.completedWarpHistory.create({
+            data: historyData
+          });
+        }
+      } catch (histErr) {
+        console.warn('CompletedWarpHistory create failed with sort_change_type, retrying without it:', histErr?.message);
+        await prisma.completedWarpHistory.create({
+          data: historyData
+        });
+      }
+    }
+
+    const isClearOnly = req.body.clearOnly === true || req.body.action === 'CLEAR_RUNOUT' || req.body.action === 'DELETE_RUNOUT' || req.body.promoteNext === false;
+    const finalNextDesign = (!isClearOnly && req.body.promoteNext === true && nextDesign && nextDesign !== '—' && nextDesign.trim() !== '') ? nextDesign.trim() : '';
+    const finalBeamNo = finalNextDesign ? (beamNo || planEntry?.reserved_beam_no || null) : null;
+    const finalSetNo = finalNextDesign ? (setNo || planEntry?.reserved_set_no || null) : null;
+    const finalBeamId = finalNextDesign ? (beamId ? parseInt(beamId, 10) : (planEntry?.reserved_beam_id || null)) : null;
+    const finalWarpMeter = finalNextDesign ? (Number(warpMeter) || Number(planEntry?.planned_warp_meter) || 1800) : 0;
+    const finalSortChange = req.body.sort_change_type || req.body.sortChangeType || planEntry?.WarpPreparationProcess?.[0]?.confirmed_process || planEntry?.WarpPreparationProcess?.[0]?.process_type || null;
+
+    // 3. Promote new run to Active OR completely remove active run if no next design
+    if (finalNextDesign) {
+      const runPayload = {
+        design_no_sp_no: finalNextDesign,
+        loom_start_date: new Date(startDate || new Date()),
+        warped_meter: finalWarpMeter,
+        daily_production: 0,
+        current_beam_no: finalBeamNo,
+        set_no: finalSetNo,
+        beam_id: finalBeamId,
+        remarks: 'Promoted from Next Plan'
+      };
+      if (finalSortChange) {
+        runPayload.sort_change_type = finalSortChange;
+      }
+
+      try {
+        await prisma.loomRunEntry.upsert({
+          where: { loom_no: loomNum },
+          update: runPayload,
+          create: {
+            loom_no: loomNum,
+            ...runPayload
+          }
+        });
+      } catch (upsertErr) {
+        if (runPayload.sort_change_type) {
+          delete runPayload.sort_change_type;
+          await prisma.loomRunEntry.upsert({
+            where: { loom_no: loomNum },
+            update: runPayload,
+            create: {
+              loom_no: loomNum,
+              ...runPayload
+            }
+          });
+        } else {
+          throw upsertErr;
+        }
+      }
+
+      await prisma.loomMaster.update({
+        where: { loom_no: loomNum },
+        data: { status: 'Running' }
+      }).catch(() => { });
+
+      if (finalBeamId) {
+        await prisma.beamStockMaster.update({
+          where: { id: finalBeamId },
+          data: {
+            status: 'Running',
+            loom_no_assigned: loomNum,
+            reserved_for: `Loom ${loomNum} - Running`
+          }
+        }).catch(() => { });
+      }
+    } else {
+      // Runout confirmed with no next design: delete active run and free loom
+      await prisma.loomRunEntry.deleteMany({
+        where: { loom_no: loomNum }
+      });
+
+      await prisma.loomMaster.update({
+        where: { loom_no: loomNum },
+        data: { status: 'Available' }
+      }).catch(() => { });
+
+      await prisma.beamStockMaster.updateMany({
+        where: { loom_no_assigned: loomNum },
+        data: { loom_no_assigned: null, status: 'Completed', reserved_for: null }
+      }).catch(() => { });
+    }
+
+    // 4. Delete the planned assignment
+    await prisma.plannedAssignment.deleteMany({
+      where: { loom_no: loomNum }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error confirming plan:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.delete('/api/looms/clear-all', async (req, res) => {
+  try {
+    await prisma.loomRunEntry.deleteMany({});
+    await prisma.plannedAssignment.deleteMany({});
+    await prisma.completedWarpHistory.deleteMany({});
+    const result = await prisma.loomMaster.deleteMany({});
+
+    await prisma.systemAuditLog.create({
+      data: {
+        username: req.headers['x-user'] || 'System',
+        screen: 'Loom Master',
+        action: 'CLEAR_ALL_LOOMS',
+        newValue: `Cleared ${result.count} looms from database`
+      }
+    });
+
+    res.json({ success: true, count: result.count });
+  } catch (error) {
+    console.error('Error clearing all looms:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/order-completion/complete', async (req, res) => {
+  try {
+    const { order_no, final_status, produced_qty, actual_completion_date, completed_by, delay_reason, corrective_action, planner_remarks } = req.body;
+    const order = await prisma.orderMaster.findUnique({ where: { order_no } });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    const yarn = await prisma.yarnConfirmation.findUnique({ where: { order_no } });
+    const sizing = await prisma.sizingConfirmation.findUnique({ where: { order_no } });
+
+    // Fetch beam & loom details
+    const beams = await prisma.beamStockMaster.findMany({ where: { order_no } });
+    const plans = await prisma.plannedAssignment.findMany({ where: { order_no } });
+
+    const prodQty = Number(produced_qty || order.order_qty || 0);
+    const shortExcess = prodQty - (order.order_qty || 0);
+    const compStatus = final_status || (prodQty >= order.order_qty ? 'COMPLETED' : 'SHORT CLOSED');
+
+    let delayDays = 0;
+    const targetDateStr = order.weaving_completion_date || order.target_delivery_date;
+    if (targetDateStr) {
+      const compD = actual_completion_date ? new Date(actual_completion_date) : new Date();
+      const targetD = new Date(targetDateStr);
+      compD.setHours(0, 0, 0, 0);
+      targetD.setHours(0, 0, 0, 0);
+      const diffMs = compD.getTime() - targetD.getTime();
+      delayDays = Math.ceil(diffMs / (1000 * 3600 * 24));
+    }
+
+    const transactionResult = await prisma.$transaction(async (tx) => {
+      // 1. Upsert OrderCompletionHistory
+      const history = await tx.orderCompletionHistory.upsert({
+        where: { order_no },
+        update: {
+          final_status: compStatus,
+          produced_qty: prodQty,
+          short_excess_qty: shortExcess,
+          actual_completion_date: actual_completion_date ? new Date(actual_completion_date) : new Date(),
+          delay_days: delayDays,
+          delay_reason: delayReason || null,
+          corrective_action: correctiveAction || null,
+          planner_remarks: plannerRemarks || null,
+          completed_by: completedBy || 'Production Head'
+        },
+        create: {
+          order_no,
+          ibpo_no: order.ibpo_no,
+          customer_name: order.customer_name,
+          buyer_name: order.buyer_name,
+          design_no_sp_no: order.design_no_sp_no,
+          construction: order.construction,
+          order_qty: order.order_qty,
+          grey_qty: order.grey_qty,
+          warp_qty: order.warp_qty,
+          uom: order.uom,
+          order_received_date: order.order_received_date,
+          target_delivery_date: order.target_delivery_date,
+          required_yarn_qty: yarn ? yarn.required_warp_qty : order.warp_qty,
+          confirmed_yarn_qty: yarn ? yarn.confirmed_warp_qty : 0,
+          balance_yarn_qty: yarn ? yarn.balance_warp_qty : 0,
+          yarn_confirmation_date: yarn ? yarn.confirmation_date : null,
+          sizing_required_qty: sizing ? sizing.sizing_required_qty : 0,
+          sizing_confirmed_qty: sizing ? sizing.warp_received_qty : 0,
+          sizing_date: sizing ? sizing.actual_receipt_date : null,
+          beams_used: JSON.stringify(beams.map(b => ({ beam_no: b.beam_no, set_no: b.set_no, warp_meter: b.available_meter }))),
+          looms_used: JSON.stringify(plans.map(p => ({ loom_no: p.loom_no, design_no: p.next_design }))),
+          final_status: compStatus,
+          produced_qty: prodQty,
+          short_excess_qty: shortExcess,
+          actual_completion_date: actual_completion_date ? new Date(actual_completion_date) : new Date(),
+          delay_days: delayDays,
+          delay_reason: delayReason || null,
+          corrective_action: correctiveAction || null,
+          planner_remarks: plannerRemarks || null,
+          completed_by: completedBy || 'Production Head'
+        }
+      });
+
+      // 2. Update OrderMaster status
+      await tx.orderMaster.update({
+        where: { order_no },
+        data: {
+          status: 'ORDER COMPLETED',
+          order_completion_status: compStatus,
+          produced_qty: prodQty,
+          short_excess_qty: shortExcess,
+          actual_completion_date: actual_completion_date ? new Date(actual_completion_date) : new Date(),
+          completion_remarks: plannerRemarks || null,
+          completed_by: completedBy || 'Production Head'
+        }
+      });
+
+      // 3. Audit Log
+      await tx.systemAuditLog.create({
+        data: {
+          username: completedBy || 'Production Head',
+          screen: 'Order Completion',
+          action: 'COMPLETE_ORDER',
+          oldValue: order.status,
+          newValue: `ORDER COMPLETED (${compStatus})`
+        }
+      });
+
+      return history;
+    });
+
+    res.json({ success: true, record: transactionResult });
+  } catch (err) {
+    console.error('Order completion error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.get('/api/order-completion/history', async (req, res) => {
+  try {
+    const orders = await prisma.orderMaster.findMany({
+      include: { designMaster: true },
+      orderBy: { id: 'desc' }
+    });
+
+    const completedOrders = orders.filter(o => {
+      const s = (o.status || '').toUpperCase();
+      const compStatus = (o.order_completion_status || '').toUpperCase();
+      return s.includes('COMPLETED') || compStatus === 'COMPLETED';
+    });
+
+    const formatted = completedOrders.map(o => ({
+      id: o.id,
+      order_no: o.order_no || o.ibpo_no || `ORD-${o.id}`,
+      ibpo_no: o.ibpo_no,
+      customer_name: o.customer_name,
+      buyer_name: o.buyer_name,
+      design_no_sp_no: o.design_no_sp_no,
+      construction: o.construction || o.designMaster?.construction || '',
+      order_qty: o.order_qty,
+      grey_qty: o.grey_qty,
+      warp_qty: o.warp_qty,
+      uom: o.uom || 'Meters',
+      order_received_date: o.order_received_date,
+      weaving_completion_date: o.weaving_completion_date || o.expected_completion_date,
+      actual_completion_date: o.actual_completion_date || o.updatedAt,
+      produced_qty: o.produced_qty || o.order_qty,
+      final_status: o.status || 'ORDER COMPLETED',
+      completed_by: o.completed_by || 'Planning Manager',
+      planner_remarks: o.completion_remarks || o.remarks || 'Completed',
+      createdAt: o.createdAt
+    }));
+
+    res.json(formatted);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/orders/bulk', async (req, res) => {
+  try {
+    const { orders } = req.body;
+    if (!Array.isArray(orders) || orders.length === 0) {
+      return res.status(400).json({ error: 'No orders provided for bulk insertion.' });
+    }
+
+    // 1. Check duplicates within payload
+    const ibpoMap = new Map();
+    for (let i = 0; i < orders.length; i++) {
+      const o = orders[i];
+      if (o.ibpo_no) {
+        const cleanIbpo = String(o.ibpo_no).trim().toUpperCase();
+        if (ibpoMap.has(cleanIbpo)) {
+          return res.status(400).json({
+            error: `Duplicate IBPO ${cleanIbpo} found in pasted rows (Row ${ibpoMap.get(cleanIbpo) + 1} & Row ${i + 1}).`
+          });
+        }
+        ibpoMap.set(cleanIbpo, i);
+      }
+    }
+
+    // 2. Check duplicates against active orders in DB
+    const activeDbOrders = await prisma.orderMaster.findMany({
+      where: {
+        ibpo_no: { in: Array.from(ibpoMap.keys()) },
+        NOT: {
+          OR: [
+            { status: 'ORDER COMPLETED' },
+            { order_completion_status: 'COMPLETED' }
+          ]
+        }
+      },
+      select: { ibpo_no: true }
+    });
+
+    if (activeDbOrders.length > 0) {
+      const dupList = activeDbOrders.map(d => d.ibpo_no).join(', ');
+      return res.status(400).json({
+        error: `IBPO(s) already exist in active Order Management: ${dupList}. Duplicate active entries are not allowed.`
+      });
+    }
+
+    const createdOrders = [];
+    for (let i = 0; i < orders.length; i++) {
+      const body = orders[i];
+      const ibpoNo = body.ibpo_no ? String(body.ibpo_no).trim().toUpperCase() : null;
+      const designNo = String(body.design_no_sp_no || '').trim();
+      if (!designNo || !body.order_qty) {
+        return res.status(400).json({ error: `Row ${i + 1}: Design Number and Order Quantity are required.` });
+      }
+
+      // Upsert Design Master
+      const parsedSpecs = parseConstructionSpecsServer(body.construction);
+      const resolvedPick = body.pick ? String(body.pick) : (body.ppi ? String(body.ppi) : (parsedSpecs.pick || ''));
+      const resolvedWidth = body.greige_width ? String(body.greige_width) : (body.width ? String(body.width) : (parsedSpecs.greigeWidth || ''));
+      const resolvedReedSpace = body.reed_space || body.reed_space_warp_width ? String(body.reed_space || body.reed_space_warp_width) : (parsedSpecs.reedSpace || (resolvedWidth ? String(parseFloat(resolvedWidth) + 1.5) : ''));
+
+      await prisma.designMaster.upsert({
+        where: { design_no_sp_no: designNo },
+        update: {
+          construction: body.construction || '',
+          weft_colours: Number(body.weft_colours || body.no_of_clr_weft) || 0,
+          frames: Number(body.frames) || 0,
+          reed_count: body.reed_count ? String(body.reed_count) : '',
+          pick: resolvedPick,
+          greige_width: resolvedWidth,
+          total_ends: Number(body.total_ends) || null,
+          reed_space_warp_width: resolvedReedSpace,
+          crimp_percent: body.crimp_percent ? Number(body.crimp_percent) / 100 : 0,
+          weave_type: body.weave_type || '',
+          beam_type: body.beam_type || '',
+          no_of_clr_warp: Number(body.no_of_clr_warp) || null,
+          no_of_clr_weft: Number(body.no_of_clr_weft || body.weft_colours) || null
+        },
+        create: {
+          design_no_sp_no: designNo,
+          construction: body.construction || '',
+          weft_colours: Number(body.weft_colours || body.no_of_clr_weft) || 0,
+          frames: Number(body.frames) || 0,
+          reed_count: body.reed_count ? String(body.reed_count) : '',
+          pick: resolvedPick,
+          greige_width: resolvedWidth,
+          total_ends: Number(body.total_ends) || null,
+          reed_space_warp_width: resolvedReedSpace,
+          crimp_percent: body.crimp_percent ? Number(body.crimp_percent) / 100 : 0,
+          weave_type: body.weave_type || '',
+          beam_type: body.beam_type || '',
+          no_of_clr_warp: Number(body.no_of_clr_warp) || null,
+          no_of_clr_weft: Number(body.no_of_clr_weft || body.weft_colours) || null,
+          status: 'ACTIVE'
+        }
+      });
+
+
+      const orderNo = body.order_no || `ORD-${Date.now().toString().slice(-6)}-${i + 1}`;
+      const newOrder = await prisma.orderMaster.create({
+        data: {
+          order_no: orderNo,
+          ibpo_no: ibpoNo,
+          customer_name: body.customer_name || body.ibpo_no || 'STANDARD',
+          buyer_name: body.buyer_name || null,
+          order_type: body.order_type || 'GREY',
+          combo_pattern: body.combo_pattern || null,
+          finish: body.finish || null,
+          design_no_sp_no: designNo,
+          construction: body.construction || null,
+          reed_count: body.reed_count ? String(body.reed_count) : null,
+          weave_type: body.weave_type || null,
+          epi: body.epi ? Number(body.epi) : null,
+          ppi: body.ppi ? Number(body.ppi) : null,
+          total_ends: body.total_ends ? Number(body.total_ends) : null,
+          beam_type: body.beam_type || null,
+          frames: body.frames ? Number(body.frames) : null,
+          no_of_clr_warp: body.no_of_clr_warp ? Number(body.no_of_clr_warp) : null,
+          no_of_clr_weft: body.no_of_clr_weft || body.weft_colours ? Number(body.no_of_clr_weft || body.weft_colours) : null,
+          uom: body.uom || 'Meters',
+          order_qty: Number(body.order_qty),
+          grey_qty: Number(body.grey_qty) || Number(body.order_qty) || null,
+          warp_qty: Number(body.warp_qty) || Number(body.order_qty) || null,
+          planned_loom_count: Number(body.planned_loom_count) || null,
+          avg_production_per_loom: Number(body.avg_production_per_loom) || null,
+          estimated_production_days: Number(body.estimated_production_days) || null,
+          expected_completion_date: (() => {
+            if (body.expected_completion_date) return new Date(body.expected_completion_date);
+            if (body.weaving_completion_date) return new Date(body.weaving_completion_date);
+            const looms = Number(body.planned_loom_count) || 0;
+            const avgProd = Number(body.avg_production_per_loom) || 0;
+            const qty = Number(body.order_qty) || 0;
+            const wvDate = body.weaving_planned_date || body.weaving_start_date;
+            if (looms > 0 && avgProd > 0 && qty > 0 && wvDate) {
+              const days = Math.ceil(qty / (looms * avgProd));
+              const d = new Date(wvDate);
+              d.setDate(d.getDate() + days - 1);
+              return d;
+            }
+            return null;
+          })(),
+          sizing_planned_date: body.sizing_planned_date ? new Date(body.sizing_planned_date) : null,
+          sizing_completed_date: body.sizing_completion_date || body.sizing_completed_date ? new Date(body.sizing_completion_date || body.sizing_completed_date) : null,
+          weaving_planned_date: body.weaving_planned_date || body.weaving_start_date ? new Date(body.weaving_planned_date || body.weaving_start_date) : null,
+          weaving_start_date: body.weaving_start_date ? new Date(body.weaving_start_date) : null,
+          weaving_completion_date: body.weaving_completion_date ? new Date(body.weaving_completion_date) : null,
+          target_delivery_date: body.target_delivery_date ? new Date(body.target_delivery_date) : null,
+          priority: body.priority || 'NORMAL',
+          planning_status: body.planning_status || 'Planning Pending',
+          status: body.status || 'ORDER RECEIVED',
+          remarks: body.remarks || null
+        }
+      });
+      createdOrders.push(newOrder);
+    }
+
+    await prisma.systemAuditLog.create({
+      data: {
+        username: req.body.adminUser || 'System',
+        screen: 'Order Management',
+        action: 'MULTI_CREATE_ORDERS',
+        newValue: `${createdOrders.length} orders created`
+      }
+    });
+
+    res.json({ success: true, count: createdOrders.length, orders: createdOrders });
+  } catch (error) {
+    console.error('Bulk Order Save Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/orders/bulk-delete', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No order IDs provided for bulk delete.' });
+    }
+
+    const numericIds = ids.map(id => Number(id));
+
+    // Check operational status protection
+    const activeOrders = await prisma.orderMaster.findMany({
+      where: {
+        id: { in: numericIds },
+        OR: [
+          { status: 'WEAVING RUNNING' },
+          { status: 'WEAVING COMPLETED' },
+          { status: 'ORDER COMPLETED' },
+          { produced_qty: { gt: 0 } }
+        ]
+      }
+    });
+
+    if (activeOrders.length > 0) {
+      const blocked = activeOrders.map(o => o.ibpo_no || o.order_no).join(', ');
+      return res.status(400).json({
+        error: `Order(s) ${blocked} cannot be deleted because operational processing has already started.`
+      });
+    }
+
+    await prisma.beamRequirement.deleteMany({ where: { order_id: { in: numericIds } } });
+    await prisma.plannedAssignment.deleteMany({ where: { order_id: { in: numericIds } } });
+    const deleteResult = await prisma.orderMaster.deleteMany({ where: { id: { in: numericIds } } });
+
+    await prisma.systemAuditLog.create({
+      data: {
+        username: req.body.adminUser || 'System',
+        screen: 'Order Management',
+        action: 'MULTI_DELETE_ORDERS',
+        newValue: `${deleteResult.count} orders deleted`
+      }
+    });
+
+    res.json({ success: true, count: deleteResult.count });
+  } catch (error) {
+    console.error('Bulk Order Delete Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.get('/api/orders/check-ibpo', async (req, res) => {
+  try {
+    const { ibpo, excludeId } = req.query;
+    if (!ibpo || !String(ibpo).trim()) {
+      return res.json({ isAvailable: true, message: 'Valid IBPO' });
+    }
+    const normalized = String(ibpo).trim().toUpperCase();
+    const existing = await prisma.orderMaster.findFirst({
+      where: {
+        ibpo_no: normalized,
+        NOT: {
+          OR: [
+            { status: 'ORDER COMPLETED' },
+            { order_completion_status: 'COMPLETED' }
+          ]
+        },
+        ...(excludeId ? { id: { not: parseInt(excludeId) } } : {})
+      }
+    });
+
+    if (existing) {
+      return res.json({
+        isAvailable: false,
+        message: `IBPO ${normalized} is already available in the system. Duplicate active order cannot be created.`
+      });
+    }
+    return res.json({ isAvailable: true, message: 'IBPO available' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/planning/next-plan/allocate-beam', async (req, res) => {
+  try {
+    const { planId, loomNo, beamId } = req.body;
+    if (!beamId) {
+      return res.status(400).json({ error: 'Please select a Beam to allocate.' });
+    }
+
+    let plan = null;
+    if (planId) {
+      plan = await prisma.plannedAssignment.findUnique({ where: { id: Number(planId) } });
+    } else if (loomNo) {
+      plan = await prisma.plannedAssignment.findFirst({
+        where: { loom_no: Number(loomNo), status: { in: ['PLANNED', 'NOT PLANNED', 'PENDING', 'BEAM ALLOCATED'] } }
+      });
+    }
+
+    if (!plan) {
+      return res.status(404).json({ error: 'Planned assignment not found for this loom.' });
+    }
+
+    const beam = await prisma.beamStockMaster.findUnique({ where: { id: Number(beamId) } });
+    if (!beam) {
+      return res.status(404).json({ error: 'Selected Beam not found in Beam Stock.' });
+    }
+
+    const beamSt = (beam.status || '').toUpperCase();
+    if (beamSt !== 'AVAILABLE' && beamSt !== 'READY') {
+      return res.status(400).json({ error: `Beam ${beam.beam_no} is currently ${beam.status} and cannot be allocated.` });
+    }
+
+    const targetDesign = (plan.next_design || '').trim().toLowerCase();
+    const beamDesign = (beam.design_no || '').trim().toLowerCase();
+
+    // Also fetch the order's current design as a fallback reference
+    let orderDesign = '';
+    if (plan.order_no) {
+      const orderRecord = await prisma.orderMaster.findFirst({
+        where: { ibpo_no: plan.order_no }
+      }).catch(() => null);
+      if (orderRecord) {
+        orderDesign = (orderRecord.design_no_sp_no || '').trim().toLowerCase();
+      }
+    }
+
+    // Normalize SP026 ↔ SP26 variants for comparison
+    const norm = (s) => s.replace(/sp026\//gi, 'sp26/').replace(/sp026/gi, 'sp26');
+    const normBeam = norm(beamDesign);
+    const normTarget = norm(targetDesign);
+    const normOrder = norm(orderDesign);
+
+    const beamMatchesPlan = !normTarget || !normBeam || normBeam === normTarget || normBeam.includes(normTarget) || normTarget.includes(normBeam);
+    const beamMatchesOrder = !normOrder || !normBeam || normBeam === normOrder || normBeam.includes(normOrder) || normOrder.includes(normBeam);
+
+    if (!beamMatchesPlan && !beamMatchesOrder) {
+      return res.status(400).json({
+        error: `Incompatible Beam: Selected Beam (${beam.beam_no}) belongs to Design "${beam.design_no}" which does not match planned Design "${plan.next_design}".`
+      });
+    }
+
+    const conflict = await prisma.plannedAssignment.findFirst({
+      where: {
+        reserved_beam_id: beam.id,
+        id: { not: plan.id },
+        status: { in: ['PLANNED', 'CONFIRMED', 'RUNNING', 'ACTIVE'] }
+      }
+    });
+
+    if (conflict) {
+      return res.status(400).json({
+        error: `Beam ${beam.beam_no} is already allocated to Loom ${conflict.loom_no} (Plan #${conflict.id}).`
+      });
+    }
+
+    if (plan.reserved_beam_id && plan.reserved_beam_id !== beam.id) {
+      await prisma.beamStockMaster.update({
+        where: { id: plan.reserved_beam_id },
+        data: { status: 'Available', reserved_for: null, loom_no_assigned: null }
+      }).catch(() => { });
+    }
+
+    await prisma.beamStockMaster.update({
+      where: { id: beam.id },
+      data: {
+        status: 'Reserved',
+        reserved_for: `Order ${plan.order_no || 'NEXT'} - Loom ${plan.loom_no}`,
+        loom_no_assigned: plan.loom_no
+      }
+    });
+
+    const updatedPlan = await prisma.plannedAssignment.update({
+      where: { id: plan.id },
+      data: {
+        reserved_beam_id: beam.id,
+        reserved_beam_no: beam.beam_no,
+        reserved_set_no: beam.set_no,
+        beam_status: 'BEAM ALLOCATED',
+        readiness_status: 'BEAM ALLOCATED - READY FOR LOOM CONFIRMATION',
+        planning_score: 95
+      }
+    });
+
+    res.json({
+      success: true,
+      plan: updatedPlan,
+      beam,
+      message: `Beam #${beam.beam_no} successfully allocated to Loom ${plan.loom_no}. Loom confirmation is now enabled.`
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/planning/next-plan/allocate-reed', async (req, res) => {
+  try {
+    const { planId, loomNo, reedId } = req.body;
+    let plan = null;
+    if (planId) {
+      plan = await prisma.plannedAssignment.findUnique({ where: { id: Number(planId) } });
+    } else if (loomNo) {
+      plan = await prisma.plannedAssignment.findFirst({ where: { loom_no: Number(loomNo) } });
+    }
+
+    if (!plan) {
+      return res.status(404).json({ error: 'Plan not found.' });
+    }
+
+    const reed = await prisma.reedStockMaster.findUnique({ where: { id: Number(reedId) } });
+    if (!reed) {
+      return res.status(404).json({ error: 'Selected Reed not found in Reed Stock.' });
+    }
+
+    if (reed.available_qty <= 0 && reed.status !== 'Available') {
+      return res.status(400).json({ error: `Reed #${reed.reed_no} is currently not available in stock.` });
+    }
+
+    // Release previously reserved reed if different
+    if (plan.reserved_reed_id && plan.reserved_reed_id !== reed.id) {
+      const prevReed = await prisma.reedStockMaster.findUnique({ where: { id: plan.reserved_reed_id } });
+      if (prevReed) {
+        const newResQty = Math.max(0, prevReed.reserved_qty - 1);
+        await prisma.reedStockMaster.update({
+          where: { id: prevReed.id },
+          data: {
+            reserved_qty: newResQty,
+            available_qty: prevReed.available_qty + 1,
+            status: newResQty === 0 && prevReed.running_qty === 0 ? 'Available' : prevReed.status,
+            reserved_for_loom: null,
+            reserved_for_order: null,
+            reserved_for_design: null
+          }
+        });
+      }
+    }
+
+    // Update newly selected Reed stock (-1 available, +1 reserved)
+    await prisma.reedStockMaster.update({
+      where: { id: reed.id },
+      data: {
+        status: 'Reserved',
+        available_qty: Math.max(0, reed.available_qty - 1),
+        reserved_qty: reed.reserved_qty + 1,
+        reserved_for_loom: plan.loom_no,
+        reserved_for_order: plan.order_no || '',
+        reserved_for_design: plan.next_design
+      }
+    });
+
+    const updatedPlan = await prisma.plannedAssignment.update({
+      where: { id: plan.id },
+      data: {
+        reserved_reed_id: reed.id,
+        reserved_reed_no: reed.reed_no,
+        reed_status: 'REED ALLOCATED',
+        readiness_status: plan.reserved_beam_id ? 'CONFIRMED' : 'REED ALLOCATED'
+      }
+    });
+
+    res.json({
+      success: true,
+      plan: updatedPlan,
+      message: `Reed #${reed.reed_no} allocated & reserved for Loom ${plan.loom_no}.`
+    });
+  } catch (error) {
+    console.error('Error allocating reed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/planning/next-plan/change-beam', async (req, res) => {
+  try {
+    const { planId, loomNo } = req.body;
+    let plan = null;
+    if (planId) {
+      plan = await prisma.plannedAssignment.findUnique({ where: { id: Number(planId) } });
+    } else if (loomNo) {
+      plan = await prisma.plannedAssignment.findFirst({ where: { loom_no: Number(loomNo) } });
+    }
+
+    if (!plan) {
+      return res.status(404).json({ error: 'Plan not found.' });
+    }
+
+    if (plan.reserved_beam_id) {
+      await prisma.beamStockMaster.update({
+        where: { id: plan.reserved_beam_id },
+        data: { status: 'Available', reserved_for: null, loom_no_assigned: null }
+      }).catch(() => { });
+    }
+
+    const updatedPlan = await prisma.plannedAssignment.update({
+      where: { id: plan.id },
+      data: {
+        reserved_beam_id: null,
+        reserved_beam_no: null,
+        reserved_set_no: null,
+        beam_status: 'BEAM PENDING',
+        readiness_status: 'CONFIRMATION PENDING'
+      }
+    });
+
+    res.json({
+      success: true,
+      plan: updatedPlan,
+      message: `Previous beam allocation released for Loom ${plan.loom_no}. You can now allocate another Beam.`
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/planning/next-plan/confirm', async (req, res) => {
+  try {
+    const { loomNo, nextDesign: reqDesign, orderNo, reedId, beamId, startDate, remarks, plannerName, processType } = req.body;
+    const loomNum = Number(loomNo);
+
+    // Strict validation: Must have a Beam allocated before confirming Loom!
+    const existingPlan = await prisma.plannedAssignment.findFirst({
+      where: { loom_no: loomNum, status: { in: ['PLANNED', 'NOT PLANNED', 'PENDING', 'BEAM ALLOCATED'] } }
+    });
+
+    const nextDesign = reqDesign || existingPlan?.next_design;
+
+    let activeBeamId = beamId ? Number(beamId) : (existingPlan ? existingPlan.reserved_beam_id : null);
+
+    if (!activeBeamId && nextDesign) {
+      const autoBeam = await prisma.beamStockMaster.findFirst({
+        where: {
+          design_no: nextDesign,
+          status: { in: ['Available', 'READY', 'CUT BEAM'] },
+          loom_no_assigned: null,
+          available_meter: { gt: 0 }
+        }
+      });
+      if (autoBeam) {
+        activeBeamId = autoBeam.id;
+      }
+    }
+
+    if (!activeBeamId && (!existingPlan || !existingPlan.reserved_beam_no)) {
+      return res.status(400).json({
+        error: `BEAM ALLOCATION REQUIRED: A compatible Beam from Beam Stock must be allocated to Loom ${loomNum} before confirming Loom.`
+      });
+    }
+
+    if (reedId) {
+      const reedRec = await prisma.reedStockMaster.findUnique({ where: { id: Number(reedId) } });
+      const isSingleUnitConflict = reedRec && (reedRec.total_qty === 1 || !reedRec.total_qty) && (reedRec.available_qty <= 0 && reedRec.status !== 'Available');
+
+      if (isSingleUnitConflict) {
+        const activeReedConflict = await prisma.plannedAssignment.findFirst({
+          where: {
+            reserved_reed_id: Number(reedId),
+            loom_no: { not: loomNum },
+            status: { in: ['RUNNING', 'ACTIVE'] }
+          }
+        });
+        if (activeReedConflict) {
+          return res.status(400).json({
+            error: 'RESOURCE ALREADY ALLOCATED',
+            conflict: {
+              resourceType: 'Reed',
+              resourceId: reedId,
+              currentLoom: activeReedConflict.loom_no,
+              currentDesign: activeReedConflict.next_design,
+              planningNo: activeReedConflict.id
+            }
+          });
+        }
+      }
+    }
+
+    if (beamId) {
+      const beamRec = await prisma.beamStockMaster.findUnique({ where: { id: Number(beamId) } });
+      if (beamRec && beamRec.design_no) {
+        const beamDesign = (beamRec.design_no || '').trim().toLowerCase();
+        const targetDesign = (nextDesign || '').trim().toLowerCase();
+
+        let orderDesign = '';
+        const orderKey = orderNo || existingPlan?.order_no;
+        if (orderKey) {
+          const orderRecord = await prisma.orderMaster.findFirst({
+            where: { OR: [{ ibpo_no: String(orderKey) }, { order_no: String(orderKey) }] }
+          }).catch(() => null);
+          if (orderRecord) {
+            orderDesign = (orderRecord.design_no_sp_no || '').trim().toLowerCase();
+          }
+        }
+
+        const norm = (s) => (s || '').replace(/sp026\//gi, 'sp26/').replace(/sp026/gi, 'sp26');
+        const normBeam = norm(beamDesign);
+        const normTarget = norm(targetDesign);
+        const normOrder = norm(orderDesign);
+
+        const beamMatchesPlan = !normTarget || !normBeam || normBeam === normTarget || normBeam.includes(normTarget) || normTarget.includes(normBeam);
+        const beamMatchesOrder = !normOrder || !normBeam || normBeam === normOrder || normBeam.includes(normOrder) || normOrder.includes(normBeam);
+        const beamMatchesOrderNo = orderKey && (beamDesign.includes(String(orderKey).toLowerCase()) || (beamRec.party_beam_no && String(beamRec.party_beam_no).toLowerCase().includes(String(orderKey).toLowerCase())));
+
+        if (!beamMatchesPlan && !beamMatchesOrder && !beamMatchesOrderNo) {
+          return res.status(400).json({
+            error: `Selected Beam (${beamRec.beam_no}) belongs to Design "${beamRec.design_no}" which does not match planned Design "${nextDesign}".`
+          });
+        }
+      }
+
+      if (beamRec) {
+        const st = (beamRec.status || '').trim().toUpperCase();
+        if ((st === 'RUNNING' || st === 'IN USE') && beamRec.loom_no_assigned !== loomNum) {
+          return res.status(400).json({
+            error: `Beam #${beamRec.beam_no} is currently RUNNING on Loom ${beamRec.loom_no_assigned || ''} and cannot be allocated.`
+          });
+        }
+      }
+
+      if (beamRec && beamRec.status !== 'Available' && beamRec.status !== 'READY' && beamRec.status !== 'CUT BEAM' && beamRec.loom_no_assigned !== loomNum) {
+        const activeBeamConflict = await prisma.plannedAssignment.findFirst({
+          where: {
+            reserved_beam_id: Number(beamId),
+            loom_no: { not: loomNum },
+            status: { in: ['RUNNING', 'ACTIVE'] }
+          }
+        });
+        if (activeBeamConflict) {
+          return res.status(400).json({
+            error: 'RESOURCE ALREADY ALLOCATED',
+            conflict: {
+              resourceType: 'Beam',
+              resourceId: beamId,
+              currentLoom: activeBeamConflict.loom_no,
+              currentDesign: activeBeamConflict.next_design,
+              planningNo: activeBeamConflict.id
+            }
+          });
+        }
+      }
+    }
+
+    // Check if loom is currently running another design
+    const currentRun = await prisma.loomRunEntry.findUnique({
+      where: { loom_no: loomNum }
+    });
+    const isLoomRunning = currentRun && currentRun.design_no_sp_no && currentRun.design_no_sp_no.trim() !== '';
+
+    // Lock Beam in BeamStockMaster as Allocated/Reserved
+    let beamNo = existingPlan?.reserved_beam_no || null;
+    let setNo = existingPlan?.reserved_set_no || null;
+    let allocatedBeamObj = null;
+
+    if (activeBeamId) {
+      allocatedBeamObj = await prisma.beamStockMaster.findUnique({ where: { id: Number(activeBeamId) } });
+      if (allocatedBeamObj) {
+        beamNo = allocatedBeamObj.beam_no;
+        setNo = allocatedBeamObj.set_no;
+      }
+    }
+
+    let reedNo = existingPlan?.reserved_reed_no || null;
+    if (reedId) {
+      const r = await prisma.reedStockMaster.findUnique({ where: { id: Number(reedId) } });
+      if (r) {
+        reedNo = r.reed_no;
+        await prisma.reedStockMaster.update({
+          where: { id: r.id },
+          data: {
+            status: 'Reserved',
+            available_qty: Math.max(0, r.available_qty - 1),
+            reserved_qty: r.reserved_qty + 1,
+            reserved_for_loom: loomNum,
+            reserved_for_order: orderNo || '',
+            reserved_for_design: nextDesign
+          }
+        });
+      }
+    }
+
+    const orderObj = orderNo ? await prisma.orderMaster.findFirst({
+      where: { OR: [{ order_no: orderNo }, { ibpo_no: orderNo }] }
+    }) : null;
+
+    const startingWarpMeter = allocatedBeamObj?.available_meter || (orderObj ? orderObj.warp_qty : 10000);
+    const dailyProdRate = orderObj ? (orderObj.avg_production_per_loom || 300) : 300;
+    const customerName = orderObj ? orderObj.customer_name : 'STANDARD';
+
+    if (!isLoomRunning) {
+      // CASE A: EMPTY / FREE LOOM -> Confirmation transfers the plan directly into Main Entry as CURRENT RUNNING DESIGN!
+      // Check Warp Preparation Prerequisite before loading/starting loom (bypassed if processType is being assigned in planning):
+      if (!processType && !req.body.fromPlanning) {
+        const prepCheck = await warpPreparationService.checkWarpLoadingPrerequisite(loomNum, existingPlan?.id);
+        if (!prepCheck.allowed) {
+          return res.status(400).json({
+            error: `WARP PREPARATION PREREQUISITE: ${prepCheck.message}`
+          });
+        }
+      }
+
+      if (activeBeamId) {
+        await prisma.beamStockMaster.update({
+          where: { id: Number(activeBeamId) },
+          data: {
+            status: 'Running',
+            reserved_for: `Loom ${loomNum} - Running`,
+            loom_no_assigned: loomNum
+          }
+        });
+      }
+
+      const activeRun = await prisma.loomRunEntry.upsert({
+        where: { loom_no: loomNum },
+        create: {
+          loom_no: loomNum,
+          design_no_sp_no: nextDesign,
+          current_beam_no: beamNo || `BM-2026-${String(loomNum).padStart(3, '0')}`,
+          set_no: setNo || `SET-101`,
+          current_reed_no: reedNo || `RD-${String(500 + loomNum).padStart(3, '0')}`,
+          order_no: orderNo || (orderObj ? orderObj.order_no : `ORD-${100000 + loomNum}`),
+          customer_name: customerName,
+          loom_start_date: startDate ? new Date(startDate) : new Date(),
+          warped_meter: startingWarpMeter,
+          daily_production: dailyProdRate,
+          rpm: 720,
+          efficiency: 92,
+          shift_hours: 24,
+          working_hours: 24,
+          machine_utilization: 92,
+          sort_change_type: processType || null,
+          prep_status: processType ? 'PENDING' : null,
+          remarks: remarks || 'Confirmed & Started in Main Entry'
+        },
+        update: {
+          design_no_sp_no: nextDesign,
+          current_beam_no: beamNo || `BM-2026-${String(loomNum).padStart(3, '0')}`,
+          set_no: setNo || `SET-101`,
+          current_reed_no: reedNo || `RD-${String(500 + loomNum).padStart(3, '0')}`,
+          order_no: orderNo || (orderObj ? orderObj.order_no : `ORD-${100000 + loomNum}`),
+          customer_name: customerName,
+          loom_start_date: startDate ? new Date(startDate) : new Date(),
+          warped_meter: startingWarpMeter,
+          daily_production: dailyProdRate,
+          rpm: 720,
+          efficiency: 92,
+          sort_change_type: processType || undefined,
+          prep_status: processType ? 'PENDING' : undefined,
+          remarks: remarks || 'Confirmed & Started in Main Entry'
+        }
+      });
+
+      await prisma.loomMaster.update({
+        where: { loom_no: loomNum },
+        data: { status: 'Running' }
+      });
+
+      if (orderObj) {
+        await prisma.orderMaster.update({
+          where: { id: orderObj.id },
+          data: { status: 'WEAVING RUNNING' }
+        });
+      }
+
+      let assignment = await prisma.plannedAssignment.findFirst({ where: { loom_no: loomNum } });
+      const payload = {
+        loom_no: loomNum,
+        current_design: nextDesign,
+        next_design: nextDesign,
+        order_no: orderNo || 'SPUPL-ORD-CONFIRMED',
+        planned_start_date: startDate ? new Date(startDate) : new Date(),
+        planned_warp_meter: startingWarpMeter,
+        planned_avg_daily_production: dailyProdRate,
+        status: 'CONFIRMED',
+        confirmation_status: 'CONFIRMED',
+        confirmed_by: plannerName || 'Confirmation User',
+        confirmed_date: new Date(),
+        reserved_reed_id: reedId ? Number(reedId) : (existingPlan?.reserved_reed_id || null),
+        reserved_reed_no: reedNo,
+        reed_status: reedNo ? 'REED AVAILABLE' : 'REED REQUIRED',
+        reserved_beam_id: activeBeamId,
+        reserved_beam_no: beamNo,
+        reserved_set_no: setNo,
+        beam_status: 'BEAM ALLOCATED',
+        sizing_status: 'COMPLETED',
+        readiness_status: 'RUNNING IN MAIN ENTRY',
+        planning_score: 98,
+        remarks: remarks || 'Plan Confirmed & Activated as Current Running Design in Main Entry',
+        planner_name: plannerName || 'Planner'
+      };
+
+      await prisma.plannedAssignment.updateMany({
+        where: { loom_no: loomNum },
+        data: {
+          status: 'COMPLETED',
+          confirmation_status: 'COMPLETED',
+          readiness_status: 'RUNNING IN MAIN ENTRY'
+        }
+      });
+
+      await prisma.systemAuditLog.create({
+        data: {
+          username: plannerName || 'Confirmation User',
+          screen: 'Next Planned Looms',
+          action: 'CONFIRM_ALLOCATION',
+          oldValue: 'AVAILABLE',
+          newValue: `WEAVING RUNNING (${nextDesign} on Loom ${loomNum})`
+        }
+      });
+
+      if (processType) {
+        try {
+          await warpPreparationService.confirmPreparationProcess({
+            planId: assignment?.id || existingPlan?.id,
+            loomNo: loomNum,
+            processType,
+            startDate,
+            remarks: remarks || `Confirmed from Next Planned Looms (${processType})`,
+            user: plannerName || 'Planner'
+          });
+        } catch (prepErr) {
+          console.warn('Warp prep confirm warning:', prepErr.message);
+        }
+      }
+
+      return res.json({
+        success: true,
+        directAllocated: true,
+        activeRun,
+        assignment,
+        message: `Loom ${loomNum} plan confirmed! Transferred to Main Entry as active running design "${nextDesign}".`
+      });
+    }
+
+    // CASE B: ALREADY RUNNING LOOM -> Confirmation attaches plan as CONFIRMED Next Plan without displacing current running design!
+    if (activeBeamId) {
+      await prisma.beamStockMaster.update({
+        where: { id: Number(activeBeamId) },
+        data: {
+          status: 'Allocated',
+          reserved_for: `Order ${orderNo || 'NEXT'} - Loom ${loomNum}`,
+          loom_no_assigned: loomNum
+        }
+      });
+    }
+
+    let assignment = await prisma.plannedAssignment.findFirst({ where: { loom_no: loomNum } });
+    const payload = {
+      loom_no: loomNum,
+      current_design: currentRun.design_no_sp_no,
+      next_design: nextDesign,
+      order_no: orderNo || 'SPUPL-ORD-CONFIRMED',
+      planned_start_date: startDate ? new Date(startDate) : new Date(),
+      planned_warp_meter: startingWarpMeter,
+      planned_avg_daily_production: dailyProdRate,
+      status: 'CONFIRMED',
+      confirmation_status: 'CONFIRMED',
+      confirmed_by: plannerName || 'Confirmation User',
+      confirmed_date: new Date(),
+      reserved_reed_id: reedId ? Number(reedId) : (existingPlan?.reserved_reed_id || null),
+      reserved_reed_no: reedNo,
+      reed_status: reedNo ? 'REED AVAILABLE' : 'REED REQUIRED',
+      reserved_beam_id: activeBeamId,
+      reserved_beam_no: beamNo,
+      reserved_set_no: setNo,
+      beam_status: 'BEAM ALLOCATED',
+      sizing_status: 'COMPLETED',
+      readiness_status: 'CONFIRMED - WAITING FOR CURRENT RUNOUT',
+      planning_score: 98,
+      remarks: remarks || 'Plan Confirmed after Beam Allocation (Waiting for Current Runout)',
+      planner_name: plannerName || 'Planner'
+    };
+
+    if (assignment) {
+      assignment = await prisma.plannedAssignment.update({ where: { id: assignment.id }, data: payload });
+    } else {
+      assignment = await prisma.plannedAssignment.create({ data: payload });
+    }
+
+    if (orderNo) {
+      const order = await prisma.orderMaster.findFirst({
+        where: { OR: [{ order_no: orderNo }, { ibpo_no: orderNo }] }
+      });
+      if (order && order.status !== 'WEAVING RUNNING') {
+        await prisma.orderMaster.update({
+          where: { id: order.id },
+          data: { status: 'Loom Plan Confirmed' }
+        });
+      }
+    }
+
+    await prisma.systemAuditLog.create({
+      data: {
+        username: plannerName || 'Confirmation User',
+        screen: 'Next Planned Looms',
+        action: 'CONFIRM_ALLOCATION',
+        oldValue: 'RUNNING',
+        newValue: `CONFIRMED_NEXT_PLAN (Loom ${loomNum}, Beam ${beamNo || activeBeamId})`
+      }
+    });
+
+    if (processType) {
+      try {
+        await warpPreparationService.confirmPreparationProcess({
+          planId: assignment?.id || existingPlan?.id,
+          loomNo: loomNum,
+          processType,
+          startDate,
+          remarks: remarks || `Confirmed from Next Planned Looms (${processType})`,
+          user: plannerName || 'Planner'
+        });
+      } catch (prepErr) {
+        console.warn('Warp prep confirm warning:', prepErr.message);
+      }
+    }
+
+    return res.json({
+      success: true,
+      assignment,
+      message: `Loom ${loomNum} is currently running "${currentRun.design_no_sp_no}". Plan for "${nextDesign}" confirmed as Next Plan!`
+    });
+  } catch (error) {
+    console.error('Confirm Plan Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/planning/next-plan/decline', async (req, res) => {
+  try {
+    const { id, remark, user } = req.body;
+    if (!remark || !remark.trim()) {
+      return res.status(400).json({ error: 'Mandatory remark is required for declining/requesting loom change.' });
+    }
+
+    const assignment = await prisma.plannedAssignment.findUnique({ where: { id: Number(id) } });
+    if (!assignment) {
+      return res.status(404).json({ error: 'Planned assignment not found' });
+    }
+
+    // Release reserved Beam
+    if (assignment.reserved_beam_id) {
+      await prisma.beamStockMaster.update({
+        where: { id: assignment.reserved_beam_id },
+        data: { status: 'Available', reserved_for: null, loom_no_assigned: null }
+      });
+    }
+
+    // Release reserved Reed
+    if (assignment.reserved_reed_id) {
+      const r = await prisma.reedStockMaster.findUnique({ where: { id: assignment.reserved_reed_id } });
+      if (r) {
+        await prisma.reedStockMaster.update({
+          where: { id: r.id },
+          data: {
+            status: 'Available',
+            reserved_qty: Math.max(0, r.reserved_qty - 1),
+            available_qty: r.available_qty + 1
+          }
+        });
+      }
+    }
+
+    const updated = await prisma.plannedAssignment.update({
+      where: { id: Number(id) },
+      data: {
+        status: 'CHANGE_REQUESTED',
+        confirmation_status: 'CHANGE_REQUESTED',
+        change_request_remark: remark.trim(),
+        change_requested_by: user || 'Confirmation User',
+        change_requested_date: new Date()
+      }
+    });
+
+    await prisma.systemAuditLog.create({
+      data: {
+        username: user || 'Confirmation User',
+        screen: 'Next Planned Looms',
+        action: 'DECLINE_LOOM_PLAN',
+        oldValue: 'SUGGESTED',
+        newValue: `CHANGE_REQUESTED (${remark.trim()})`
+      }
+    });
+
+    res.json({ success: true, assignment: updated });
+  } catch (error) {
+    console.error('Decline Plan Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/planning/next-plan/save', async (req, res) => {
+  try {
+    const { loomNo, nextDesign, orderNo, ibpoNo, expectedStartDate, targetRunoutDate, remarks, allowOverplan } = req.body;
+    const loomNum = Number(loomNo);
+
+    if (!loomNum || (!nextDesign && !orderNo && !ibpoNo)) {
+      return res.status(400).json({ error: 'Loom Number and Order/Design information are required.' });
+    }
+
+    const cleanIbpo = (ibpoNo || orderNo || '').toString().trim();
+    const cleanDesign = (nextDesign || cleanIbpo).toString().trim();
+
+    // Check if loom is currently running another design
+    const currentRun = await prisma.loomRunEntry.findUnique({
+      where: { loom_no: loomNum }
+    });
+    const isLoomRunning = currentRun && currentRun.design_no_sp_no && currentRun.design_no_sp_no.trim() !== '';
+
+    // Check existing plans for this loom
+    const existingPlans = await prisma.plannedAssignment.findMany({
+      where: {
+        loom_no: loomNum,
+        status: { in: ['PLANNED', 'NOT PLANNED', 'PENDING', 'BEAM ALLOCATED', 'CONFIRMED'] }
+      }
+    });
+
+    const matchingPlan = existingPlans.find(
+      p => (p.next_design || '').trim().toLowerCase() === cleanDesign.toLowerCase() ||
+        (p.order_no || '').trim().toLowerCase() === cleanIbpo.toLowerCase()
+    );
+
+    // Check beam stock availability (for informative status)
+    const beam = await prisma.beamStockMaster.findFirst({
+      where: { design_no: cleanDesign, status: 'Available' }
+    });
+
+    const design = await prisma.designMaster.findUnique({ where: { design_no_sp_no: cleanDesign } });
+    const reqReedCount = design ? (design.reed_count || '').toString().trim() : '';
+    const reed = await prisma.reedStockMaster.findFirst({
+      where: { reed_count: reqReedCount, status: 'Available', available_qty: { gt: 0 } }
+    });
+
+    const assignmentData = {
+      loom_no: loomNum,
+      current_design: isLoomRunning ? currentRun.design_no_sp_no : 'AVAILABLE',
+      next_design: cleanDesign,
+      order_no: cleanIbpo || 'SPUPL-ORD-NEXT',
+      planned_start_date: new Date(expectedStartDate || targetRunoutDate || new Date()),
+      planned_warp_meter: 10000,
+      planned_avg_daily_production: 200,
+      status: 'PLANNED',
+      reserved_beam_id: null,
+      reserved_beam_no: null,
+      reserved_reed_id: reed ? reed.id : null,
+      reserved_reed_no: reed ? reed.reed_no : null,
+      reed_status: reed ? 'REED AVAILABLE' : 'REED REQUIRED',
+      beam_status: 'BEAM PENDING',
+      sizing_status: beam ? 'COMPLETED' : 'RUNNING',
+      readiness_status: 'BEAM PENDING',
+      planning_score: 75,
+      remarks: remarks || 'Saved as Loom Plan (Beam Allocation Pending)',
+      confirmation_status: 'PLAN CREATED'
+    };
+
+    let assignment;
+    if (matchingPlan) {
+      assignment = await prisma.plannedAssignment.update({ where: { id: matchingPlan.id }, data: assignmentData });
+    } else {
+      assignment = await prisma.plannedAssignment.create({ data: assignmentData });
+    }
+
+    // Auto-evaluate Knotting & Warp Preparation details for this plan
+    let warpPreparation = null;
+    try {
+      warpPreparation = await warpPreparationService.getPreparationDetailsForPlan(assignment);
+    } catch (e) {
+      console.error('Error evaluating warp preparation:', e);
+    }
+
+    res.json({
+      success: true,
+      assignment,
+      beamAvailable: !!beam,
+      reedAvailable: !!reed,
+      warpPreparation,
+      message: `Loom ${loomNum} plan saved successfully! Status: PLANNED (Beam Allocation Pending).`
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/production/cut-beam', async (req, res) => {
+  try {
+    const { loomNo, beamId, beamNo, producedMeter, cutReason } = req.body;
+    const loomNum = parseInt(loomNo, 10);
+    if (!loomNum) return res.status(400).json({ error: 'Valid Loom Number required' });
+
+    // 1. Fetch current active run for loom
+    const activeRun = await prisma.loomRunEntry.findFirst({ where: { loom_no: loomNum } });
+    if (!activeRun) {
+      return res.status(404).json({ error: `No active run found on Loom ${loomNum}` });
+    }
+
+    const warpedMeter = Number(activeRun.warped_meter || 0);
+    const wovenMeter = Number(producedMeter !== undefined ? producedMeter : (activeRun.daily_production || 0));
+    const remainingMeter = Math.max(0, warpedMeter - wovenMeter);
+
+    // Helper for /CUT, /CUT-2, /CUT-3 suffix naming
+    const getCutName = (orig) => {
+      if (!orig) return 'BEAM/CUT';
+      let name = String(orig).trim();
+      const cutMatch = name.match(/\/CUT(?:-(\d+))?$/i);
+      if (!cutMatch) {
+        return `${name}/CUT`;
+      }
+      const count = cutMatch[1] ? parseInt(cutMatch[1], 10) + 1 : 2;
+      return name.replace(/\/CUT(?:-\d+)?$/i, `/CUT-${count}`);
+    };
+
+    // 2. Find target Beam Stock record
+    const targetBeamId = beamId ? parseInt(beamId, 10) : activeRun.beam_id;
+    let targetBeam = null;
+    if (targetBeamId) {
+      targetBeam = await prisma.beamStockMaster.findUnique({ where: { id: targetBeamId } });
+    }
+    if (!targetBeam && (beamNo || activeRun.current_beam_no)) {
+      const targetBeamNo = String(beamNo || activeRun.current_beam_no).trim();
+      targetBeam = await prisma.beamStockMaster.findFirst({
+        where: { beam_no: targetBeamNo }
+      });
+    }
+
+    const originalBeamNo = targetBeam ? targetBeam.beam_no : (beamNo || activeRun.current_beam_no || `BM-${loomNum}`);
+    const originalSetNo = targetBeam ? targetBeam.set_no : (activeRun.set_no || `SET-${loomNum}`);
+
+    const newCutBeamNo = getCutName(originalBeamNo);
+    const newCutSetNo = getCutName(originalSetNo);
+
+    // 3. Return Beam to Beam Stock with status 'CUT BEAM', updated cut beam_no & set_no, and remaining meter
+    if (targetBeam) {
+      await prisma.beamStockMaster.update({
+        where: { id: targetBeam.id },
+        data: {
+          beam_no: newCutBeamNo,
+          set_no: newCutSetNo,
+          status: 'CUT BEAM',
+          available_meter: remainingMeter,
+          current_balance_meter: remainingMeter,
+          loom_no_assigned: null,
+          reserved_for: null,
+          remarks: `CUT BEAM from Loom ${loomNum} (${wovenMeter}m woven, ${remainingMeter}m balance left). Reason: ${cutReason || 'Mid-run warp cut'}`
+        }
+      });
+    } else {
+      // Create new Cut Beam record in BeamStockMaster if not existing
+      await prisma.beamStockMaster.create({
+        data: {
+          date: new Date(),
+          design_no: activeRun.design_no_sp_no || 'UNKNOWN',
+          set_no: newCutSetNo,
+          beam_no: newCutBeamNo,
+          beam_length: remainingMeter,
+          available_meter: remainingMeter,
+          current_balance_meter: remainingMeter,
+          status: 'CUT BEAM',
+          remarks: `CUT BEAM from Loom ${loomNum} (${wovenMeter}m woven, ${remainingMeter}m balance left)`
+        }
+      });
+    }
+
+    // 4. Archive woven production to CompletedWarpHistory
+    if (activeRun && activeRun.design_no_sp_no && activeRun.design_no_sp_no !== '—' && wovenMeter > 0) {
+      try {
+        const start = activeRun.loom_start_date ? new Date(activeRun.loom_start_date) : new Date();
+        const end = new Date();
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        let runningDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        if (runningDays <= 0) runningDays = 1;
+        const avgDailyProd = Math.round(wovenMeter / runningDays);
+
+        const loom = await prisma.loomMaster.findUnique({ where: { loom_no: loomNum } });
+        const getLoomUnit = (no) => {
+          if (no <= 56) return 'I';
+          if (no <= 112) return 'II';
+          if (no <= 168) return 'III';
+          return 'IV';
+        };
+        const loomUnit = (loom && loom.unit && loom.unit !== 'Unknown') ? loom.unit : getLoomUnit(loomNum);
+
+        await prisma.completedWarpHistory.create({
+          data: {
+            loom_no: loomNum,
+            design_no_sp_no: activeRun.design_no_sp_no,
+            start_date: start,
+            end_date: end,
+            warp_meter: wovenMeter,
+            total_production_meter: wovenMeter,
+            running_days: runningDays,
+            avg_daily_production: avgDailyProd,
+            efficiency_pct: 100,
+            unit: loomUnit,
+            sort_change_type: activeRun.sort_change_type || null
+          }
+        });
+      } catch (err) {
+        console.error('Error saving cut beam history:', err);
+      }
+    }
+
+    // 5. Delete/Clear active run on Loom
+    await prisma.loomRunEntry.deleteMany({ where: { loom_no: loomNum } });
+
+    // 6. Set Loom status to Available
+    await prisma.loomMaster.update({
+      where: { loom_no: loomNum },
+      data: { status: 'Available' }
+    }).catch(() => { });
+
+    res.json({
+      success: true,
+      loomNo: loomNum,
+      cutBeamNo: newCutBeamNo,
+      cutSetNo: newCutSetNo,
+      warpedMeter,
+      producedMeter: wovenMeter,
+      remainingMeter,
+      message: `Cut Beam successful! Beam updated to #${newCutBeamNo} and returned to stock with ${remainingMeter}m balance as CUT BEAM.`
+    });
+  } catch (error) {
+    console.error('Cut Beam Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/sizing/requests/:id/progress', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, vendor_name, set_no, beam_no, actual_meter, warping_vendor, warping_dc_no, warping_batch, sizing_vendor, sizing_dc_no, sizing_machine, warping_remarks, sizing_remarks } = req.body;
+
+    const updateData = { status };
+    if (vendor_name) updateData.vendor_name = vendor_name;
+    if (set_no) updateData.set_no = set_no;
+    if (beam_no) updateData.beam_no = beam_no;
+    if (actual_meter !== undefined) updateData.actual_meter = actual_meter;
+    if (warping_vendor) updateData.warping_vendor = warping_vendor;
+    if (warping_dc_no) updateData.warping_dc_no = warping_dc_no;
+    if (warping_batch) updateData.warping_batch = warping_batch;
+    if (sizing_vendor) updateData.sizing_vendor = sizing_vendor;
+    if (sizing_dc_no) updateData.sizing_dc_no = sizing_dc_no;
+    if (sizing_machine) updateData.sizing_machine = sizing_machine;
+    if (warping_remarks) updateData.warping_remarks = warping_remarks;
+    if (sizing_remarks) updateData.sizing_remarks = sizing_remarks;
+
+    if (status === 'WARPING RUNNING') updateData.warping_start_date = new Date();
+    if (status === 'WARPING COMPLETED') updateData.warping_completion_date = new Date();
+    if (status === 'SIZING RUNNING') updateData.sizing_start_date = new Date();
+    if (status === 'SIZING COMPLETED') updateData.sizing_completion_date = new Date();
+
+    const updated = await prisma.beamPreparationRequest.update({
+      where: { id: Number(id) },
+      data: updateData
+    });
+
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/warp-load/import', async (req, res) => {
+  try {
+    const { matchRows, noMatchRows } = parseWarpLoadFile();
+    const existingLooms = await prisma.loomMaster.findMany();
+    const loomMap = new Map();
+    existingLooms.forEach(l => loomMap.set(l.loom_no, l));
+
+    const existingDesigns = await prisma.designMaster.findMany();
+    const designMap = new Map();
+    existingDesigns.forEach(d => designMap.set(d.design_no_sp_no.toLowerCase(), d));
+
+    const existingBeams = await prisma.beamStockMaster.findMany();
+    const beamMap = new Map();
+    existingBeams.forEach(b => {
+      if (b.beam_no) beamMap.set(b.beam_no.trim().toLowerCase(), b);
+    });
+
+    let mainEntryUpdated = 0;
+    let beamStockCreated = 0;
+    let beamStockUpdated = 0;
+    let conflicts = 0;
+
+    await prisma.$transaction(async (tx) => {
+      for (const row of matchRows) {
+        const loom = loomMap.get(row.loomNo);
+        if (!loom) {
+          conflicts++;
+          continue;
+        }
+
+        // 1. Ensure Design exists in DesignMaster
+        const dKey = row.designNoWarp.toLowerCase();
+        if (!designMap.has(dKey)) {
+          const newDesign = await tx.designMaster.create({
+            data: {
+              design_no_sp_no: row.designNoWarp,
+              construction: row.count || 'N/A',
+              weft_colours: 1,
+              frames: 4,
+              reed_space_warp_width: '190CM',
+              weave_type: 'CAM',
+              beam_type: 'SINGLE BEAM',
+              crimp_percent: 7,
+              total_ends: row.ends || null,
+              status: 'ACTIVE'
+            }
+          });
+          designMap.set(dKey, newDesign);
+        }
+
+        // 2. Parse Order No from Design No / IBPO
+        let orderNo = '';
+        if (row.designNoWarp.includes('-')) {
+          const parts = row.designNoWarp.split('-');
+          orderNo = parts[parts.length - 1].trim();
+        }
+
+        // 3. Create or Update BeamStockMaster
+        const bKey = row.beamNo.toLowerCase();
+        let beamRecord = beamMap.get(bKey);
+        const beamDate = new Date(row.beamStockDate + 'T00:00:00.000Z');
+
+        if (beamRecord) {
+          beamRecord = await tx.beamStockMaster.update({
+            where: { id: beamRecord.id },
+            data: {
+              date: beamDate,
+              design_no: row.designNoWarp,
+              order_no: orderNo || beamRecord.order_no,
+              ibpo: orderNo || beamRecord.ibpo,
+              count: row.count || beamRecord.count,
+              ends: row.ends !== null ? row.ends : beamRecord.ends,
+              beam_no: row.beamNo,
+              set_no: row.setNo || beamRecord.set_no,
+              available_meter: row.warpMtrs,
+              current_balance_meter: row.warpMtrs,
+              total_warped_meter: row.warpMtrs,
+              status: 'Running',
+              sizing_status: 'COMPLETED',
+              loom_no_assigned: row.loomNo,
+              unit: loom.unit || beamRecord.unit,
+              remarks: row.operator ? `Operator: ${row.operator}` : beamRecord.remarks
+            }
+          });
+          beamStockUpdated++;
+        } else {
+          beamRecord = await tx.beamStockMaster.create({
+            data: {
+              date: beamDate,
+              design_no: row.designNoWarp,
+              order_no: orderNo || null,
+              ibpo: orderNo || null,
+              count: row.count || null,
+              ends: row.ends,
+              beam_no: row.beamNo,
+              set_no: row.setNo,
+              available_meter: row.warpMtrs,
+              current_balance_meter: row.warpMtrs,
+              total_warped_meter: row.warpMtrs,
+              status: 'Running',
+              sizing_status: 'COMPLETED',
+              loom_no_assigned: row.loomNo,
+              unit: loom.unit || null,
+              remarks: row.operator ? `Operator: ${row.operator}` : 'Warp Loaded via Import'
+            }
+          });
+          beamMap.set(bKey, beamRecord);
+          beamStockCreated++;
+        }
+
+        // 4. Create or Update LoomRunEntry
+        const warpDate = new Date(row.warpLoadDate + 'T00:00:00.000Z');
+        await tx.loomRunEntry.upsert({
+          where: { loom_no: row.loomNo },
+          update: {
+            design_no_sp_no: row.designNoWarp,
+            current_beam_no: row.beamNo,
+            set_no: row.setNo,
+            beam_id: beamRecord.id,
+            order_no: orderNo || null,
+            customer_name: orderNo || null,
+            loom_start_date: warpDate,
+            warped_meter: row.warpMtrs,
+            remarks: row.operator ? `Operator: ${row.operator}` : 'Warp Loaded via Import'
+          },
+          create: {
+            loom_no: row.loomNo,
+            design_no_sp_no: row.designNoWarp,
+            current_beam_no: row.beamNo,
+            set_no: row.setNo,
+            beam_id: beamRecord.id,
+            order_no: orderNo || null,
+            customer_name: orderNo || null,
+            loom_start_date: warpDate,
+            warped_meter: row.warpMtrs,
+            daily_production: 0,
+            remarks: row.operator ? `Operator: ${row.operator}` : 'Warp Loaded via Import'
+          }
+        });
+        mainEntryUpdated++;
+
+        // 5. Update LoomMaster status to 'Running'
+        await tx.loomMaster.update({
+          where: { loom_no: row.loomNo },
+          data: { status: 'Running' }
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'WARP LOAD IMPORT COMPLETED',
+      matchedRows: matchRows.length,
+      mainEntryUpdated,
+      beamStockCreated,
+      beamStockUpdated,
+      noMatch: noMatchRows.length,
+      conflicts,
+      errors: 0,
+      noMatchList: noMatchRows
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.get('/api/warp-load/summary', async (req, res) => {
+  try {
+    const { matchRows, noMatchRows } = parseWarpLoadFile();
+    const activeRunsCount = await prisma.loomRunEntry.count();
+    const runningLoomsCount = await prisma.loomMaster.count({ where: { status: 'Running' } });
+
+    res.json({
+      success: true,
+      totalLooms: matchRows.length + noMatchRows.length,
+      matchedLooms: matchRows.length,
+      noMatchCount: noMatchRows.length,
+      currentlyRunning: runningLoomsCount,
+      activeRunsCount,
+      noMatchList: noMatchRows
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.get('/api/warp-preparation/all', async (req, res) => {
+  try {
+    const data = await warpPreparationService.getAllActivePreparationRecords();
+    res.json({ success: true, ...data });
+  } catch (error) {
+    console.error('Warp prep all records error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Recovered from commit 54d27756739858180e0760ecd23eaf7e5fced1da
+app.post('/api/warp-preparation/confirm', async (req, res) => {
+  try {
+    const { planId, loomNo, processType, startDate, loomStartDate, responsiblePerson, remarks } = req.body;
+    const user = req.headers['x-user'] || req.headers['x-role'] || 'Planner';
+
+    if (!processType) {
+      return res.status(400).json({ success: false, error: 'processType is required (KNOTTING, KNOTTING_SORT_CHANGE, or GAITING).' });
+    }
+    if (!planId && !loomNo) {
+      return res.status(400).json({ success: false, error: 'Either planId or loomNo is required.' });
+    }
+
+    const result = await warpPreparationService.confirmPreparationProcess({
+      planId,
+      loomNo,
+      processType,
+      startDate: startDate || loomStartDate,
+      responsiblePerson,
+      remarks,
+      user
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Warp prep confirm error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.use(
+  (req, res) => {
+    res.status(404).json({
+      success: false,
+
+      error:
+        `API endpoint ${req.method} ${req.url} not found`
+    });
+  }
+);
+
+// ----------------------------------------------------
+// EXPORT EXPRESS APP
+// ----------------------------------------------------
+
+
+
+// ============================================================
+// WARP PREPARATION - EVALUATION DETAILS
+// ============================================================
+app.get('/api/warp-preparation/evaluate/:id', async (req, res) => {
+  try {
+    const planId = Number(req.params.id);
+
+    if (!Number.isFinite(planId) || planId <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid plan ID is required.'
+      });
+    }
+
+    const details =
+      await warpPreparationService.getPreparationDetailsByPlanId(planId);
+
+    if (!details) {
+      return res.status(404).json({
+        success: false,
+        error: 'Planned loom record not found.'
+      });
+    }
+
+    return res.json({
+      success: true,
+      details
+    });
+  } catch (error) {
+    console.error('Warp preparation evaluation error:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to evaluate warp preparation.'
+    });
+  }
+});
+
+
+// ============================================================
+// WARP PREPARATION - STATUS UPDATE
+// Supports both PUT and PATCH because existing frontend pages
+// use both methods.
+// ============================================================
+
+const updateWarpPreparationStatus = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid preparation record ID is required.'
+      });
+    }
+
+    const {
+      status,
+      processStartDate,
+      processStartTime,
+      processCompletionDate,
+      processCompletionTime,
+      responsiblePerson,
+      remarks,
+      user
+    } = req.body || {};
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        error: 'status is required.'
+      });
+    }
+
+    const result =
+      await warpPreparationService.updateProcessStatus({
+        id,
+        status,
+        processStartDate,
+        processStartTime,
+        processCompletionDate,
+        processCompletionTime,
+        responsiblePerson,
+        remarks,
+        user:
+          user ||
+          req.headers['x-user'] ||
+          req.headers['x-role'] ||
+          'Planner'
+      });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('Warp preparation status update error:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update warp preparation status.'
+    });
+  }
+};
+
+app.put(
+  '/api/warp-preparation/status/:id',
+  updateWarpPreparationStatus
+);
+
+app.patch(
+  '/api/warp-preparation/status/:id',
+  updateWarpPreparationStatus
+);
+
+
+// ============================================================
+// WARP PREPARATION - HISTORY
+// ============================================================
+app.get('/api/warp-preparation/history/:loomNo', async (req, res) => {
+  try {
+    const loomNo = Number(req.params.loomNo);
+
+    if (!Number.isFinite(loomNo) || loomNo <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid loom number is required.'
+      });
+    }
+
+    const history =
+      await warpPreparationService.getPreparationHistory(loomNo);
+
+    return res.json({
+      success: true,
+      history: Array.isArray(history) ? history : []
+    });
+  } catch (error) {
+    console.error('Warp preparation history error:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to load warp preparation history.'
+    });
+  }
+});
+
+
+// ============================================================
+// WARP PREPARATION - WARP LOADING PREREQUISITE
+// ============================================================
+app.get('/api/warp-preparation/prerequisite/:loomNo', async (req, res) => {
+  try {
+    const loomNo = Number(req.params.loomNo);
+    const planId =
+      req.query.planId !== undefined &&
+      req.query.planId !== ''
+        ? Number(req.query.planId)
+        : undefined;
+
+    if (!Number.isFinite(loomNo) || loomNo <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid loom number is required.'
+      });
+    }
+
+    if (
+      planId !== undefined &&
+      (!Number.isFinite(planId) || planId <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid plan ID.'
+      });
+    }
+
+    const result =
+      await warpPreparationService.checkWarpLoadingPrerequisite(
+        loomNo,
+        planId
+      );
+
+    return res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('Warp preparation prerequisite error:', error);
+
+    return res.status(500).json({
+      success: false,
+      error:
+        error.message ||
+        'Failed to check warp preparation prerequisite.'
+    });
+  }
+});
+
+
+module.exports = app;
+
+// ----------------------------------------------------
+// LOCAL SERVER ONLY
+// ----------------------------------------------------
+
+if (!process.env.VERCEL) {
+  const PORT =
+    process.env.PORT || 3002;
+
+  app.listen(
+    PORT,
+    () => {
+      console.log(
+        `Backend server running locally on port ${PORT}`
+      );
+    }
+  );
+}
