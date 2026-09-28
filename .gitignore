@@ -31,12 +31,31 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
-backend/prisma/dev.db
-backend/.env
-.vercel
-.env*
 
-backend/backups/
+# Vercel
+.vercel
+
+# Databases and backups
 *.db
-*.backup_*
+backend/prisma/dev.db
+backend/backups/
 backend/scratch/
+*.backup-*
+*.backup_*
+
+# One-off repair, audit and debug scripts (project root only)
+/fix_*.js
+/repair_*.js
+/recover_*.js
+/patch_*.js
+/final_*.js
+/full_api_audit.js
+/inspect_*.js
+/precise_*.js
+/repair_prisma_schema.ps1
+/backend_startup_*.txt
+/SPUPL_FULL_API_AUDIT.txt
+backend/add_sort_change_type.js
+backend/apply_safe_columns.js
+backend/schema_diff.sql
+warp_debug_report.txt
