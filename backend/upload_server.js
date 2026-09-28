@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
@@ -2081,36 +2081,597 @@ app.get('/api/erp-alerts', async (req, res) => {
 // USERS
 // ----------------------------------------------------
 
+// GET USERS
 app.get('/api/users', async (req, res) => {
   try {
-    const users =
-      await prisma.user.findMany({
-        select: {
-          id: true,
-          employeeId: true,
-          employeeName: true,
-          username: true,
-          role: true,
-          department: true,
-          status: true
-        },
-
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        employeeId: true,
+        employeeName: true,
+        username: true,
+        role: true,
+        department: true,
+        status: true,
+        email: true,
+        mobile: true,
+        designation: true,
+        permissions: true,
+        remarks: true,
+        createdBy: true,
+        createdAt: true,
+        updatedAt: true,
+        lastLogin: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
 
     res.json({
-      users:
-        users || [],
-
-      total:
-        (users || []).length
+      success: true,
+      users: users || [],
+      total: (users || []).length
     });
   } catch (error) {
+    console.error('GET USERS ERROR:', error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to load users'
+    });
+  }
+});
+
+// CREATE USER
+app.post('/api/users', async (req, res) => {
+  try {
+    const body = req.body || {};
+
+    const employeeId = String(
+      body.employeeId ?? body.employee_id ?? ''
+    ).trim();
+
+    const employeeName = String(
+      body.employeeName ?? body.employee_name ?? ''
+    ).trim();
+
+    const username = String(
+      body.username ?? ''
+    ).trim();
+
+    const password = String(
+      body.password ?? ''
+    ).trim();
+
+    if (!employeeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Employee ID is required'
+      });
+    }
+
+    if (!employeeName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Employee Name is required'
+      });
+    }
+
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username is required'
+      });
+    }
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Password is required'
+      });
+    }
+
+    const existingEmployee = await prisma.user.findUnique({
+      where: {
+        employeeId
+      }
+    });
+
+    if (existingEmployee) {
+      return res.status(409).json({
+        success: false,
+        error: 'Employee ID already exists'
+      });
+    }
+
+    const existingUsername = await prisma.user.findUnique({
+      where: {
+        username
+      }
+    });
+
+    if (existingUsername) {
+      return res.status(409).json({
+        success: false,
+        error: 'Username already exists'
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const permissions =
+      body.permissions === undefined ||
+      body.permissions === null ||
+      body.permissions === ''
+        ? null
+        : typeof body.permissions === 'string'
+          ? body.permissions
+          : JSON.stringify(body.permissions);
+
+    const user = await prisma.user.create({
+      data: {
+        employeeId,
+        employeeName,
+        username,
+        email: body.email
+          ? String(body.email).trim()
+          : null,
+        mobile: body.mobile
+          ? String(body.mobile).trim()
+          : null,
+        department: body.department
+          ? String(body.department).trim()
+          : null,
+        designation: body.designation
+          ? String(body.designation).trim()
+          : null,
+        password_hash: passwordHash,
+        role: String(
+          body.role || 'VIEWER'
+        ).trim().toUpperCase(),
+        status: String(
+          body.status || 'ACTIVE'
+        ).trim().toUpperCase(),
+        permissions,
+        remarks: body.remarks
+          ? String(body.remarks).trim()
+          : null,
+        createdBy: String(
+          body.adminUser ||
+          body.createdBy ||
+          req.headers['x-user'] ||
+          'ADMIN'
+        ).trim()
+      }
+    });
+
+    const {
+      password_hash,
+      ...safeUser
+    } = user;
+
+    res.status(201).json({
+      success: true,
+      message: 'User created successfully',
+      user: safeUser
+    });
+
+  } catch (error) {
+    console.error('CREATE USER ERROR:', error);
+
+    if (error?.code === 'P2002') {
+      return res.status(409).json({
+        success: false,
+        error: 'Employee ID or Username already exists'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to create user'
+    });
+  }
+});
+
+// UPDATE USER
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid user ID'
+      });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: {
+        id
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const body = req.body || {};
+    const data = {};
+
+    if (
+      body.employeeId !== undefined ||
+      body.employee_id !== undefined
+    ) {
+      data.employeeId = String(
+        body.employeeId ??
+        body.employee_id ??
+        ''
+      ).trim();
+    }
+
+    if (
+      body.employeeName !== undefined ||
+      body.employee_name !== undefined
+    ) {
+      data.employeeName = String(
+        body.employeeName ??
+        body.employee_name ??
+        ''
+      ).trim();
+    }
+
+    if (body.username !== undefined) {
+      data.username = String(
+        body.username
+      ).trim();
+    }
+
+    if (body.email !== undefined) {
+      data.email = body.email
+        ? String(body.email).trim()
+        : null;
+    }
+
+    if (body.mobile !== undefined) {
+      data.mobile = body.mobile
+        ? String(body.mobile).trim()
+        : null;
+    }
+
+    if (body.department !== undefined) {
+      data.department = body.department
+        ? String(body.department).trim()
+        : null;
+    }
+
+    if (body.designation !== undefined) {
+      data.designation = body.designation
+        ? String(body.designation).trim()
+        : null;
+    }
+
+    if (body.role !== undefined) {
+      data.role = String(
+        body.role || 'VIEWER'
+      ).trim().toUpperCase();
+    }
+
+    if (body.status !== undefined) {
+      data.status = String(
+        body.status || 'ACTIVE'
+      ).trim().toUpperCase();
+    }
+
+    if (body.permissions !== undefined) {
+      data.permissions =
+        body.permissions === null ||
+        body.permissions === ''
+          ? null
+          : typeof body.permissions === 'string'
+            ? body.permissions
+            : JSON.stringify(body.permissions);
+    }
+
+    if (body.remarks !== undefined) {
+      data.remarks = body.remarks
+        ? String(body.remarks).trim()
+        : null;
+    }
+
+    if (
+      body.password !== undefined &&
+      String(body.password).trim()
+    ) {
+      data.password_hash =
+        await bcrypt.hash(
+          String(body.password).trim(),
+          10
+        );
+    }
+
+    const updated = await prisma.user.update({
+      where: {
+        id
+      },
+      data
+    });
+
+    const {
+      password_hash,
+      ...safeUser
+    } = updated;
+
     res.json({
-      users: [],
-      total: 0
+      success: true,
+      message: 'User updated successfully',
+      user: safeUser
+    });
+
+  } catch (error) {
+    console.error('UPDATE USER ERROR:', error);
+
+    if (error?.code === 'P2002') {
+      return res.status(409).json({
+        success: false,
+        error: 'Employee ID or Username already exists'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update user'
+    });
+  }
+});
+
+// PATCH USER
+app.patch('/api/users/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid user ID'
+      });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: {
+        id
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const body = req.body || {};
+    const data = {};
+
+    if (body.employeeId !== undefined) {
+      data.employeeId =
+        String(body.employeeId).trim();
+    }
+
+    if (body.employeeName !== undefined) {
+      data.employeeName =
+        String(body.employeeName).trim();
+    }
+
+    if (body.username !== undefined) {
+      data.username =
+        String(body.username).trim();
+    }
+
+    if (body.email !== undefined) {
+      data.email = body.email
+        ? String(body.email).trim()
+        : null;
+    }
+
+    if (body.mobile !== undefined) {
+      data.mobile = body.mobile
+        ? String(body.mobile).trim()
+        : null;
+    }
+
+    if (body.department !== undefined) {
+      data.department = body.department
+        ? String(body.department).trim()
+        : null;
+    }
+
+    if (body.designation !== undefined) {
+      data.designation = body.designation
+        ? String(body.designation).trim()
+        : null;
+    }
+
+    if (body.role !== undefined) {
+      data.role =
+        String(body.role).toUpperCase();
+    }
+
+    if (body.status !== undefined) {
+      data.status =
+        String(body.status).toUpperCase();
+    }
+
+    if (body.permissions !== undefined) {
+      data.permissions =
+        typeof body.permissions === 'string'
+          ? body.permissions
+          : JSON.stringify(body.permissions);
+    }
+
+    if (body.remarks !== undefined) {
+      data.remarks = body.remarks
+        ? String(body.remarks).trim()
+        : null;
+    }
+
+    if (
+      body.password !== undefined &&
+      String(body.password).trim()
+    ) {
+      data.password_hash =
+        await bcrypt.hash(
+          String(body.password).trim(),
+          10
+        );
+    }
+
+    const updated = await prisma.user.update({
+      where: {
+        id
+      },
+      data
+    });
+
+    const {
+      password_hash,
+      ...safeUser
+    } = updated;
+
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      user: safeUser
+    });
+
+  } catch (error) {
+    console.error('PATCH USER ERROR:', error);
+
+    if (error?.code === 'P2002') {
+      return res.status(409).json({
+        success: false,
+        error: 'Employee ID or Username already exists'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update user'
+    });
+  }
+});
+
+// DELETE USER
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid user ID'
+      });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: {
+        id
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    await prisma.user.delete({
+      where: {
+        id
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('DELETE USER ERROR:', error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to delete user'
+    });
+  }
+});
+
+// RESET PASSWORD
+app.put('/api/users/:id/password', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    const password = String(
+      req.body?.password ??
+      req.body?.newPassword ??
+      ''
+    ).trim();
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid user ID'
+      });
+    }
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        error: 'New password is required'
+      });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: {
+        id
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const passwordHash =
+      await bcrypt.hash(password, 10);
+
+    await prisma.user.update({
+      where: {
+        id
+      },
+      data: {
+        password_hash: passwordHash,
+        failedAttempts: 0
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+
+  } catch (error) {
+    console.error('RESET PASSWORD ERROR:', error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to reset password'
     });
   }
 });
