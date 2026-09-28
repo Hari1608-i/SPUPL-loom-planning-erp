@@ -1,11 +1,14 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
+
 
 model AllocationAuditLog {
   id        Int      @id @default(autoincrement())
@@ -441,17 +444,17 @@ model OrderMaster {
   sizing_status             String?   @default("APPROVED")
   beam_status               String?   @default("BEAM NOT AVAILABLE")
   produced_qty              Float     @default(0)
-  short_excess_qty          Float     @default(0)
+  short_excess_qty          Float?    @default(0)
   order_completion_status   String    @default("ACTIVE")
   actual_completion_date    DateTime?
   completion_remarks        String?
   completed_by              String?
   approved_by               String?
   approval_date             DateTime?
-  warp_confirmed_qty        Float     @default(0)
-  warp_balance_qty          Float     @default(0)
+  warp_confirmed_qty        Float?    @default(0)
+  warp_balance_qty          Float?    @default(0)
   delay_status              String?
-  order_received_date       DateTime  @default(now())
+  order_received_date       DateTime? @default(now())
   target_delivery_date      DateTime?
   
   status                    String    @default("ORDER RECEIVED")
@@ -476,7 +479,7 @@ model OrderCompletionHistory {
   grey_qty                  Float?
   warp_qty                  Float?
   uom                       String    @default("Meters")
-  order_received_date       DateTime
+  order_received_date       DateTime?
   target_delivery_date      DateTime?
   
   // Yarn Details
@@ -665,9 +668,9 @@ model SizingConfirmation {
   customer_name           String
   construction            String?
   warp_required_qty       Float     @default(0)
-  warp_confirmed_qty      Float     @default(0)
+  warp_confirmed_qty        Float?    @default(0)
   warp_received_qty       Float     @default(0)
-  warp_balance_qty        Float     @default(0)
+  warp_balance_qty          Float?    @default(0)
   sizing_required_qty     Float     @default(0)
   sizing_eligible_qty     Float     @default(0)
   sizing_completed_qty    Float     @default(0)
@@ -799,6 +802,8 @@ model WarpPreparationProcess {
   @@index([plan_id])
   @@index([status])
 }
+
+
 
 
 
