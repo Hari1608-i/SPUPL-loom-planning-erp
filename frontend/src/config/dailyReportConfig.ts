@@ -139,32 +139,45 @@ export const DEPARTMENTS: DepartmentConfig[] = [
     }
   },
 
-  // 4. GREIGE INSPECTION
+  // 4. GREIGE INSPECTION (Combined Greige Inspection & Warehouse)
   {
     code: 'GREIGE_INSPECTION',
     name: 'GREIGE INSPECTION',
     head: 'GUNASEKARAN',
-    mentor: 'M.RAMESH',
-    description: 'Inhouse, Vendor and Washing greige inspection, passed & rejection rates',
+    mentor: 'M.RAMESH / VIVEK',
+    description: 'Inhouse, Vendor and Washing greige inspection, passed & rejection rates, production and outward dispatch',
     rawMetrics: [
+      // Greige Inspection Fields
       { code: 'INHOUSE_TOTAL_INSPECTED', name: 'Inhouse - Total Mtrs Inspected', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
       { code: 'INHOUSE_TOTAL_PASSED', name: 'Inhouse - Total Mtrs Passed', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
       { code: 'VENDOR_TOTAL_INSPECTED', name: 'Vendor - Total Mtrs Inspected', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
       { code: 'VENDOR_TOTAL_PASSED', name: 'Vendor - Total Mtrs Passed', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
       { code: 'WASHING_TOTAL_MTRS', name: 'Washing - Total Mtrs', type: 'number', unit: 'Mtrs', defaultValue: 0, placeholder: 'Mtrs' },
-      { code: 'WASHING_TOTAL_PASSED', name: 'Washing - Total Passed', type: 'number', unit: 'Mtrs', defaultValue: 0, placeholder: 'Mtrs' }
+      { code: 'WASHING_TOTAL_PASSED', name: 'Washing - Total Passed', type: 'number', unit: 'Mtrs', defaultValue: 0, placeholder: 'Mtrs' },
+      // Greige Warehouse Fields
+      { code: 'TOTAL_PRODN_GREIGE', name: 'Total Prodn - Greige (Mtrs)', type: 'number', target: 75000, unit: 'Mtrs', placeholder: 'Mtrs' },
+      { code: 'TOTAL_PRODN_FINISH', name: 'Total Prodn - Finish (Mtrs)', type: 'number', target: 0, unit: 'Mtrs', placeholder: 'Mtrs' },
+      { code: 'GREIGE_YD_OUTWARD', name: 'Greige & YD Outward (Mtrs)', type: 'number', target: 80000, unit: 'Mtrs', placeholder: 'Mtrs' }
     ],
     calculatedMetrics: [
+      // Greige Inspection Calculated Metrics
       { code: 'INHOUSE_TOTAL_REJECTED', name: 'Inhouse - Total Rejected', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'INHOUSE_REJECTION_PCT', name: 'Inhouse - Rejection %', type: 'number', unit: '%', isCalculated: true },
       { code: 'VENDOR_TOTAL_REJECTED', name: 'Vendor - Total Rejected', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'VENDOR_REJECTION_PCT', name: 'Vendor - Rejection %', type: 'number', unit: '%', isCalculated: true },
+      { code: 'WASHING_TOTAL_REJECTED', name: 'Washing - Total Rejected', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'TOTAL_MTRS_INSPECTED', name: 'Combined Total Inspected', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'TOTAL_MTRS_PASSED', name: 'Combined Total Passed', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'TOTAL_MTRS_REJECTED', name: 'Combined Total Rejected', type: 'number', unit: 'Mtrs', isCalculated: true },
-      { code: 'OVERALL_REJECTION_PCT', name: 'Combined Overall Rejection %', type: 'number', unit: '%', isCalculated: true }
+      { code: 'OVERALL_REJECTION_PCT', name: 'Combined Overall Rejection %', type: 'number', unit: '%', isCalculated: true },
+      // Greige Warehouse Calculated Metrics
+      { code: 'PRODN_GREIGE_DIFF', name: 'Greige Prodn Diff (vs 75k)', type: 'number', unit: 'Mtrs', isCalculated: true },
+      { code: 'PRODN_GREIGE_ACHIEVEMENT_PCT', name: 'Greige Prodn Achievement %', type: 'number', unit: '%', isCalculated: true },
+      { code: 'OUTWARD_DIFF', name: 'Outward Diff (vs 80k)', type: 'number', unit: 'Mtrs', isCalculated: true },
+      { code: 'OUTWARD_ACHIEVEMENT_PCT', name: 'Outward Achievement %', type: 'number', unit: '%', isCalculated: true }
     ],
     calculate: (raw) => {
+      // Greige Inspection Calculations
       const hasInInsp = isEntered(raw.INHOUSE_TOTAL_INSPECTED);
       const hasInPass = isEntered(raw.INHOUSE_TOTAL_PASSED);
       const inInsp = hasInInsp ? Number(raw.INHOUSE_TOTAL_INSPECTED) : null;
@@ -193,6 +206,12 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       const totRej = hasAnyRej ? Number(((typeof inRej === 'number' ? inRej : 0) + (typeof venRej === 'number' ? venRej : 0) + (typeof washRej === 'number' ? washRej : 0)).toFixed(1)) : '';
       const totRejPct = (typeof totInsp === 'number' && totInsp > 0 && typeof totRej === 'number') ? Number(((totRej / totInsp) * 100).toFixed(2)) : '';
 
+      // Greige Warehouse Calculations
+      const isGrg = isEntered(raw.TOTAL_PRODN_GREIGE);
+      const isOut = isEntered(raw.GREIGE_YD_OUTWARD);
+      const grg = isGrg ? Number(raw.TOTAL_PRODN_GREIGE) : null;
+      const out = isOut ? Number(raw.GREIGE_YD_OUTWARD) : null;
+
       return {
         INHOUSE_TOTAL_REJECTED: inRej,
         INHOUSE_REJECTION_PCT: inRejPct,
@@ -202,7 +221,11 @@ export const DEPARTMENTS: DepartmentConfig[] = [
         TOTAL_MTRS_INSPECTED: totInsp,
         TOTAL_MTRS_PASSED: totPass,
         TOTAL_MTRS_REJECTED: totRej,
-        OVERALL_REJECTION_PCT: totRejPct
+        OVERALL_REJECTION_PCT: totRejPct,
+        PRODN_GREIGE_DIFF: grg !== null ? Math.round(grg - 75000) : '',
+        PRODN_GREIGE_ACHIEVEMENT_PCT: grg !== null ? Number(((grg / 75000) * 100).toFixed(1)) : '',
+        OUTWARD_DIFF: out !== null ? Math.round(out - 80000) : '',
+        OUTWARD_ACHIEVEMENT_PCT: out !== null ? Number(((out / 80000) * 100).toFixed(1)) : ''
       };
     }
   },
@@ -450,37 +473,6 @@ export const DEPARTMENTS: DepartmentConfig[] = [
     }
   },
 
-  // 9. GREY WAREHOUSE
-  {
-    code: 'GREY_WAREHOUSE',
-    name: 'GREY WAREHOUSE',
-    head: 'GUNASEKARAN',
-    mentor: 'M.RAMESH / VIVEK',
-    description: 'Greige production received, finished fabric production & outward dispatch',
-    rawMetrics: [
-      { code: 'TOTAL_PRODN_GREIGE', name: 'Total Prodn - Greige (Mtrs)', type: 'number', target: 75000, unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'TOTAL_PRODN_FINISH', name: 'Total Prodn - Finish (Mtrs)', type: 'number', target: 0, unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'GREIGE_YD_OUTWARD', name: 'Greige & YD Outward (Mtrs)', type: 'number', target: 80000, unit: 'Mtrs', placeholder: 'Mtrs' }
-    ],
-    calculatedMetrics: [
-      { code: 'PRODN_GREIGE_DIFF', name: 'Greige Prodn Diff (vs 75k)', type: 'number', unit: 'Mtrs', isCalculated: true },
-      { code: 'PRODN_GREIGE_ACHIEVEMENT_PCT', name: 'Greige Prodn Achievement %', type: 'number', unit: '%', isCalculated: true },
-      { code: 'OUTWARD_DIFF', name: 'Outward Diff (vs 80k)', type: 'number', unit: 'Mtrs', isCalculated: true },
-      { code: 'OUTWARD_ACHIEVEMENT_PCT', name: 'Outward Achievement %', type: 'number', unit: '%', isCalculated: true }
-    ],
-    calculate: (raw) => {
-      const isGrg = isEntered(raw.TOTAL_PRODN_GREIGE);
-      const isOut = isEntered(raw.GREIGE_YD_OUTWARD);
-      const grg = isGrg ? Number(raw.TOTAL_PRODN_GREIGE) : null;
-      const out = isOut ? Number(raw.GREIGE_YD_OUTWARD) : null;
-      return {
-        PRODN_GREIGE_DIFF: grg !== null ? Math.round(grg - 75000) : '',
-        PRODN_GREIGE_ACHIEVEMENT_PCT: grg !== null ? Number(((grg / 75000) * 100).toFixed(1)) : '',
-        OUTWARD_DIFF: out !== null ? Math.round(out - 80000) : '',
-        OUTWARD_ACHIEVEMENT_PCT: out !== null ? Number(((out / 80000) * 100).toFixed(1)) : ''
-      };
-    }
-  },
 
   // 10. OUTSOURCING
   {
@@ -629,6 +621,9 @@ export const DEPARTMENTS: DepartmentConfig[] = [
 export function getDepartment(code: string): DepartmentConfig | undefined {
   if (code === 'HRD_TRANSPORT') {
     return DEPARTMENTS.find(d => d.code === 'HRD');
+  }
+  if (code === 'GREY_WAREHOUSE' || code === 'WAREHOUSE') {
+    return DEPARTMENTS.find(d => d.code === 'GREIGE_INSPECTION');
   }
   return DEPARTMENTS.find(d => d.code === code);
 }

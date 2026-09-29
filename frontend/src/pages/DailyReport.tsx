@@ -197,6 +197,8 @@ export default function DailyReport() {
   const [viewMode, setViewMode] = useState<ViewMode>('DAILY');
 
   const [selectedDeptCode, setSelectedDeptCode] = useState<string>('SIZING');
+  const [selectedUnit, setSelectedUnit] = useState<string>('All Units');
+  const UNITS = useMemo(() => ['All Units', 'Unit I', 'Unit II', 'Unit III', 'Unit IV', 'Unit V'], []);
 
   // ── DATE CONTROL 1: ENTRY DATE (Controls ONLY Department Data Entry) ──
   const [entryDate, setEntryDate] = useState<string>('2026-08-26');
@@ -450,20 +452,22 @@ export default function DailyReport() {
     return getDepartmentByCode(selectedDeptCode) || DEPARTMENTS[0];
   }, [selectedDeptCode]);
 
-  // Effective Head & Mentor for current department
+  // Effective Head & Mentor for current department (Persistent Master Data by Dept + Unit)
   const currentHead = useMemo(() => {
     if (headInput) return headInput;
-    const master = departmentMasters[currentDept.code];
+    const unitKey = selectedUnit && selectedUnit !== 'All Units' ? `${currentDept.code}__${selectedUnit}` : '';
+    const master = (unitKey && departmentMasters[unitKey]) || departmentMasters[currentDept.code];
     if (master?.head) return master.head;
     return currentDept.head || 'N/A';
-  }, [headInput, departmentMasters, currentDept]);
+  }, [headInput, departmentMasters, currentDept, selectedUnit]);
 
   const currentMentor = useMemo(() => {
     if (mentorInput) return mentorInput;
-    const master = departmentMasters[currentDept.code];
+    const unitKey = selectedUnit && selectedUnit !== 'All Units' ? `${currentDept.code}__${selectedUnit}` : '';
+    const master = (unitKey && departmentMasters[unitKey]) || departmentMasters[currentDept.code];
     if (master?.mentor) return master.mentor;
     return currentDept.mentor || 'N/A';
-  }, [mentorInput, departmentMasters, currentDept]);
+  }, [mentorInput, departmentMasters, currentDept, selectedUnit]);
 
   // Check if current department has saved entries for selectedDate in SQL
   const isCurrentDeptSaved = useMemo(() => {
@@ -490,12 +494,12 @@ export default function DailyReport() {
     fetchHistoryDates();
   }, [fetchHistoryDates]);
 
-  // Fetch Daily Data from SQL for the selected date
+  // Fetch Daily Data from SQL for the selected date and unit
   const fetchDailyData = useCallback(async (date: string) => {
     setLoading(true);
     setFeedbackMessage(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/daily-report?date=${date}`);
+      const res = await fetch(`${API_BASE_URL}/api/daily-report?date=${date}&unit=${encodeURIComponent(selectedUnit)}`);
       if (!res.ok) throw new Error('Failed to fetch daily report from database');
       const data = await res.json();
 
@@ -544,16 +548,26 @@ export default function DailyReport() {
         }
       });
 
+      // WEAVING MONTHLY TARGET: Apply saved monthly target to all dates in this month
+      if (selectedDeptCode === 'WEAVING' && data.monthlyTargets && data.monthlyTargets.targets) {
+        Object.entries(data.monthlyTargets.targets).forEach(([mCode, tVal]) => {
+          if (tVal !== undefined && tVal !== null) {
+            targetsMap[mCode] = Number(tVal);
+          }
+        });
+      }
+
       setDailyEntries(entriesMap);
       // For any metric not in SQL, inputsMap[metric.code] will be undefined -> starts EMPTY!
       setFormInputs(inputsMap);
       setEditedTargets(targetsMap);
       setDeptRemarks(savedDeptRemarks);
 
-      // Set head and mentor inputs
-      const defaultMaster = mastersMap[selectedDeptCode];
-      setHeadInput(savedDeptHead || defaultMaster?.head || currentDept.head || '');
-      setMentorInput(savedDeptMentor || defaultMaster?.mentor || currentDept.mentor || '');
+      // Set head and mentor inputs from persistent master (or fallback)
+      const unitKey = selectedUnit && selectedUnit !== 'All Units' ? `${selectedDeptCode}__${selectedUnit}` : '';
+      const defaultMaster = (unitKey && mastersMap[unitKey]) || mastersMap[selectedDeptCode];
+      setHeadInput(defaultMaster?.head || savedDeptHead || currentDept.head || '');
+      setMentorInput(defaultMaster?.mentor || savedDeptMentor || currentDept.mentor || '');
 
       // Load monthly summary data in background for instant print availability
       const monthStr = date.substring(0, 7);
@@ -570,11 +584,42 @@ export default function DailyReport() {
     } finally {
       setLoading(false);
     }
-  }, [selectedDeptCode, currentDept]);
+  }, [selectedDeptCode, currentDept, selectedUnit]);
 
   useEffect(() => {
     fetchDailyData(selectedDate);
-  }, [selectedDate, selectedDeptCode, fetchDailyData]);
+  }, [selectedDate, selectedDeptCode, selectedUnit, fetchDailyData]);
+
+  // Handler to permanently save Department Head & Mentor
+  const handleSaveHeadMentor = async () => {
+    try {
+      const payload = {
+        department_code: currentDept.code,
+        unit: selectedUnit,
+        department_head: headInput,
+        mentor: mentorInput
+      };
+      const res = await fetch(`${API_BASE_URL}/api/daily-report/department-masters`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error('Failed to save to database');
+      const unitKey = selectedUnit && selectedUnit !== 'All Units' ? `${currentDept.code}__${selectedUnit}` : currentDept.code;
+      setDepartmentMasters(prev => ({
+        ...prev,
+        [unitKey]: { head: headInput, mentor: mentorInput },
+        [currentDept.code]: { head: headInput, mentor: mentorInput }
+      }));
+      setEditHeadMentorMode(false);
+      setFeedbackMessage({
+        type: 'success',
+        text: `Saved Department Head (${headInput}) and Mentor (${mentorInput}) permanently!`
+      });
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: 'Error saving Head/Mentor: ' + err.message });
+    }
+  };
 
   // Fetch Weekly Data
   const fetchWeeklyData = useCallback(async () => {
@@ -754,7 +799,8 @@ export default function DailyReport() {
         mentor: currentMentor,
         remarks: deptRemarks,
         entered_by: user?.employeeName || user?.username || 'ADMIN',
-        metrics: metricsToSave
+        metrics: metricsToSave,
+        unit: selectedUnit
       };
 
       const res = await fetch(`${API_BASE_URL}/api/daily-report`, {
@@ -766,6 +812,32 @@ export default function DailyReport() {
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.error || 'Failed to save daily entries');
+      }
+
+      // WEAVING MONTHLY TARGET FIXING: Save target permanently for the entire month
+      if (currentDept.code === 'WEAVING') {
+        const monthStr = selectedDate.substring(0, 7);
+        const weavingTargets: Record<string, number> = {};
+        if (editedTargets['INHOUSE_MTRS'] !== undefined) {
+          weavingTargets['INHOUSE_MTRS'] = editedTargets['INHOUSE_MTRS'];
+        }
+        if (editedTargets['INHOUSE_KPICKS'] !== undefined) {
+          weavingTargets['INHOUSE_KPICKS'] = editedTargets['INHOUSE_KPICKS'];
+        }
+        try {
+          await fetch(`${API_BASE_URL}/api/daily-report/targets`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              department_code: 'WEAVING',
+              month: monthStr,
+              unit: selectedUnit,
+              targets: weavingTargets
+            })
+          });
+        } catch (tErr) {
+          console.warn('Target save warning:', tErr);
+        }
       }
 
       setSaveSuccess(true);
@@ -4082,8 +4154,24 @@ return (
                 <Building2 className="w-6 h-6" />
               </div>
               <div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <h2 className="text-xl font-black tracking-tight">{currentDept.name}</h2>
+
+                  {/* Unit Selector */}
+                  <div className="flex items-center gap-1.5 bg-white/10 px-2.5 py-1 rounded-xl border border-white/20">
+                    <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Unit:</span>
+                    <select
+                      value={selectedUnit}
+                      onChange={e => setSelectedUnit(e.target.value)}
+                      className="bg-transparent text-xs font-black text-white outline-none cursor-pointer"
+                    >
+                      {UNITS.map(u => (
+                        <option key={u} value={u} className="bg-slate-900 text-white font-bold">
+                          {u}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
                   {/* Edit button when saved */}
                   {isCurrentDeptSaved && (
@@ -4135,10 +4223,17 @@ return (
                     />
                   </div>
                   <button
-                    onClick={() => setEditHeadMentorMode(false)}
-                    className="mt-3 px-2 py-1 bg-indigo-600 text-white rounded text-[10px] font-bold"
+                    onClick={handleSaveHeadMentor}
+                    className="mt-3 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold shadow-xs transition-colors"
+                    title="Save Department Head & Mentor permanently to database"
                   >
-                    Done
+                    Save Master
+                  </button>
+                  <button
+                    onClick={() => setEditHeadMentorMode(false)}
+                    className="mt-3 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded text-[10px] font-bold transition-colors"
+                  >
+                    Cancel
                   </button>
                 </div>
               ) : (
@@ -4186,17 +4281,23 @@ return (
                 </div>
 
                 {/* Target Edit Toggle */}
-                <button
-                  onClick={() => setEditTargetsMode(v => !v)}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${editTargetsMode
-                    ? 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950 dark:text-amber-300'
-                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                    }`}
-                  title="Toggle editable target values"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>{editTargetsMode ? 'Close Target Edit' : 'Edit Targets'}</span>
-                </button>
+                {currentDept.code === 'WEAVING' ? (
+                  <button
+                    onClick={() => setEditTargetsMode(v => !v)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${editTargetsMode
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950 dark:text-amber-300'
+                      : 'bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 hover:bg-amber-100'
+                      }`}
+                    title="Change Weaving Monthly Target"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>{editTargetsMode ? 'Close Target Edit' : 'Edit Weaving Target'}</span>
+                  </button>
+                ) : (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    Monthly Target Fixed
+                  </span>
+                )}
               </div>
 
               <div className="space-y-4">
@@ -4275,6 +4376,133 @@ return (
                       </div>
                     </div>
                   </div>
+                ) : currentDept.code === 'GREIGE_INSPECTION' ? (
+                  <div className="space-y-6">
+                    {/* Section A: Greige & Finished Inspection */}
+                    <div className="space-y-3.5">
+                      <div className="flex items-center gap-2 pb-1 border-b border-indigo-200 dark:border-indigo-800">
+                        <Building2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        <h4 className="text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wider">
+                          Section A: Greige &amp; Finished Inspection (Inhouse, Vendor &amp; Washing)
+                        </h4>
+                      </div>
+                      {currentDept.rawMetrics
+                        .filter(m => !['TOTAL_PRODN_GREIGE', 'TOTAL_PRODN_FINISH', 'GREIGE_YD_OUTWARD'].includes(m.code))
+                        .map((metric: MetricDefinition) => {
+                          const val = formInputs[metric.code] !== undefined ? formInputs[metric.code] : '';
+                          const effectiveTarget = editedTargets[metric.code] !== undefined
+                            ? editedTargets[metric.code]
+                            : (metric.target || 0);
+
+                          return (
+                            <div
+                              key={metric.code}
+                              className="bg-slate-50 dark:bg-slate-900/50 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors"
+                            >
+                              <div className="flex items-center justify-between mb-1.5">
+                                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                  <span>{metric.name}</span>
+                                  {metric.unit && (
+                                    <span className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-800 rounded text-[10px] font-semibold text-slate-600 dark:text-slate-400">
+                                      {metric.unit}
+                                    </span>
+                                  )}
+                                </label>
+                                {effectiveTarget > 0 && (
+                                  <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-900">
+                                    Target: {effectiveTarget.toLocaleString()} {metric.unit}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  step="any"
+                                  value={val}
+                                  onChange={e => handleInputChange(metric.code, e.target.value)}
+                                  placeholder={metric.placeholder || `Enter actual ${metric.unit ? `(${metric.unit})` : 'value'}...`}
+                                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                                {metric.unit && (
+                                  <span className="absolute right-3 top-2 text-xs font-bold text-slate-400 pointer-events-none">
+                                    {metric.unit}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+
+                    {/* Section B: Greige Warehouse */}
+                    <div className="p-4 bg-gradient-to-r from-blue-50/80 via-indigo-50/50 to-blue-50/80 dark:from-blue-950/20 dark:via-indigo-950/20 dark:to-blue-950/20 rounded-xl border border-blue-200 dark:border-blue-800/60 space-y-3">
+                      <div className="flex items-center justify-between border-b border-blue-200 dark:border-blue-800/40 pb-2">
+                        <div className="flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          <div>
+                            <h4 className="text-xs font-black text-blue-950 dark:text-blue-200 uppercase tracking-wider">
+                              Section B: Greige Warehouse (Production &amp; Outward Dispatch)
+                            </h4>
+                            <p className="text-[10px] text-blue-800 dark:text-blue-400">
+                              Merged floor data entry for Greige &amp; Finish Production and Outward Dispatch
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-200/80 dark:bg-blue-900/80 text-blue-900 dark:text-blue-200">
+                          WAREHOUSE FIELDS
+                        </span>
+                      </div>
+
+                      <div className="space-y-3 pt-1">
+                        {currentDept.rawMetrics
+                          .filter(m => ['TOTAL_PRODN_GREIGE', 'TOTAL_PRODN_FINISH', 'GREIGE_YD_OUTWARD'].includes(m.code))
+                          .map((metric: MetricDefinition) => {
+                            const val = formInputs[metric.code] !== undefined ? formInputs[metric.code] : '';
+                            const effectiveTarget = editedTargets[metric.code] !== undefined
+                              ? editedTargets[metric.code]
+                              : (metric.target || 0);
+
+                            return (
+                              <div
+                                key={metric.code}
+                                className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-blue-200 dark:border-slate-700 shadow-xs"
+                              >
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                    <span>{metric.name}</span>
+                                    {metric.unit && (
+                                      <span className="px-1.5 py-0.5 bg-blue-100 dark:bg-slate-700 rounded text-[10px] font-semibold text-blue-800 dark:text-blue-300">
+                                        {metric.unit}
+                                      </span>
+                                    )}
+                                  </label>
+                                  {effectiveTarget > 0 && (
+                                    <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-2 py-0.5 rounded-md border border-blue-100 dark:border-blue-900">
+                                      Target: {effectiveTarget.toLocaleString()} {metric.unit}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="relative">
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={val}
+                                    onChange={e => handleInputChange(metric.code, e.target.value)}
+                                    placeholder={metric.placeholder || `Enter actual ${metric.unit ? `(${metric.unit})` : 'value'}...`}
+                                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none"
+                                  />
+                                  {metric.unit && (
+                                    <span className="absolute right-3 top-2 text-xs font-bold text-slate-400 pointer-events-none">
+                                      {metric.unit}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  </div>
                 ) : (
                   <>
                     {(currentDept.code === 'PROCESSING_DYEING'
@@ -4286,12 +4514,19 @@ return (
                         ? editedTargets[metric.code]
                         : (metric.target || 0);
 
+                      const isWeaving = currentDept.code === 'WEAVING';
+                      const isWeavingTarget = isWeaving && (metric.code === 'INHOUSE_MTRS' || metric.code === 'INHOUSE_KPICKS');
+
                       return (
                         <div
                           key={metric.code}
-                          className="bg-slate-50 dark:bg-slate-900/50 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors"
+                          className={`p-3.5 rounded-xl border transition-colors ${
+                            isWeavingTarget
+                              ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-700/60'
+                              : 'bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700'
+                          }`}
                         >
-                          <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                             <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                               <span>{metric.name}</span>
                               {metric.unit && (
@@ -4302,7 +4537,21 @@ return (
                             </label>
 
                             {/* Target Pill / Input */}
-                            {editTargetsMode ? (
+                            {isWeavingTarget ? (
+                              <div className="flex items-center gap-1.5 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-lg border-2 border-amber-400 shadow-2xs">
+                                <span className="text-[10px] font-black text-amber-700 dark:text-amber-300 uppercase">
+                                  Monthly Fixed Target ({selectedDate.substring(0, 7)}):
+                                </span>
+                                <input
+                                  type="number"
+                                  value={effectiveTarget || ''}
+                                  onChange={e => handleTargetChange(metric.code, e.target.value)}
+                                  className="w-24 px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/60 border border-amber-400 rounded text-xs font-black text-amber-900 dark:text-amber-100 outline-none"
+                                  title="Weaving Unit Entry Target: Saving fixes this target for all dates in this month"
+                                />
+                                <span className="text-[10px] text-slate-400 font-bold">{metric.unit}</span>
+                              </div>
+                            ) : editTargetsMode && isWeaving ? (
                               <div className="flex items-center gap-1">
                                 <span className="text-[10px] font-bold text-slate-400">Target:</span>
                                 <input

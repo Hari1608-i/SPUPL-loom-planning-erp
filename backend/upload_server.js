@@ -1982,8 +1982,8 @@ app.get('/api/daily-report', async (req, res) => {
           { department_code: 'TRANSPORT' },
           { department_code: 'HRD_TRANSPORT', metric_code: { in: ['TRANSPORT_TRIPS'] } }
         ];
-      } else if (deptUpper === 'GREY_WAREHOUSE') {
-        where.department_code = { in: ['GREY_WAREHOUSE', 'WAREHOUSE'] };
+      } else if (deptUpper === 'GREIGE_INSPECTION' || deptUpper === 'GREY_WAREHOUSE' || deptUpper === 'WAREHOUSE') {
+        where.department_code = { in: ['GREIGE_INSPECTION', 'GREY_WAREHOUSE', 'WAREHOUSE'] };
       } else if (deptUpper === 'PROCESSING_DYEING') {
         where.department_code = { in: ['PROCESSING_DYEING', 'PROCESSING'] };
       } else {
@@ -2018,7 +2018,35 @@ app.get('/api/daily-report', async (req, res) => {
       finalEntries = Array.from(aggMap.values());
     }
 
-    res.json({ entries: finalEntries, count: finalEntries.length, departmentMasters: masters });
+    // Resolve saved monthly targets for the queried month (YYYY-MM)
+    const dateArg = String(startDate || date || '');
+    const reportMonth = dateArg ? dateArg.substring(0, 7) : new Date().toISOString().substring(0, 7);
+    const targetMasters = masters.filter(m => m.department_code.startsWith('TARGET__') && m.department_code.endsWith(`__${reportMonth}`));
+    const monthlyTargetsMap = {};
+    targetMasters.forEach(tm => {
+      try {
+        const parsed = JSON.parse(tm.department_name);
+        const parts = tm.department_code.split('__');
+        const dept = parts[1];
+        if (!monthlyTargetsMap[dept]) monthlyTargetsMap[dept] = {};
+        Object.assign(monthlyTargetsMap[dept], parsed);
+      } catch (e) {
+        if (tm.department_head && !isNaN(Number(tm.department_head))) {
+          const parts = tm.department_code.split('__');
+          const dept = parts[1];
+          if (!monthlyTargetsMap[dept]) monthlyTargetsMap[dept] = { INHOUSE_MTRS: Number(tm.department_head) };
+        }
+      }
+    });
+
+    // Apply saved monthly target to entries if target_value is not explicitly customized per day
+    finalEntries.forEach(e => {
+      if (monthlyTargetsMap[e.department_code] && monthlyTargetsMap[e.department_code][e.metric_code] !== undefined) {
+        e.target_value = monthlyTargetsMap[e.department_code][e.metric_code];
+      }
+    });
+
+    res.json({ entries: finalEntries, count: finalEntries.length, departmentMasters: masters, monthlyTargets: monthlyTargetsMap });
   } catch (error) {
     console.error('Error fetching daily report:', error);
     res.status(500).json({ error: error.message });
@@ -2027,7 +2055,7 @@ app.get('/api/daily-report', async (req, res) => {
 
 app.post('/api/daily-report', async (req, res) => {
   try {
-    const { report_date, department_code, department_head, mentor, entries, metrics, remarks, entered_by } = req.body;
+    const { report_date, department_code, department_head, mentor, entries, metrics, remarks, entered_by, unit } = req.body;
     const items = Array.isArray(entries) ? entries : (Array.isArray(metrics) ? metrics : null);
     if (!report_date || !department_code || !items) {
       return res.status(400).json({ error: 'report_date, department_code and entries/metrics array are required' });
@@ -2039,23 +2067,30 @@ app.post('/api/daily-report', async (req, res) => {
     const deptRemarks = remarks || '';
     const deptHead = department_head !== undefined ? String(department_head).trim() : null;
     const deptMentor = mentor !== undefined ? String(mentor).trim() : null;
+    const unitStr = unit ? String(unit).trim() : '';
 
-    // If head or mentor provided, update DepartmentMasterInfo
+    // If head or mentor provided, update DepartmentMasterInfo (both general and unit-specific)
     if (deptHead || deptMentor) {
       try {
-        await prisma.departmentMasterInfo.upsert({
-          where: { department_code: deptCode },
-          update: {
-            ...(deptHead ? { department_head: deptHead } : {}),
-            ...(deptMentor ? { mentor: deptMentor } : {})
-          },
-          create: {
-            department_code: deptCode,
-            department_name: deptCode,
-            department_head: deptHead || '',
-            mentor: deptMentor || ''
-          }
-        });
+        const masterKeys = [deptCode];
+        if (unitStr && unitStr !== 'ALL' && unitStr !== 'All Units') {
+          masterKeys.push(`${deptCode}__${unitStr}`);
+        }
+        for (const k of masterKeys) {
+          await prisma.departmentMasterInfo.upsert({
+            where: { department_code: k },
+            update: {
+              ...(deptHead ? { department_head: deptHead } : {}),
+              ...(deptMentor ? { mentor: deptMentor } : {})
+            },
+            create: {
+              department_code: k,
+              department_name: deptCode,
+              department_head: deptHead || '',
+              mentor: deptMentor || ''
+            }
+          });
+        }
       } catch (e) {
         console.warn('Could not update department master:', e.message);
       }
@@ -2178,6 +2213,82 @@ app.post('/api/daily-report', async (req, res) => {
           console.warn('Sync to PROCESSING_DYEING warning:', e.message);
         }
       }
+
+      // Greige Inspection & Greige Warehouse synchronization (Requirement 11, 12, 13, 14)
+      if (deptCode === 'GREIGE_INSPECTION' && ['TOTAL_PRODN_GREIGE', 'TOTAL_PRODN_FINISH', 'GREIGE_YD_OUTWARD'].includes(metricCode)) {
+        try {
+          await prisma.dailyReportEntry.upsert({
+            where: {
+              report_date_department_code_metric_code: {
+                report_date: dateStr,
+                department_code: 'GREY_WAREHOUSE',
+                metric_code: metricCode
+              }
+            },
+            update: {
+              metric_name: metricName,
+              raw_value: rawVal,
+              actual_value: numVal,
+              target_value: targetVal,
+              diff_value: diffVal,
+              pct_value: pctVal,
+              department_head: deptHead,
+              mentor: deptMentor,
+              entered_by: userStr
+            },
+            create: {
+              report_date: dateStr,
+              department_code: 'GREY_WAREHOUSE',
+              metric_code: metricCode,
+              metric_name: metricName,
+              raw_value: rawVal,
+              actual_value: numVal,
+              target_value: targetVal,
+              diff_value: diffVal,
+              pct_value: pctVal,
+              department_head: deptHead,
+              mentor: deptMentor,
+              entered_by: userStr
+            }
+          });
+        } catch (e) {
+          console.warn('Sync to GREY_WAREHOUSE warning:', e.message);
+        }
+      }
+
+      // Weaving Monthly Target Persistence (Requirement 1, 2, 4, 5, 23)
+      if (deptCode === 'WEAVING' && metricCode === 'INHOUSE_MTRS' && targetVal !== null && targetVal > 0) {
+        try {
+          const monthStr = dateStr.substring(0, 7);
+          const targetKey = `TARGET__WEAVING__${unitStr || 'ALL'}__${monthStr}`;
+          const allTargetKey = `TARGET__WEAVING__ALL__${monthStr}`;
+          const targetJson = JSON.stringify({ INHOUSE_MTRS: targetVal });
+          await Promise.all([
+            prisma.departmentMasterInfo.upsert({
+              where: { department_code: targetKey },
+              update: { department_name: targetJson, department_head: String(targetVal) },
+              create: { department_code: targetKey, department_name: targetJson, department_head: String(targetVal), mentor: userStr }
+            }),
+            prisma.departmentMasterInfo.upsert({
+              where: { department_code: allTargetKey },
+              update: { department_name: targetJson, department_head: String(targetVal) },
+              create: { department_code: allTargetKey, department_name: targetJson, department_head: String(targetVal), mentor: userStr }
+            }),
+            prisma.dailyReportEntry.updateMany({
+              where: {
+                report_date: { startsWith: monthStr },
+                department_code: 'WEAVING',
+                metric_code: 'INHOUSE_MTRS'
+              },
+              data: {
+                target_value: targetVal
+              }
+            })
+          ]);
+        } catch (e) {
+          console.warn('Weaving monthly target persistence warning:', e.message);
+        }
+      }
     }
 
     res.json({ success: true, count: results.length, entries: results });
@@ -2252,6 +2363,127 @@ app.get('/api/daily-report/department-masters', async (req, res) => {
   try {
     const masters = await prisma.departmentMasterInfo.findMany();
     res.json(masters);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/daily-report/targets — Fetch saved monthly targets by department, month, and unit
+app.get('/api/daily-report/targets', async (req, res) => {
+  try {
+    const { month, department, unit } = req.query;
+    const monthStr = String(month || new Date().toISOString().substring(0, 7)).trim();
+    const deptStr = String(department || 'WEAVING').trim().toUpperCase();
+    const unitStr = String(unit || 'ALL').trim();
+
+    const targetKeys = [
+      `TARGET__${deptStr}__${unitStr}__${monthStr}`,
+      `TARGET__${deptStr}__ALL__${monthStr}`,
+      `TARGET__${deptStr}__${monthStr}`
+    ];
+
+    const records = await prisma.departmentMasterInfo.findMany({
+      where: { department_code: { in: targetKeys } }
+    });
+
+    let targets = {};
+    for (const key of targetKeys) {
+      const rec = records.find(r => r.department_code === key);
+      if (rec && rec.department_name) {
+        try {
+          targets = JSON.parse(rec.department_name);
+          break;
+        } catch (e) {
+          if (rec.department_head && !isNaN(Number(rec.department_head))) {
+            targets = { INHOUSE_MTRS: Number(rec.department_head) };
+            break;
+          }
+        }
+      }
+    }
+
+    res.json({ department: deptStr, month: monthStr, unit: unitStr, targets });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/daily-report/targets — Permanently save monthly targets to database
+app.post('/api/daily-report/targets', async (req, res) => {
+  try {
+    const { department_code, month, unit, targets } = req.body;
+    if (!department_code || !month || !targets) {
+      return res.status(400).json({ error: 'department_code, month (YYYY-MM), and targets object are required' });
+    }
+    const deptStr = String(department_code).trim().toUpperCase();
+    const monthStr = String(month).trim();
+    const unitStr = String(unit || 'ALL').trim();
+    const targetJson = JSON.stringify(targets);
+    const primaryTarget = targets.INHOUSE_MTRS || Object.values(targets)[0] || 0;
+
+    const key = `TARGET__${deptStr}__${unitStr}__${monthStr}`;
+    const allKey = `TARGET__${deptStr}__ALL__${monthStr}`;
+
+    await Promise.all([
+      prisma.departmentMasterInfo.upsert({
+        where: { department_code: key },
+        update: { department_name: targetJson, department_head: String(primaryTarget) },
+        create: { department_code: key, department_name: targetJson, department_head: String(primaryTarget), mentor: 'SYSTEM' }
+      }),
+      prisma.departmentMasterInfo.upsert({
+        where: { department_code: allKey },
+        update: { department_name: targetJson, department_head: String(primaryTarget) },
+        create: { department_code: allKey, department_name: targetJson, department_head: String(primaryTarget), mentor: 'SYSTEM' }
+      })
+    ]);
+
+    // Permanently update all existing daily report entries for this month
+    for (const [mCode, tVal] of Object.entries(targets)) {
+      const numVal = Number(tVal);
+      if (!isNaN(numVal) && isFinite(numVal)) {
+        await prisma.dailyReportEntry.updateMany({
+          where: {
+            report_date: { startsWith: monthStr },
+            department_code: deptStr,
+            metric_code: mCode
+          },
+          data: {
+            target_value: numVal
+          }
+        });
+      }
+    }
+
+    res.json({ success: true, message: `Targets for ${deptStr} ${monthStr} saved permanently to database`, targets });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/daily-report/department-masters — Save Department Head & Mentor master data
+app.post('/api/daily-report/department-masters', async (req, res) => {
+  try {
+    const { department_code, unit, department_head, mentor } = req.body;
+    if (!department_code) return res.status(400).json({ error: 'department_code is required' });
+    const deptCode = String(department_code).trim().toUpperCase();
+    const head = department_head !== undefined ? String(department_head).trim() : '';
+    const m = mentor !== undefined ? String(mentor).trim() : '';
+    const unitStr = unit ? String(unit).trim() : '';
+
+    const keys = [deptCode];
+    if (unitStr && unitStr !== 'ALL' && unitStr !== 'All Units') {
+      keys.push(`${deptCode}__${unitStr}`);
+    }
+
+    for (const k of keys) {
+      await prisma.departmentMasterInfo.upsert({
+        where: { department_code: k },
+        update: { department_head: head, mentor: m },
+        create: { department_code: k, department_name: deptCode, department_head: head, mentor: m }
+      });
+    }
+
+    res.json({ success: true, message: `Department master updated for ${deptCode}` });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
