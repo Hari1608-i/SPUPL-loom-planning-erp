@@ -149,11 +149,9 @@ function NotificationBell() {
     }
   };
 
-  // Auto-fetch on mount and every 5s
+  // Initial fetch on mount
   useEffect(() => {
     fetchAlerts();
-    const interval = setInterval(fetchAlerts, 5000);
-    return () => clearInterval(interval);
   }, []);
 
   // Fetch again when panel opens

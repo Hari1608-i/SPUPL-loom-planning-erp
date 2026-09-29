@@ -2493,7 +2493,7 @@ const preparedDailyMeetingRows = useMemo(() => {
 return (
   <div className="p-4 sm:p-6 lg:p-8 max-w-[1700px] mx-auto space-y-6">
 
-    {/* ── PRINT-ONLY STYLES: EXACT 2-PAGE A4 LANDSCAPE ENGINE ── */}
+    {/* ── PRINT-ONLY STYLES: EXACT 2-PAGE A4 LANDSCAPE ENGINE (HIGH VISIBILITY WHITE/BLACK FULL PAPER UTILIZATION) ── */}
     <style>{`
         @page {
           size: A4 landscape;
@@ -2514,6 +2514,23 @@ return (
             font-family: Arial, Calibri, sans-serif !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+          }
+
+          /* Force pure white background and pure black text across all daily report print elements */
+          .daily-report-print-root,
+          .daily-report-print-root div,
+          .daily-report-print-root table,
+          .daily-report-print-root thead,
+          .daily-report-print-root tbody,
+          .daily-report-print-root tr,
+          .daily-report-print-root th,
+          .daily-report-print-root td,
+          .daily-report-print-root span,
+          .daily-report-print-root p,
+          .daily-report-print-root b,
+          .daily-report-print-root strong {
+            background-color: #ffffff !important;
+            color: #000000 !important;
           }
 
           /* 4. HIDE ALL NORMAL WEBPAGE UI DURING PRINT */
@@ -2559,7 +2576,7 @@ return (
             box-shadow: none !important;
           }
 
-          /* 31. DEDICATED PRINT ROOT */
+          /* DEDICATED PRINT ROOT */
           .daily-report-print-root {
             display: block !important;
             position: static !important;
@@ -2571,7 +2588,7 @@ return (
             break-after: avoid !important;
           }
 
-          /* 5. PREVENT EXTRA PAGES: EXACTLY 2 CONTAINERS (A4 landscape: 297mm x 210mm) */
+          /* PREVENT EXTRA PAGES: EXACTLY 2 CONTAINERS (A4 landscape: 297mm x 210mm) */
           .daily-report-print-page {
             width: 100% !important;
             max-width: 100% !important;
@@ -2603,7 +2620,7 @@ return (
           }
 
           .daily-report-print-page.page-2 {
-            font-family: 'Bookman Old Style', Georgia, 'Times New Roman', serif !important;
+            font-family: Arial, 'Bookman Old Style', Georgia, sans-serif !important;
             height: auto !important;
             max-height: none !important;
             min-height: 0 !important;
@@ -2620,29 +2637,36 @@ return (
             break-inside: avoid !important;
           }
 
+          thead {
+            display: table-header-group !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          tbody {
+            display: table-row-group !important;
+          }
+
           tr {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
           }
 
-          /* =========================================================
-             EXCEL-STYLE CLEAN BORDER SYSTEM (NO DUPLICATES / NO THICK LINES)
-             Page 1: Full Plant Operational Snapshot (A1:L67)
-             Page 2: Executive Summary (A1:P33)
-             ========================================================= */
+          /* HIGH-CONTRAST CLEAR BORDER SYSTEM WITH FULL PAPER UTILIZATION */
           table.p1-table, table.p2-table {
             width: 100% !important;
             border-collapse: collapse !important;
             border-spacing: 0 !important;
             table-layout: fixed !important;
-            border: 0.5pt solid #222 !important;
+            border: 0.6pt solid #000000 !important;
             box-shadow: none !important;
             margin: 0 !important;
+            background-color: #ffffff !important;
           }
 
           table.p1-table th, table.p1-table td,
           table.p2-table th, table.p2-table td {
-            border: 0.4pt solid #333 !important;
+            border: 0.5pt solid #000000 !important;
             box-shadow: none !important;
             box-sizing: border-box !important;
             vertical-align: middle !important;
@@ -2650,41 +2674,45 @@ return (
             word-break: normal !important;
             white-space: normal !important;
             color: #000000 !important;
+            background-color: #ffffff !important;
           }
 
           table.p1-table th, table.p2-table th {
-            background-color: #fff2cc !important;
+            background-color: #ffffff !important;
             font-weight: bold !important;
-            border: 0.4pt solid #333 !important;
+            border: 0.5pt solid #000000 !important;
             text-align: center !important;
+            color: #000000 !important;
           }
 
+          /* PAGE 1: OPTIMIZED TEXT & PADDING FOR BALANCED FULL PAPER USAGE */
           table.p1-table th {
             font-family: Arial, Calibri, sans-serif !important;
-            font-size: 5.5pt !important;
-            padding: 0.4px 0.8px !important;
-            line-height: 1.02 !important;
+            font-size: 6.2pt !important;
+            padding: 1.2px 1.5px !important;
+            line-height: 1.1 !important;
           }
 
           table.p1-table td {
             font-family: Arial, Calibri, sans-serif !important;
-            font-size: 5.2pt !important;
-            line-height: 1.02 !important;
-            padding: 0.35px 0.8px !important;
+            font-size: 5.8pt !important;
+            line-height: 1.1 !important;
+            padding: 1.0px 1.5px !important;
           }
 
+          /* PAGE 2: EXECUTIVE SUMMARY SIZED TO ELEGANTLY FILL THE PAPER WITHOUT EMPTY GAPS */
           table.p2-table th {
-            font-family: 'Bookman Old Style', Georgia, 'Times New Roman', serif !important;
-            font-size: 6.8pt !important;
-            padding: 1.2px 1.4px !important;
-            line-height: 1.05 !important;
+            font-family: Arial, 'Bookman Old Style', Georgia, sans-serif !important;
+            font-size: 8.0pt !important;
+            padding: 3.5px 2.5px !important;
+            line-height: 1.2 !important;
           }
 
           table.p2-table td {
-            font-family: 'Bookman Old Style', Georgia, 'Times New Roman', serif !important;
-            font-size: 6.4pt !important;
-            line-height: 1.05 !important;
-            padding: 1.0px 1.4px !important;
+            font-family: Arial, 'Bookman Old Style', Georgia, sans-serif !important;
+            font-size: 7.6pt !important;
+            line-height: 1.2 !important;
+            padding: 3.0px 2.5px !important;
             text-align: center !important;
           }
 
@@ -2699,9 +2727,7 @@ return (
           .p-right  { text-align: right !important; }
           .p-bold   { font-weight: bold !important; }
 
-          /* =========================================================
-             NESTED SUB-TABLES: ELIMINATE STACKED PERIMETER BORDERS
-             ========================================================= */
+          /* NESTED SUB-TABLES WITH CLEAN DIVIDERS */
           .p-sub-table, .p-gi-table, .p-mend-table, .p-samp-table, .p-otd-table {
             width: 100% !important;
             height: auto !important;
@@ -2711,6 +2737,7 @@ return (
             border: none !important;
             box-shadow: none !important;
             margin: 0 !important;
+            background-color: #ffffff !important;
           }
 
           /* Single-row sub-tables (Sizing, Weaving, Raw Material) */
@@ -2718,11 +2745,13 @@ return (
             border-top: none !important;
             border-bottom: none !important;
             border-right: none !important;
-            border-left: 0.4pt solid #333 !important;
-            padding: 0.35px 0.8px !important;
-            font-size: 5.1pt !important;
-            line-height: 1.02 !important;
+            border-left: 0.5pt solid #000000 !important;
+            padding: 1.0px 1.5px !important;
+            font-size: 5.8pt !important;
+            line-height: 1.1 !important;
             box-shadow: none !important;
+            color: #000000 !important;
+            background-color: #ffffff !important;
           }
           .p-sub-table td:first-child, .p-sub-table th:first-child {
             border-left: none !important;
@@ -2730,7 +2759,7 @@ return (
 
           /* Multi-row sub-table in Processing: interior horizontal rows */
           table.p-sub-table tr:not(:first-child) td {
-            border-top: 0.4pt solid #333 !important;
+            border-top: 0.5pt solid #000000 !important;
           }
           table.p-sub-table tr:first-child td,
           table.p-sub-table thead tr th {
@@ -2744,11 +2773,13 @@ return (
           .p-gi-table th, .p-gi-table td,
           .p-mend-table th, .p-mend-table td,
           .p-samp-table th, .p-samp-table td {
-            border: 0.4pt solid #333 !important;
-            padding: 0.35px 0.8px !important;
-            font-size: 5.1pt !important;
-            line-height: 1.02 !important;
+            border: 0.5pt solid #000000 !important;
+            padding: 1.0px 1.5px !important;
+            font-size: 5.8pt !important;
+            line-height: 1.1 !important;
             box-shadow: none !important;
+            color: #000000 !important;
+            background-color: #ffffff !important;
           }
           .p-gi-table thead tr:first-child th,
           .p-mend-table thead tr:first-child th,
@@ -2773,11 +2804,13 @@ return (
 
           /* OTD Pending Status nested sub-table (.p-otd-table) */
           .p-otd-table th, .p-otd-table td {
-            border: 0.4pt solid #333 !important;
-            padding: 0.3px 0.6px !important;
-            font-size: 4.8pt !important;
-            line-height: 1.02 !important;
+            border: 0.5pt solid #000000 !important;
+            padding: 0.8px 1.2px !important;
+            font-size: 5.5pt !important;
+            line-height: 1.1 !important;
             box-shadow: none !important;
+            color: #000000 !important;
+            background-color: #ffffff !important;
           }
           .p-otd-table thead tr:first-child th {
             border-top: none !important;
@@ -2796,49 +2829,55 @@ return (
             display: flex !important;
             justify-content: space-between !important;
             align-items: center !important;
-            border-bottom: 0.45pt solid #222 !important;
-            padding-bottom: 0.6px !important;
-            margin-bottom: 0.6px !important;
+            border-bottom: 0.5pt solid #000000 !important;
+            padding-bottom: 1.5px !important;
+            margin-bottom: 1.5px !important;
+            background-color: #ffffff !important;
           }
           .p-page-hdr-logo {
-            height: 18px !important;
+            height: 20px !important;
             width: auto !important;
             object-fit: contain !important;
           }
           .p-page-hdr-co {
-            font-size: 9.5pt !important;
+            font-size: 10pt !important;
             font-weight: bold !important;
             letter-spacing: 0.2px !important;
-            line-height: 1.02 !important;
+            line-height: 1.05 !important;
+            color: #000000 !important;
           }
           .p-page-hdr-sub {
-            font-size: 6.5pt !important;
+            font-size: 6.8pt !important;
             font-weight: bold !important;
-            color: #222 !important;
-            line-height: 1.02 !important;
+            color: #000000 !important;
+            line-height: 1.05 !important;
           }
           .p-page-hdr-date {
-            font-size: 6.5pt !important;
+            font-size: 7.2pt !important;
             font-weight: bold !important;
-            background: #fff2cc !important;
-            padding: 0.5px 3.5px !important;
-            border: 0.4pt solid #222 !important;
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            padding: 1px 4px !important;
+            border: 0.5pt solid #000000 !important;
             display: inline-block !important;
           }
           .p-page-hdr-pgno {
-            font-size: 6.2pt !important;
+            font-size: 6.8pt !important;
             font-weight: bold !important;
-            margin-top: 0.5px !important;
+            margin-top: 1px !important;
+            color: #000000 !important;
           }
           .p-page-ftr {
             display: flex !important;
             justify-content: space-between !important;
-            border-top: 0.4pt solid #222 !important;
-            padding-top: 0.6px !important;
-            margin-top: 0.6px !important;
-            font-size: 5.5pt !important;
+            border-top: 0.5pt solid #000000 !important;
+            padding-top: 1.5px !important;
+            margin-top: 1.5px !important;
+            font-size: 6.0pt !important;
             font-weight: bold !important;
-            line-height: 1.02 !important;
+            line-height: 1.05 !important;
+            color: #000000 !important;
+            background-color: #ffffff !important;
           }
           .p2-signatory {
             display: none !important;
@@ -3641,22 +3680,22 @@ return (
 
         <table className="p2-table">
           <colgroup>
-            <col style={{ width: '4.43%' }} />
-            <col style={{ width: '8.36%' }} />
-            <col style={{ width: '8.59%' }} />
-            <col style={{ width: '9.10%' }} />
-            <col style={{ width: '12.24%' }} />
-            <col style={{ width: '5.59%' }} />
-            <col style={{ width: '5.59%' }} />
-            <col style={{ width: '5.87%' }} />
-            <col style={{ width: '4.39%' }} />
-            <col style={{ width: '4.43%' }} />
-            <col style={{ width: '6.60%' }} />
-            <col style={{ width: '6.79%' }} />
-            <col style={{ width: '5.87%' }} />
-            <col style={{ width: '4.57%' }} />
-            <col style={{ width: '3.37%' }} />
-            <col style={{ width: '4.21%' }} />
+            <col style={{ width: '2.80%' }} />
+            <col style={{ width: '8.50%' }} />
+            <col style={{ width: '8.20%' }} />
+            <col style={{ width: '8.20%' }} />
+            <col style={{ width: '14.50%' }} />
+            <col style={{ width: '5.50%' }} />
+            <col style={{ width: '5.50%' }} />
+            <col style={{ width: '5.50%' }} />
+            <col style={{ width: '4.00%' }} />
+            <col style={{ width: '5.00%' }} />
+            <col style={{ width: '6.50%' }} />
+            <col style={{ width: '6.50%' }} />
+            <col style={{ width: '5.50%' }} />
+            <col style={{ width: '4.20%' }} />
+            <col style={{ width: '5.00%' }} />
+            <col style={{ width: '4.60%' }} />
           </colgroup>
           <thead>
             {(() => {

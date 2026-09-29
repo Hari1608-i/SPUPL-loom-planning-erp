@@ -72,7 +72,7 @@ export default function ErpAlertCenter() {
   useEffect(() => {
     fetchAlerts();
     refreshData();
-    const interval = setInterval(fetchAlerts, 5000);
+    const interval = setInterval(fetchAlerts, 120000);
     return () => clearInterval(interval);
   }, []);
 
