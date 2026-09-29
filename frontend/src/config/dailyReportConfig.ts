@@ -57,8 +57,8 @@ export const DEPARTMENTS: DepartmentConfig[] = [
   {
     code: 'SIZING',
     name: 'SIZING',
-    head: 'GUNASEKARAN',
-    mentor: 'SENTHIL',
+    head: 'MR.GUNASEKARAN',
+    mentor: 'MR.SENTHIL',
     description: 'Sizing & Warping production, Remnants & Yarn Stock positions',
     rawMetrics: [
       { code: 'SIZING_MTRS', name: 'Sizing Production (Mtrs)', type: 'number', target: 40000, unit: 'Mtrs', placeholder: 'Enter Sizing meters' },

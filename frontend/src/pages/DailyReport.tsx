@@ -1232,8 +1232,8 @@ export default function DailyReport() {
       const sStart = r1;
       setCell(ws1, sStart, 0, 2, styleCellCenterBold);
       setCell(ws1, sStart, 1, 'SIZING', styleCellCenterBold);
-      setCell(ws1, sStart, 2, mastersMap['SIZING']?.head || 'GUNASEKARAN', styleCellCenterBold);
-      setCell(ws1, sStart, 3, mastersMap['SIZING']?.mentor || 'SENTHIL', styleCellCenterBold);
+      setCell(ws1, sStart, 2, mastersMap['SIZING']?.head || 'MR.GUNASEKARAN', styleCellCenterBold);
+      setCell(ws1, sStart, 3, mastersMap['SIZING']?.mentor || 'MR.SENTHIL', styleCellCenterBold);
       setCell(ws1, sStart, 4, '', styleHdrYellow);
       setCell(ws1, sStart, 5, 'QTY', styleHdrYellow);
       setCell(ws1, sStart, 6, 'NO OF DAYS', styleHdrYellow);
@@ -3056,8 +3056,8 @@ return (
                   <tr>
                     <td rowSpan={4} className="p-center p-bold">2</td>
                     <td rowSpan={4} className="p-merged-center">SIZING</td>
-                    <td rowSpan={4} className="p-merged-center">{effectivePrintMasters['SIZING']?.head || 'GUNASEKARAN'}</td>
-                    <td rowSpan={4} className="p-merged-center">{effectivePrintMasters['SIZING']?.mentor || 'SENTHIL'}</td>
+                    <td rowSpan={4} className="p-merged-center">{effectivePrintMasters['SIZING']?.head || 'MR.GUNASEKARAN'}</td>
+                    <td rowSpan={4} className="p-merged-center">{effectivePrintMasters['SIZING']?.mentor || 'MR.SENTHIL'}</td>
                     <td style={{ backgroundColor: '#fff2cc' }}></td>
                     <td style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>QTY</td>
                     <td style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>NO OF DAYS</td>
@@ -4791,18 +4791,23 @@ return (
                   return dept.rawMetrics.map((m, idx) => {
                     const entry = dailyEntries[m.code];
                     const hasSaved = entry !== undefined && entry.actual_value !== null && entry.actual_value !== undefined;
-                    const act = hasSaved ? entry.actual_value : (formInputs[m.code] ? parseFloat(formInputs[m.code]) : null);
+                    // For textarea/text metrics, do not parseFloat — keep as string or null
+                    const isNumericMetric = m.type === 'number';
+                    const actRaw = hasSaved ? entry.actual_value : (formInputs[m.code] !== undefined && formInputs[m.code] !== '' ? (isNumericMetric ? parseFloat(formInputs[m.code]) : formInputs[m.code]) : null);
+                    const act = (isNumericMetric && actRaw !== null && isNaN(Number(actRaw))) ? null : actRaw;
+                    const actNum = (isNumericMetric && act !== null && act !== undefined && !isNaN(Number(act))) ? Number(act) : null;
                     const target = entry?.target_value !== undefined && entry?.target_value !== null
                       ? entry.target_value
                       : (editedTargets[m.code] !== undefined ? editedTargets[m.code] : (m.target || 0));
 
-                    const hasTarget = target > 0;
-                    const diff = hasTarget && act !== null && act !== undefined ? act - target : null;
-                    const ach = hasTarget && act !== null && act !== undefined ? Number(((act / target) * 100).toFixed(1)) : null;
+                    const hasTarget = isNumericMetric && target > 0;
+                    const diff = hasTarget && actNum !== null ? Number((actNum - target).toFixed(2)) : null;
+                    const ach = hasTarget && actNum !== null ? Number(((actNum / target) * 100).toFixed(1)) : null;
 
-                    const head = entry?.department_head || master?.head || dept.head;
-                    const mentor = entry?.mentor || master?.mentor || dept.mentor;
-                    const perfMark = entry?.performance_mark || (act !== null && act !== undefined ? computePerformanceMark(target, act, ach || 0) : 'NOT ENTERED');
+                    // HEAD/MENTOR: use departmentMasters (from DB per dept) first, then dept config defaults
+                    const head = master?.head || dept.head || entry?.department_head || '';
+                    const mentor = master?.mentor || dept.mentor || entry?.mentor || '';
+                    const perfMark = entry?.performance_mark || (actNum !== null ? computePerformanceMark(target, actNum, ach || 0) : 'NOT ENTERED');
 
                     if (searchQuery && !m.name.toLowerCase().includes(searchQuery.toLowerCase()) && !dept.name.toLowerCase().includes(searchQuery.toLowerCase())) {
                       return null;
