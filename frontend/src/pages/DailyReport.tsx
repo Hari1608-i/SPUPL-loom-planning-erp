@@ -38,8 +38,9 @@ import {
   PLANNING_OTT_METRICS
 } from '../config/dailyReportConfig';
 import { COMPANY_LOGO_DATA_URL } from '../assets/logoDataUrl';
+import { API_BASE_URL } from '../config';
 
-const API_BASE_URL = '';
+// API_BASE_URL is imported from ../config — driven by VITE_API_BASE_URL at build time
 
 type ViewMode = 'DAILY' | 'WEEKLY' | 'MONTHLY';
 
@@ -218,9 +219,28 @@ export default function DailyReport() {
   const [printToDate, setPrintToDate] = useState<string>('2026-08-26');
   const [printEntries, setPrintEntries] = useState<Record<string, EntryRecord> | null>(null);
   const [cumulativeEntries, setCumulativeEntries] = useState<Record<string, EntryRecord> | null>(null);
+  const [prevDayOttEntries, setPrevDayOttEntries] = useState<Record<string, EntryRecord>>({});
   const [printMonthlySummaries, setPrintMonthlySummaries] = useState<any[] | null>(null);
   const [printDepartmentMasters, setPrintDepartmentMasters] = useState<Record<string, { head: string; mentor: string }> | null>(null);
   const [printDateLabel, setPrintDateLabel] = useState<string>('');
+
+  // Helper to compute exact previous calendar date without timezone distortion
+  const computePrevCalendarDate = useCallback((dateStr: string): string => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      const dateObj = new Date(y, m, d);
+      dateObj.setDate(dateObj.getDate() - 1);
+      const py = dateObj.getFullYear();
+      const pm = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const pd = String(dateObj.getDate()).padStart(2, '0');
+      return `${py}-${pm}-${pd}`;
+    }
+    return '';
+  }, []);
 
   const [historyDates, setHistoryDates] = useState<{ date: string; count: number }[]>([]);
 
@@ -267,9 +287,10 @@ export default function DailyReport() {
     if (!fromDate || !toDate) return;
     if (fromDate > toDate) return;
     try {
-      // Clear stale print entries and monthly summaries immediately
+      // Clear stale print entries, OTT previous data and monthly summaries immediately
       setPrintEntries({});
       setPrintMonthlySummaries(null);
+      setPrevDayOttEntries({});
 
       // AS ON DATE: Strictly the daily entry of toDate only (never cumulative, never fallback)
       const url = `${API_BASE_URL}/api/daily-report?date=${toDate}`;
@@ -289,6 +310,31 @@ export default function DailyReport() {
           mMasters[m.department_code] = { head: m.department_head, mentor: m.mentor };
         });
         setPrintDepartmentMasters(mMasters);
+      }
+
+      // OTT TWO-DATE RULE: Fetch previous calendar date OTT data for Planning Department OTT ONLY
+      const prevDateStr = computePrevCalendarDate(toDate);
+      if (prevDateStr) {
+        try {
+          const prevRes = await fetch(`${API_BASE_URL}/api/daily-report?date=${prevDateStr}&department=PLANNING`);
+          if (prevRes.ok) {
+            const prevData = await prevRes.json();
+            const prevOttMap: Record<string, EntryRecord> = {};
+            (prevData.entries || []).forEach((e: EntryRecord) => {
+              if (e.metric_code.startsWith('OTT_') || e.metric_code.startsWith('OTD_')) {
+                prevOttMap[e.metric_code] = e;
+              }
+            });
+            setPrevDayOttEntries(prevOttMap);
+          } else {
+            setPrevDayOttEntries({});
+          }
+        } catch (prevErr) {
+          console.warn('Could not fetch previous day OTT data:', prevErr);
+          setPrevDayOttEntries({});
+        }
+      } else {
+        setPrevDayOttEntries({});
       }
 
       // UP TO DATE: Month-to-Date cumulative (from 1st of toDate's month through toDate)
@@ -311,7 +357,7 @@ export default function DailyReport() {
     } catch (err: any) {
       console.error('Error loading print report data:', err);
     }
-  }, []);
+  }, [computePrevCalendarDate]);
 
   // Automatically keep Print Preview synchronized whenever Print Date Range changes
   useEffect(() => {
@@ -829,6 +875,39 @@ export default function DailyReport() {
       (data.entries || []).forEach((e: EntryRecord) => {
         pMap[e.metric_code] = e;
       });
+
+      // OTT TWO-DATE RULE: Fetch previous calendar date OTT data for Planning Department OTT ONLY
+      const prevDateStrExcel = computePrevCalendarDate(printToDate);
+      const prevOttMapExcel: Record<string, EntryRecord> = {};
+      if (prevDateStrExcel) {
+        try {
+          const prevRes = await fetch(`${API_BASE_URL}/api/daily-report?date=${prevDateStrExcel}&department=PLANNING`);
+          if (prevRes.ok) {
+            const prevData = await prevRes.json();
+            (prevData.entries || []).forEach((e: EntryRecord) => {
+              if (e.metric_code.startsWith('OTT_') || e.metric_code.startsWith('OTD_')) {
+                prevOttMapExcel[e.metric_code] = e;
+              }
+            });
+          }
+        } catch (prevErr) {
+          console.warn('Could not fetch previous day OTT data for Excel:', prevErr);
+        }
+      }
+
+      const getPrevOtdValExcel = (code: string) => {
+        const aliases = [code, ...(METRIC_CODE_ALIASES[code] || [])];
+        for (const c of aliases) {
+          const e = prevOttMapExcel[c];
+          if (e?.actual_value !== null && e?.actual_value !== undefined) {
+            return e.actual_value;
+          }
+          if (e?.raw_value !== null && e?.raw_value !== undefined && e?.raw_value !== '') {
+            return e.raw_value;
+          }
+        }
+        return '';
+      };
 
       const mastersMap: Record<string, { head: string; mentor: string }> = {};
       (data.departmentMasters || []).forEach((m: DepartmentMaster) => {
@@ -1410,10 +1489,10 @@ export default function DailyReport() {
       };
 
       const samplingExcelRows = [
-        { detail: 'SE SIZING', target: '80 KG', onDate: getVal('SINGLE_END_SIZING') || getVal('SE_SIZING') || getVal('SAMPLING_SE_SIZING') || '', upto: getSamplingUpto('SINGLE_END_SIZING') || getSamplingUpto('SE_SIZING') || getSamplingUpto('SAMPLING_SE_SIZING') },
-        { detail: 'DESK LOOM', target: '', onDate: getVal('DESK_LOOM_MTR') || getVal('DESK_LOOM') || getVal('SAMPLING_DESK_LOOM') || '', upto: getSamplingUpto('DESK_LOOM_MTR') || getSamplingUpto('DESK_LOOM') || getSamplingUpto('SAMPLING_DESK_LOOM') },
-        { detail: 'SAMPLE WPG', target: '8', onDate: getVal('SAMPLE_WPG') || getVal('SAMPLING_SAMPLE_WPG') || '', upto: getSamplingUpto('SAMPLE_WPG') || getSamplingUpto('SAMPLING_SAMPLE_WPG') },
-        { detail: 'PEN SAMPLES', target: '', onDate: getVal('PENDING_SAMPLE') || getVal('PEN_SAMPLES') || getVal('SAMPLING_PEN_SAMPLES') || '', upto: getSamplingUpto('PENDING_SAMPLE') || getSamplingUpto('PEN_SAMPLES') || getSamplingUpto('SAMPLING_PEN_SAMPLES') },
+        { detail: 'SINGLE END SIZING', target: '80 KG', onDate: getVal('SINGLE_END_SIZING') || getVal('SE_SIZING') || getVal('SAMPLING_SE_SIZING') || '', upto: getSamplingUpto('SINGLE_END_SIZING') || getSamplingUpto('SE_SIZING') || getSamplingUpto('SAMPLING_SE_SIZING') },
+        { detail: 'DESK LOOM MTR', target: '', onDate: getVal('DESK_LOOM_MTR') || getVal('DESK_LOOM') || getVal('SAMPLING_DESK_LOOM') || '', upto: getSamplingUpto('DESK_LOOM_MTR') || getSamplingUpto('DESK_LOOM') || getSamplingUpto('SAMPLING_DESK_LOOM') },
+        { detail: 'Sample warping', target: '8', onDate: getVal('SAMPLE_WPG') || getVal('SAMPLING_SAMPLE_WPG') || '', upto: getSamplingUpto('SAMPLE_WPG') || getSamplingUpto('SAMPLING_SAMPLE_WPG') },
+        { detail: 'PENDING SAMPLE', target: '', onDate: getVal('PENDING_SAMPLE') || getVal('PEN_SAMPLES') || getVal('SAMPLING_PEN_SAMPLES') || '', upto: getSamplingUpto('PENDING_SAMPLE') || getSamplingUpto('PEN_SAMPLES') || getSamplingUpto('SAMPLING_PEN_SAMPLES') },
       ];
       const sampRemarks = getVal('REMARKS') || getVal('SAMPLING_REMARKS') || '';
 
@@ -1499,13 +1578,13 @@ export default function DailyReport() {
 
       const prevDateColHdr = (() => {
         if (!printToDate) return '-';
-        const parts = printToDate.split('-');
+        const pDate = computePrevCalendarDate(printToDate);
+        if (!pDate) return '-';
+        const parts = pDate.split('-');
         if (parts.length === 3) {
-          const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-          d.setDate(d.getDate() - 1);
           const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-          const dd = String(d.getDate()).padStart(2, '0');
-          return `${dd}-${months[d.getMonth()]}`;
+          const mIdx = parseInt(parts[1], 10) - 1;
+          return `${parts[2]}-${months[mIdx] || parts[1]}`;
         }
         return '-';
       })();
@@ -1515,13 +1594,13 @@ export default function DailyReport() {
       };
 
       const otdItems = [
-        { dept: 'Greige Yarn', d1: getOtdVal('OTD_GREIGE_YARN') || getOtdVal('OTT_GREIGE_YARN'), d2: '' },
-        { dept: 'Dyed Yarn', d1: getOtdVal('OTD_DYED_YARN') || getOtdVal('OTT_DYED_YARN'), d2: '' },
-        { dept: 'Sizing', d1: getOtdVal('OTD_SIZING') || getOtdVal('OTT_SIZING'), d2: '' },
-        { dept: 'Greige WareHouse', d1: getOtdVal('OTD_GREIGE_WAREHOUSE') || getOtdVal('OTT_GREIGE_WAREHOUSE'), d2: '' },
-        { dept: 'Processing', d1: getOtdVal('OTD_PROCESSING') || getOtdVal('OTT_PROCESSING'), d2: '' },
-        { dept: 'Finished WareHouse', d1: getOtdVal('OTD_FINISHED_WAREHOUSE') || getOtdVal('OTT_FINISHED_WAREHOUSE'), d2: '' },
-        { dept: 'Final Dispatch', d1: getOtdVal('OTD_FINAL_DISPATCH') || getOtdVal('OTT_FINAL_DISPATCH'), d2: '' },
+        { dept: 'Greige Yarn', d1: getOtdVal('OTD_GREIGE_YARN') || getOtdVal('OTT_GREIGE_YARN'), d2: getPrevOtdValExcel('OTD_GREIGE_YARN') || getPrevOtdValExcel('OTT_GREIGE_YARN') },
+        { dept: 'Dyed Yarn', d1: getOtdVal('OTD_DYED_YARN') || getOtdVal('OTT_DYED_YARN'), d2: getPrevOtdValExcel('OTD_DYED_YARN') || getPrevOtdValExcel('OTT_DYED_YARN') },
+        { dept: 'Sizing', d1: getOtdVal('OTD_SIZING') || getOtdVal('OTT_SIZING'), d2: getPrevOtdValExcel('OTD_SIZING') || getPrevOtdValExcel('OTT_SIZING') },
+        { dept: 'Greige WareHouse', d1: getOtdVal('OTD_GREIGE_WAREHOUSE') || getOtdVal('OTT_GREIGE_WAREHOUSE'), d2: getPrevOtdValExcel('OTD_GREIGE_WAREHOUSE') || getPrevOtdValExcel('OTT_GREIGE_WAREHOUSE') },
+        { dept: 'Processing', d1: getOtdVal('OTD_PROCESSING') || getOtdVal('OTT_PROCESSING'), d2: getPrevOtdValExcel('OTD_PROCESSING') || getPrevOtdValExcel('OTT_PROCESSING') },
+        { dept: 'Finished WareHouse', d1: getOtdVal('OTD_FINISHED_WAREHOUSE') || getOtdVal('OTT_FINISHED_WAREHOUSE'), d2: getPrevOtdValExcel('OTD_FINISHED_WAREHOUSE') || getPrevOtdValExcel('OTT_FINISHED_WAREHOUSE') },
+        { dept: 'Final Dispatch', d1: getOtdVal('OTD_FINAL_DISPATCH') || getOtdVal('OTT_FINAL_DISPATCH'), d2: getPrevOtdValExcel('OTD_FINAL_DISPATCH') || getPrevOtdValExcel('OTT_FINAL_DISPATCH') },
       ];
 
       const savedNoOfDays = getVal('NO_OF_DAYS');
@@ -2531,8 +2610,8 @@ return (
             justify-content: flex-start !important;
             padding: 0 !important;
             box-sizing: border-box !important;
-            page-break-before: always !important;
-            break-before: page !important;
+            page-break-before: auto !important;
+            break-before: auto !important;
             page-break-after: avoid !important;
             break-after: avoid !important;
             page-break-inside: avoid !important;
@@ -2760,13 +2839,11 @@ return (
             line-height: 1.04 !important;
           }
           .p2-signatory {
-            display: flex !important;
-            justify-content: space-between !important;
-            border-top: 0.5pt solid #222 !important;
-            margin-top: 6px !important;
-            padding-top: 6px !important;
-            font-size: 7.2pt !important;
-            font-weight: bold !important;
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
         }
       `}</style>
@@ -3196,10 +3273,10 @@ return (
               };
 
               const samplingRows = [
-                { detail: 'SE SIZING', target: '80 KG', onDate: getSamplingVal('SINGLE_END_SIZING') || getSamplingVal('SE_SIZING') || getSamplingVal('SAMPLING_SE_SIZING'), upto: getSamplingMonthlyVal('SINGLE_END_SIZING') || getSamplingMonthlyVal('SE_SIZING') || getSamplingMonthlyVal('SAMPLING_SE_SIZING') },
-                { detail: 'DESK LOOM', target: '', onDate: getSamplingVal('DESK_LOOM_MTR') || getSamplingVal('DESK_LOOM') || getSamplingVal('SAMPLING_DESK_LOOM'), upto: getSamplingMonthlyVal('DESK_LOOM_MTR') || getSamplingMonthlyVal('DESK_LOOM') || getSamplingMonthlyVal('SAMPLING_DESK_LOOM') },
-                { detail: 'SAMPLE WPG', target: '8', onDate: getSamplingVal('SAMPLE_WPG') || getSamplingVal('SAMPLING_SAMPLE_WPG'), upto: getSamplingMonthlyVal('SAMPLE_WPG') || getSamplingMonthlyVal('SAMPLING_SAMPLE_WPG') },
-                { detail: 'PEN SAMPLES', target: '', onDate: getSamplingVal('PENDING_SAMPLE') || getSamplingVal('PEN_SAMPLES') || getSamplingVal('SAMPLING_PEN_SAMPLES'), upto: getSamplingMonthlyVal('PENDING_SAMPLE') || getSamplingMonthlyVal('PEN_SAMPLES') || getSamplingMonthlyVal('SAMPLING_PEN_SAMPLES') },
+                { detail: 'SINGLE END SIZING', target: '80 KG', onDate: getSamplingVal('SINGLE_END_SIZING') || getSamplingVal('SE_SIZING') || getSamplingVal('SAMPLING_SE_SIZING'), upto: getSamplingMonthlyVal('SINGLE_END_SIZING') || getSamplingMonthlyVal('SE_SIZING') || getSamplingMonthlyVal('SAMPLING_SE_SIZING') },
+                { detail: 'DESK LOOM MTR', target: '', onDate: getSamplingVal('DESK_LOOM_MTR') || getSamplingVal('DESK_LOOM') || getSamplingVal('SAMPLING_DESK_LOOM'), upto: getSamplingMonthlyVal('DESK_LOOM_MTR') || getSamplingMonthlyVal('DESK_LOOM') || getSamplingMonthlyVal('SAMPLING_DESK_LOOM') },
+                { detail: 'Sample warping', target: '8', onDate: getSamplingVal('SAMPLE_WPG') || getSamplingVal('SAMPLING_SAMPLE_WPG'), upto: getSamplingMonthlyVal('SAMPLE_WPG') || getSamplingMonthlyVal('SAMPLING_SAMPLE_WPG') },
+                { detail: 'PENDING SAMPLE', target: '', onDate: getSamplingVal('PENDING_SAMPLE') || getSamplingVal('PEN_SAMPLES') || getSamplingVal('SAMPLING_PEN_SAMPLES'), upto: getSamplingMonthlyVal('PENDING_SAMPLE') || getSamplingMonthlyVal('PEN_SAMPLES') || getSamplingMonthlyVal('SAMPLING_PEN_SAMPLES') },
               ];
               const samplingRemarks = getSamplingVal('REMARKS') || getSamplingVal('SAMPLING_REMARKS') || '';
 
@@ -3254,7 +3331,7 @@ return (
                     <td className="p-center">{renderNumCell(yIn_asOn)}</td>
                     <td className="p-center">{renderNumCell(yIn_u)}</td>
                     <td className="p-center">{calcMendPct(yIn_asOn, inInspAsOn)}</td>
-                    <td className="p-left p-bold">SE SIZING</td>
+                    <td className="p-left p-bold">SINGLE END SIZING</td>
                     <td className="p-center">80 KG</td>
                     <td className="p-center">{samplingRows[0].onDate}</td>
                     <td className="p-center">{samplingRows[0].upto}</td>
@@ -3266,7 +3343,7 @@ return (
                     <td className="p-center">{renderNumCell(yVen_asOn)}</td>
                     <td className="p-center">{renderNumCell(yVen_u)}</td>
                     <td className="p-center">{calcMendPct(yVen_asOn, vnInspAsOn)}</td>
-                    <td className="p-left p-bold">DESK LOOM</td>
+                    <td className="p-left p-bold">DESK LOOM MTR</td>
                     <td className="p-center"></td>
                     <td className="p-center">{samplingRows[1].onDate}</td>
                     <td className="p-center">{samplingRows[1].upto}</td>
@@ -3278,7 +3355,7 @@ return (
                     <td className="p-center p-bold">{renderNumCell(totY_asOn)}</td>
                     <td className="p-center p-bold">{renderNumCell(totY_u)}</td>
                     <td className="p-center p-bold">{calcMendPct(totY_asOn, totInspAsOn)}</td>
-                    <td className="p-left p-bold">SAMPLE WPG</td>
+                    <td className="p-left p-bold">Sample warping</td>
                     <td className="p-center">8</td>
                     <td className="p-center">{samplingRows[2].onDate}</td>
                     <td className="p-center">{samplingRows[2].upto}</td>
@@ -3290,7 +3367,7 @@ return (
                     <td className="p-center">{renderNumCell(sIn_asOn)}</td>
                     <td className="p-center">{renderNumCell(sIn_u)}</td>
                     <td className="p-center">{calcMendPct(sIn_asOn, inInspAsOn)}</td>
-                    <td className="p-left p-bold">PEN SAMPLES</td>
+                    <td className="p-left p-bold">PENDING SAMPLE</td>
                     <td className="p-center"></td>
                     <td className="p-center">{samplingRows[3].onDate}</td>
                     <td className="p-center">{samplingRows[3].upto}</td>
@@ -3337,23 +3414,38 @@ return (
               const savedNoOfDays = getPrintMetricVal('NO_OF_DAYS');
               const dispTotalDays = (savedNoOfDays !== undefined && savedNoOfDays !== null && savedNoOfDays !== '') ? savedNoOfDays : (totStock !== null ? calcNoOfDays(totStock) : '');
 
-              const reportDateObj = parseISO(printToDate || selectedDate);
-              const curDateColHdr = isValid(reportDateObj) ? format(reportDateObj, 'dd-MMM') : (printToDate || selectedDate);
-              const prevDateObj = isValid(reportDateObj) ? new Date(reportDateObj.getTime() - 86400000) : null;
-              const prevDateColHdr = prevDateObj ? format(prevDateObj, 'dd-MMM') : '-';
+              const prevDateStr = computePrevCalendarDate(printToDate || selectedDate);
+              const prevDateObj = prevDateStr ? parseISO(prevDateStr) : null;
+              const prevDateColHdr = prevDateObj && isValid(prevDateObj) ? format(prevDateObj, 'dd-MMM') : '-';
+              const curDateObj = parseISO(printToDate || selectedDate);
+              const curDateColHdr = isValid(curDateObj) ? format(curDateObj, 'dd-MMM') : (printToDate || selectedDate);
 
               const getOtdVal = (code: string) => {
                 return getPrintMetricVal(code) || (METRIC_CODE_ALIASES[code] ? getPrintMetricVal(METRIC_CODE_ALIASES[code][0]) : '') || '';
               };
 
+              const getPrevOtdVal = (code: string) => {
+                const candidates = [code, ...(METRIC_CODE_ALIASES[code] || [])];
+                for (const c of candidates) {
+                  const entry = prevDayOttEntries[c];
+                  if (entry?.actual_value !== null && entry?.actual_value !== undefined) {
+                    return typeof entry.actual_value === 'number' ? entry.actual_value.toLocaleString('en-IN') : String(entry.actual_value);
+                  }
+                  if (entry?.raw_value !== null && entry?.raw_value !== undefined && entry?.raw_value !== '') {
+                    return entry.raw_value;
+                  }
+                }
+                return '';
+              };
+
               const otdItems = [
-                { dept: 'Greige Yarn', d1: getOtdVal('OTD_GREIGE_YARN') || getOtdVal('OTT_GREIGE_YARN'), d2: '' },
-                { dept: 'Dyed Yarn', d1: getOtdVal('OTD_DYED_YARN') || getOtdVal('OTT_DYED_YARN'), d2: '' },
-                { dept: 'Sizing', d1: getOtdVal('OTD_SIZING') || getOtdVal('OTT_SIZING'), d2: '' },
-                { dept: 'Greige WareHouse', d1: getOtdVal('OTD_GREIGE_WAREHOUSE') || getOtdVal('OTT_GREIGE_WAREHOUSE'), d2: '' },
-                { dept: 'Processing', d1: getOtdVal('OTD_PROCESSING') || getOtdVal('OTT_PROCESSING'), d2: '' },
-                { dept: 'Finished WareHouse', d1: getOtdVal('OTD_FINISHED_WAREHOUSE') || getOtdVal('OTT_FINISHED_WAREHOUSE'), d2: '' },
-                { dept: 'Final Dispatch', d1: getOtdVal('OTD_FINAL_DISPATCH') || getOtdVal('OTT_FINAL_DISPATCH'), d2: '' },
+                { dept: 'Greige Yarn', d1: getOtdVal('OTD_GREIGE_YARN') || getOtdVal('OTT_GREIGE_YARN'), d2: getPrevOtdVal('OTD_GREIGE_YARN') || getPrevOtdVal('OTT_GREIGE_YARN') },
+                { dept: 'Dyed Yarn', d1: getOtdVal('OTD_DYED_YARN') || getOtdVal('OTT_DYED_YARN'), d2: getPrevOtdVal('OTD_DYED_YARN') || getPrevOtdVal('OTT_DYED_YARN') },
+                { dept: 'Sizing', d1: getOtdVal('OTD_SIZING') || getOtdVal('OTT_SIZING'), d2: getPrevOtdVal('OTD_SIZING') || getPrevOtdVal('OTT_SIZING') },
+                { dept: 'Greige WareHouse', d1: getOtdVal('OTD_GREIGE_WAREHOUSE') || getOtdVal('OTT_GREIGE_WAREHOUSE'), d2: getPrevOtdVal('OTD_GREIGE_WAREHOUSE') || getPrevOtdVal('OTT_GREIGE_WAREHOUSE') },
+                { dept: 'Processing', d1: getOtdVal('OTD_PROCESSING') || getOtdVal('OTT_PROCESSING'), d2: getPrevOtdVal('OTD_PROCESSING') || getPrevOtdVal('OTT_PROCESSING') },
+                { dept: 'Finished WareHouse', d1: getOtdVal('OTD_FINISHED_WAREHOUSE') || getOtdVal('OTT_FINISHED_WAREHOUSE'), d2: getPrevOtdVal('OTD_FINISHED_WAREHOUSE') || getPrevOtdVal('OTT_FINISHED_WAREHOUSE') },
+                { dept: 'Final Dispatch', d1: getOtdVal('OTD_FINAL_DISPATCH') || getOtdVal('OTT_FINAL_DISPATCH'), d2: getPrevOtdVal('OTD_FINAL_DISPATCH') || getPrevOtdVal('OTT_FINAL_DISPATCH') },
               ];
 
               const gTot = getAsOnMetricVal('GREIGE_TOTAL_ORDERS');
@@ -3687,12 +3779,6 @@ return (
           </tbody>
         </table>
 
-        <div className="p2-signatory">
-          <span>PREPARED BY: _____________________</span>
-          <span>CHECKED BY: _____________________</span>
-          <span>FACTORY MANAGER: _____________________</span>
-          <span>MANAGING DIRECTOR: _____________________</span>
-        </div>
         <div className="p-page-ftr">
           <div>Santhi Processing Unit Pvt. Ltd. — Confidential Factory Production Report</div>
           <div>Page 2 of 2</div>

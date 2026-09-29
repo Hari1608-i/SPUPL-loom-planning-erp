@@ -276,19 +276,19 @@ export const DEPARTMENTS: DepartmentConfig[] = [
     name: 'SAMPLING',
     head: 'GUNASEKARAN',
     mentor: 'MATHESHWARAN',
-    description: 'Single End Sizing, Desk Loom Mtr, Sample WPG, Pending Sample and Remarks',
+    description: 'Single End Sizing, Desk Loom Mtr, Sample warping, Pending Sample and Remarks',
     rawMetrics: [
       { code: 'SINGLE_END_SIZING', name: 'SINGLE END SIZING', type: 'number', target: 80, unit: 'KG', placeholder: 'e.g. 80' },
       { code: 'DESK_LOOM_MTR', name: 'DESK LOOM MTR', type: 'number', placeholder: 'Desk Loom Mtr' },
-      { code: 'SAMPLE_WPG', name: 'SAMPLE WPG', type: 'number', target: 8, placeholder: 'e.g. 8' },
+      { code: 'SAMPLE_WPG', name: 'Sample warping', type: 'number', target: 8, placeholder: 'e.g. 8' },
       { code: 'PENDING_SAMPLE', name: 'PENDING SAMPLE', type: 'number', placeholder: 'Pending Sample' },
       { code: 'REMARKS', name: 'Remarks', type: 'text', placeholder: 'Enter remarks' }
     ],
     calculatedMetrics: [
       { code: 'SINGLE_END_SIZING_DIFF', name: 'Single End Sizing Diff (vs Target)', type: 'number', unit: 'KG', isCalculated: true },
       { code: 'SINGLE_END_SIZING_ACHIEVEMENT_PCT', name: 'Single End Sizing Achievement %', type: 'number', unit: '%', isCalculated: true },
-      { code: 'SAMPLE_WPG_DIFF', name: 'Sample WPG Diff (vs Target)', type: 'number', isCalculated: true },
-      { code: 'SAMPLE_WPG_ACHIEVEMENT_PCT', name: 'Sample WPG Achievement %', type: 'number', unit: '%', isCalculated: true }
+      { code: 'SAMPLE_WPG_DIFF', name: 'Sample warping Diff (vs Target)', type: 'number', isCalculated: true },
+      { code: 'SAMPLE_WPG_ACHIEVEMENT_PCT', name: 'Sample warping Achievement %', type: 'number', unit: '%', isCalculated: true }
     ],
     calculate: (raw) => {
       const seVal = raw.SINGLE_END_SIZING !== undefined && raw.SINGLE_END_SIZING !== '' ? raw.SINGLE_END_SIZING : raw.SE_SIZING;
