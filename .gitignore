@@ -59,3 +59,4 @@ backend/add_sort_change_type.js
 backend/apply_safe_columns.js
 backend/schema_diff.sql
 warp_debug_report.txt
+.env*
