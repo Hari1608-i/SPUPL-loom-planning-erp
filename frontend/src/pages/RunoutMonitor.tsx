@@ -5,6 +5,7 @@ import { Activity, AlertTriangle, ArrowRight, CheckCircle2, ShieldCheck, Clock, 
 import { format } from 'date-fns';
 import { useAppContext } from '../context/AppProvider';
 import { API_BASE_URL } from '../config';
+import GlobalSearchFilter, { SearchResultItem } from '../components/common/GlobalSearchFilter';
 
 export default function RunoutMonitor() {
   const { activeRuns, rawNextPlans, looms, designs, reeds, beams, orders, refreshData } = useAppContext();
@@ -214,6 +215,17 @@ export default function RunoutMonitor() {
     return list;
   }, [monitorData, searchTerm, searchType, filterDelay]);
 
+  const searchSuggestions: SearchResultItem[] = useMemo(() => {
+    if (!searchTerm.trim()) return [];
+    return filteredData.slice(0, 10).map(d => ({
+      id: d.loomNo,
+      loomNo: d.loomNo,
+      designNo: d.currentDesign,
+      orderNo: d.orderNo,
+      extraInfo: d.delayStatus
+    }));
+  }, [filteredData, searchTerm]);
+
   const criticalCount = monitorData.filter(d => d.balanceDays <= 2).length;
   const alertCount = monitorData.filter(d => d.balanceDays > 2 && d.balanceDays <= 6).length;
   const readyCount = monitorData.filter(d => d.plan && d.plan.status === 'CONFIRMED').length;
@@ -377,46 +389,13 @@ export default function RunoutMonitor() {
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center space-x-1.5">
-            <span className="font-bold text-slate-500 uppercase text-[11px]">Search Type:</span>
-            <select
-              value={searchType}
-              onChange={(e) => setSearchType(e.target.value as 'LOOM' | 'DESIGN' | 'ALL')}
-              className="px-2.5 py-1.5 border border-slate-300 rounded-xl outline-none font-bold text-indigo-950 bg-white text-xs focus:ring-2 focus:ring-indigo-500 shadow-sm cursor-pointer"
-            >
-              <option value="LOOM">Loom No</option>
-              <option value="DESIGN">Design No</option>
-              <option value="ALL">All Fields</option>
-            </select>
-          </div>
-
-          <div className="relative w-64 sm:w-72">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder={
-                searchType === 'LOOM'
-                  ? 'Search Loom No (e.g. 20, 107)...'
-                  : searchType === 'DESIGN'
-                  ? 'Search Design No (e.g. SP26/620)...'
-                  : 'Search Loom, Design, Beam...'
-              }
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-8 py-2 border border-slate-300 rounded-xl outline-none font-bold text-indigo-900 focus:ring-2 focus:ring-indigo-500"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5"
-                title="Clear Search"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
+        <GlobalSearchFilter
+          searchType={searchType}
+          onSearchTypeChange={setSearchType}
+          searchTerm={searchTerm}
+          onSearchTermChange={setSearchTerm}
+          suggestions={searchSuggestions}
+        />
       </div>
 
       {/* Full 15-Column Table */}

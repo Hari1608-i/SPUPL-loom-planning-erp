@@ -6,10 +6,12 @@ import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { CompanyPrintHeader, PrintTableHeaderRow } from '../components/common/CompanyPrintHeader';
 import { triggerPrint } from '../utils/printManager';
+import GlobalSearchFilter, { SearchTypeOption, SearchResultItem } from '../components/common/GlobalSearchFilter';
 
 export default function LoomWiseRunout() {
   const { activeRuns, looms, nextPlans } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchType, setSearchType] = useState<SearchTypeOption>('LOOM');
 
   const tableData = useMemo(() => {
     const list = Object.values(activeRuns).map(run => {
@@ -38,21 +40,48 @@ export default function LoomWiseRunout() {
     return list.sort((a, b) => a.balanceDays - b.balanceDays);
   }, [activeRuns, looms, nextPlans]);
 
+  const filteredData = useMemo(() => {
+    const raw = (searchTerm || '').trim();
+    const q = raw.toLowerCase();
+    if (!q) return tableData;
 
-  const filteredData = tableData.filter(d => {
-    const q = (searchTerm || '').trim().toLowerCase();
-    if (!q) return true;
-    return (
-      (d.designNo && d.designNo.toLowerCase().includes(q)) ||
-      d.loomNo.toString().includes(q) ||
-      (d.nextDesign && d.nextDesign.toLowerCase().includes(q)) ||
-      (d.currentBeamNo && d.currentBeamNo.toLowerCase().includes(q)) ||
-      ((d as any).setNo && (d as any).setNo.toLowerCase().includes(q)) ||
-      ((d as any).orderNo && (d as any).orderNo.toLowerCase().includes(q)) ||
-      (d.unit && d.unit.toLowerCase().includes(q)) ||
-      (d.loomType && d.loomType.toLowerCase().includes(q))
-    );
-  });
+    return tableData.filter(d => {
+      if (searchType === 'LOOM') {
+        const clean = q.replace(/^loom\s*|^l-?\s*/i, '').trim();
+        const loomStr = d.loomNo.toString().toLowerCase();
+        return clean ? (loomStr === clean || loomStr.startsWith(clean) || loomStr.includes(clean)) : true;
+      }
+      if (searchType === 'DESIGN') {
+        return (
+          (d.designNo && d.designNo.toLowerCase().includes(q)) ||
+          (d.nextDesign && d.nextDesign.toLowerCase().includes(q))
+        );
+      }
+      // ALL
+      const clean = q.replace(/^loom\s*|^l-?\s*/i, '').trim();
+      const matchLoom = clean ? (d.loomNo.toString().toLowerCase() === clean || d.loomNo.toString().toLowerCase().includes(clean)) : false;
+      return (
+        matchLoom ||
+        d.loomNo.toString().includes(q) ||
+        (d.designNo && d.designNo.toLowerCase().includes(q)) ||
+        (d.nextDesign && d.nextDesign.toLowerCase().includes(q)) ||
+        (d.currentBeamNo && d.currentBeamNo.toLowerCase().includes(q)) ||
+        ((d as any).setNo && (d as any).setNo.toLowerCase().includes(q)) ||
+        (d.unit && d.unit.toLowerCase().includes(q)) ||
+        (d.loomType && d.loomType.toLowerCase().includes(q))
+      );
+    });
+  }, [tableData, searchTerm, searchType]);
+
+  const searchSuggestions: SearchResultItem[] = useMemo(() => {
+    if (!searchTerm.trim()) return [];
+    return filteredData.slice(0, 10).map(d => ({
+      id: d.loomNo,
+      loomNo: d.loomNo,
+      designNo: d.designNo,
+      extraInfo: `${d.unit} • ${d.loomType}`
+    }));
+  }, [filteredData, searchTerm]);
 
   const handleExportExcel = () => {
     const exportRows = filteredData.map(r => ({
@@ -188,18 +217,15 @@ export default function LoomWiseRunout() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-industrial-100 overflow-hidden flex flex-col print:border-none print:shadow-none print:overflow-visible">
-        <div className="p-4 border-b border-industrial-100 bg-industrial-50 flex justify-between items-center print:hidden">
-           <div className="relative w-64">
-             <Search className="w-4 h-4 absolute left-3 top-2.5 text-industrial-400" />
-             <input 
-               type="text" 
-               placeholder="Search Loom or Design..." 
-               value={searchTerm}
-               onChange={e => setSearchTerm(e.target.value)}
-               className="w-full pl-9 pr-4 py-2 text-sm border border-industrial-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-             />
-           </div>
-           <div className="text-sm text-industrial-500 font-medium">Running Looms: {filteredData.length}</div>
+        <div className="p-4 border-b border-industrial-100 bg-industrial-50 flex flex-wrap justify-between items-center gap-3 print:hidden">
+          <GlobalSearchFilter
+            searchType={searchType}
+            onSearchTypeChange={setSearchType}
+            searchTerm={searchTerm}
+            onSearchTermChange={setSearchTerm}
+            suggestions={searchSuggestions}
+          />
+          <div className="text-sm text-industrial-500 font-medium">Running Looms: {filteredData.length}</div>
         </div>
         
         <div className="overflow-x-auto flex-1 min-h-[500px] print:overflow-visible print:min-h-0">

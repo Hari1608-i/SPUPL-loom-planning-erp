@@ -6,10 +6,12 @@ import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { CompanyPrintHeader, PrintTableHeaderRow } from '../components/common/CompanyPrintHeader';
 import { triggerPrint } from '../utils/printManager';
+import GlobalSearchFilter, { SearchTypeOption, SearchResultItem } from '../components/common/GlobalSearchFilter';
 
 export default function DesignRunout() {
   const { activeRuns, designs, looms } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchType, setSearchType] = useState<SearchTypeOption>('DESIGN');
   const [expandedDesign, setExpandedDesign] = useState<string | null>(null);
 
   const groupedData = useMemo(() => {
@@ -73,18 +75,39 @@ export default function DesignRunout() {
     return Object.values(groups).sort((a, b) => a.earliestRunout.getTime() - b.earliestRunout.getTime());
   }, [activeRuns, designs, looms]);
 
-  const filteredData = groupedData.filter(d => {
+  const filteredData = useMemo(() => {
     const q = (searchTerm || '').trim().toLowerCase();
-    if (!q) return true;
-    if ((d.designNo || '').toLowerCase().includes(q)) return true;
-    return (d.looms || []).some((l: any) =>
-      (l.loomNo || '').toString().toLowerCase().includes(q) ||
-      (l.setNo || l.set_no || '').toString().toLowerCase().includes(q) ||
-      (l.currentBeamNo || l.beam_no || '').toString().toLowerCase().includes(q) ||
-      (l.orderNo || l.order_no || '').toString().toLowerCase().includes(q) ||
-      (l.unit || '').toLowerCase().includes(q)
-    );
-  });
+    if (!q) return groupedData;
+
+    return groupedData.filter(d => {
+      if (searchType === 'DESIGN') {
+        return (d.designNo || '').toLowerCase().includes(q);
+      }
+      if (searchType === 'LOOM') {
+        return (d.looms || []).some((l: any) =>
+          (l.loomNo || '').toString().toLowerCase().includes(q)
+        );
+      }
+      // ALL
+      if ((d.designNo || '').toLowerCase().includes(q)) return true;
+      return (d.looms || []).some((l: any) =>
+        (l.loomNo || '').toString().toLowerCase().includes(q) ||
+        (l.setNo || l.set_no || '').toString().toLowerCase().includes(q) ||
+        (l.currentBeamNo || l.beam_no || '').toString().toLowerCase().includes(q) ||
+        (l.orderNo || l.order_no || '').toString().toLowerCase().includes(q) ||
+        (l.unit || '').toLowerCase().includes(q)
+      );
+    });
+  }, [groupedData, searchTerm, searchType]);
+
+  const searchSuggestions: SearchResultItem[] = useMemo(() => {
+    if (!searchTerm.trim()) return [];
+    return filteredData.slice(0, 10).map(d => ({
+      id: d.designNo,
+      designNo: d.designNo,
+      extraInfo: `${d.runningLoomCount} Looms • ${Math.round(d.totalNetBalance)} M`
+    }));
+  }, [filteredData, searchTerm]);
 
   const handleExportExcel = () => {
     const summaryRows = filteredData.map(d => ({
@@ -219,18 +242,15 @@ export default function DesignRunout() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-industrial-100 overflow-hidden flex flex-col print:border-none print:shadow-none print:overflow-visible">
-        <div className="p-4 border-b border-industrial-100 bg-industrial-50 flex justify-between items-center print:hidden">
-           <div className="relative w-64">
-             <Search className="w-4 h-4 absolute left-3 top-2.5 text-industrial-400" />
-             <input 
-               type="text" 
-               placeholder="Search design..." 
-               value={searchTerm}
-               onChange={e => setSearchTerm(e.target.value)}
-               className="w-full pl-9 pr-4 py-2 text-sm border border-industrial-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-             />
-           </div>
-           <div className="text-sm text-industrial-500 font-medium">Active Designs: {filteredData.length}</div>
+        <div className="p-4 border-b border-industrial-100 bg-industrial-50 flex flex-wrap justify-between items-center gap-3 print:hidden">
+          <GlobalSearchFilter
+            searchType={searchType}
+            onSearchTypeChange={setSearchType}
+            searchTerm={searchTerm}
+            onSearchTermChange={setSearchTerm}
+            suggestions={searchSuggestions}
+          />
+          <div className="text-sm text-industrial-500 font-medium">Active Designs: {filteredData.length}</div>
         </div>
         
         <div className="overflow-x-auto flex-1 min-h-[400px] print:overflow-visible print:min-h-0">
