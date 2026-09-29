@@ -1756,7 +1756,7 @@ export default function DailyReport() {
 
       const rmStart = r1;
       setCell(ws1, rmStart, 0, 7, styleCellCenterBold);
-      setCell(ws1, rmStart, 1, 'RAW MATERIAL', styleCellCenterBold);
+      setCell(ws1, rmStart, 1, 'YARN DEPARTMENT', styleCellCenterBold);
       setCell(ws1, rmStart, 2, mastersMap['RAW_MATERIAL']?.head || 'VENKAT', styleCellCenterBold);
       setCell(ws1, rmStart, 3, mastersMap['RAW_MATERIAL']?.mentor || 'MOHANA /CHANDRU', styleCellCenterBold);
 
@@ -2490,7 +2490,7 @@ const dailyMeetingRows = useMemo(() => [
   { name: 'YD FABRIC', code: 'OS_YD_FABRIC_MTRS', defaultTarget: 10000, perfScore: 1 },
   // 6. WEAVING
   { sno: 3, snoRowSpan: 2, dept: 'WEAVING', deptRowSpan: 2, mentor: 'MR.GUNASEKARAN', mentorRowSpan: 2, name: 'INHOUSE (KPICKS)', code: 'INHOUSE_KPICKS', defaultTarget: 153745, perfScore: 6 },
-  { name: 'INHOUSE (MTRS) AVG PICK 59.1', code: 'INHOUSE_MTRS', defaultTarget: 69030, perfScore: 7 },
+  { name: 'INHOUSE (MTRS)', code: 'INHOUSE_MTRS', defaultTarget: 69030, perfScore: 7 },
   // 7. SIZING
   { sno: 4, snoRowSpan: 5, dept: 'SIZING', deptRowSpan: 5, mentor: 'MR.SENTHIL', mentorRowSpan: 5, name: 'SIZING', code: 'SIZING_MTRS', defaultTarget: 40000, perfScore: 1 },
   { name: 'SEC WARPING', code: 'SEC_WARPING_MTRS', defaultTarget: 4000, perfScore: 1 },
@@ -3229,7 +3229,7 @@ return (
               const weavRejPctAsOn = (finInspAsOn && finInspAsOn > 0 && weavRejAsOn !== null) ? ((weavRejAsOn / finInspAsOn) * 100).toFixed(2) + '%' : '';
               const hasAnyFinRejAsOn = procRejAsOn !== null || venRejAsOn !== null || weavRejAsOn !== null;
               const totRejFinAsOn = hasAnyFinRejAsOn ? ((procRejAsOn || 0) + (venRejAsOn || 0) + (weavRejAsOn || 0)) : null;
-              const realPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRejFinAsOn !== null) ? (Math.max(0, 100 - (totRejFinFinAsOn => totRejFinAsOn)(totRejFinAsOn) / finInspAsOn * 100)).toFixed(2) + '%' : '';
+              const realPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRejFinAsOn !== null) ? (Math.max(0, 100 - (totRejFinAsOn / finInspAsOn * 100))).toFixed(2) + '%' : '';
 
               const procRewAsOn = getAsOnMetricNum('PROCESSING_REWASH_MTRS') ?? getAsOnMetricNum('PROC_REWASH_MTRS');
               const procRewPctAsOn = (finInspAsOn && finInspAsOn > 0 && procRewAsOn !== null) ? ((procRewAsOn / finInspAsOn) * 100).toFixed(2) + '%' : '';
@@ -3626,7 +3626,7 @@ return (
                   {/* Row 55: RAW MATERIAL - TOTAL NO OF ORDERS */}
                   <tr>
                     <td rowSpan={6} className="p-center p-bold">7</td>
-                    <td rowSpan={6} className="p-merged-center">RAW MATERIAL</td>
+                    <td rowSpan={6} className="p-merged-center">YARN DEPARTMENT</td>
                     <td rowSpan={6} className="p-merged-center">{effectivePrintMasters['RAW_MATERIAL']?.head || 'VENKAT'}</td>
                     <td rowSpan={6} className="p-merged-center">{effectivePrintMasters['RAW_MATERIAL']?.mentor || 'MOHANA /CHANDRU'}</td>
                     <td className="p-left p-bold">{rmRows[0].label}</td>

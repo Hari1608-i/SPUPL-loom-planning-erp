@@ -1919,8 +1919,7 @@ export default function MainEntry() {
                 const forecastAvgProd = calc.avgProduction > 0 ? calc.avgProduction : 300;
 
                 // Cascade: compute expected start/runout for each queued plan
-                let previousRunout: Date | null = null;
-const cascadedPlans = nextPlansList.map((plan, idx) => {
+                const cascadedPlans = nextPlansList.map((plan, idx) => {
                   // Expected start of this plan = runout of the previous step + 1 day
                   let expectedStart: Date;
                   if (idx === 0) {
@@ -1930,7 +1929,7 @@ const cascadedPlans = nextPlansList.map((plan, idx) => {
                         ? addDays(new Date(), 1)
                         : addDays(calc.expectedRunoutDate, 1);
                   } else {
-                    expectedStart = addDays(previousRunout || calc.expectedRunoutDate, 1);
+                    expectedStart = addDays(cascadedPlans[idx - 1].expectedRunout, 1);
                   }
 
                   // Find beam for this plan (if allocated)
@@ -1954,7 +1953,6 @@ const cascadedPlans = nextPlansList.map((plan, idx) => {
                   const planNetBal = Math.max(0, planGrossBal - planCrimpLoss);
                   const planBalanceDays = planAvgProd > 0 ? planNetBal / planAvgProd : 0;
                   const expectedRunout = addDays(expectedStart, Math.ceil(planBalanceDays));
-                  previousRunout = expectedRunout;
 
                   // Determine plan status label
                   const rawStatus = (plan.status || '').toUpperCase();
