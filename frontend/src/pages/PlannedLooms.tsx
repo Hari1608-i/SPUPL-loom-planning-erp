@@ -483,7 +483,9 @@ export default function PlannedLooms() {
     }
     const q = (searchTerm || '').trim().toLowerCase();
     if (!q) return true;
+    const cleanLoomQ = q.replace(/^loom\s*|^l-?\s*/i, '');
     return (
+      (cleanLoomQ && d.loom_no.toString().includes(cleanLoomQ)) ||
       d.loom_no.toString().includes(q) ||
       (d.next_design && d.next_design.toLowerCase().includes(q)) ||
       (d.current_design && d.current_design.toLowerCase().includes(q)) ||

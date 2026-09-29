@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
+import {
   Package, Search, Plus, Download, Trash2, Save, Printer,
   Calendar, CheckCircle2, AlertCircle, RefreshCw, Copy, Layers, Filter, CheckCircle, AlertTriangle, Eye, X, Edit2, Upload
 } from 'lucide-react';
@@ -37,8 +37,8 @@ export interface BeamRowState {
 }
 
 const FIELDS_ORDER: (keyof BeamRowState)[] = [
-  'date', 'design_no', 'vendor_name', 'party_beam_no', 'set_no', 'beam_no', 
-  'beam_type', 'beam_dia', 'beam_width', 'total_ends', 'warp_meter', 
+  'date', 'design_no', 'vendor_name', 'party_beam_no', 'set_no', 'beam_no',
+  'beam_type', 'beam_dia', 'beam_width', 'total_ends', 'warp_meter',
   'age_of_beam', 'location', 'beam_status', 'remarks'
 ];
 
@@ -166,15 +166,15 @@ export default function BeamStock() {
           const bNo = (b.beam_no || '').trim().toUpperCase();
           const bId = Number(b.id);
 
-          const isLoomRunning = 
-            norm === 'RUNNING' || norm === 'IN USE' || norm === 'ON LOOM' || 
+          const isLoomRunning =
+            norm === 'RUNNING' || norm === 'IN USE' || norm === 'ON LOOM' ||
             (Boolean(b.loom_no_assigned) && Number(b.loom_no_assigned) > 0 && activeLoomNos.has(Number(b.loom_no_assigned))) ||
             (bNo && runningBeamNos.has(bNo) && norm !== 'AVAILABLE' && norm !== 'READY') ||
             (bId && runningBeamIds.has(bId) && norm !== 'AVAILABLE' && norm !== 'READY');
 
-          const isPlanAllocated = 
-            norm === 'ALLOCATED' || norm === 'RESERVED' || norm === 'ASSIGNED' || 
-            (bNo && planAllocatedBeamNos.has(bNo)) || 
+          const isPlanAllocated =
+            norm === 'ALLOCATED' || norm === 'RESERVED' || norm === 'ASSIGNED' ||
+            (bNo && planAllocatedBeamNos.has(bNo)) ||
             (bId && planAllocatedBeamIds.has(bId)) ||
             Boolean(b.loom_no_assigned && Number(b.loom_no_assigned) > 0) ||
             Boolean(b.reserved_for && String(b.reserved_for).trim() !== '' && String(b.reserved_for).trim().toUpperCase() !== 'NULL');
@@ -190,12 +190,12 @@ export default function BeamStock() {
           let formattedDate = format(new Date(), 'yyyy-MM-dd');
           try {
             if (b.date) formattedDate = format(new Date(b.date), 'yyyy-MM-dd');
-          } catch(e) {}
+          } catch (e) { }
 
           const ageDays = formattedDate ? differenceInDays(new Date(), new Date(formattedDate)) : 0;
 
-          const designNoVal = b.design_no || 
-            orders.find(o => o.ibpo_no === b.party_beam_no || o.order_no === b.party_beam_no || (b.remarks && b.remarks.includes(o.ibpo_no)))?.design_no_sp_no || 
+          const designNoVal = b.design_no ||
+            orders.find(o => o.ibpo_no === b.party_beam_no || o.order_no === b.party_beam_no || (b.remarks && b.remarks.includes(o.ibpo_no)))?.design_no_sp_no ||
             '';
 
           return {
@@ -289,7 +289,7 @@ export default function BeamStock() {
           try {
             const d = new Date(sizingDateRaw);
             if (!isNaN(d.getTime())) plannedSizingDate = format(d, 'dd-MM-yyyy');
-          } catch(e) {}
+          } catch (e) { }
         }
 
         // ── LOOM START DATE ──
@@ -299,7 +299,7 @@ export default function BeamStock() {
           try {
             const d = new Date(loomDateRaw);
             if (!isNaN(d.getTime())) loomStartDate = format(d, 'dd-MM-yyyy');
-          } catch(e) {}
+          } catch (e) { }
         }
 
         // ── BEAM COUNTS — design-specific and order-specific matching ──
@@ -310,7 +310,7 @@ export default function BeamStock() {
           const rBeamNo = (r.beam_no || '').trim();
           if (!rBeamNo) return false;
           const isMatch = (rDesign && designNo && (rDesign === designNo.trim().toLowerCase() || rDesign.includes(designNo.trim().toLowerCase()) || designNo.trim().toLowerCase().includes(rDesign))) ||
-                          (rParty && ibpo && (rParty === ibpo.trim().toLowerCase() || rParty.includes(ibpo.trim().toLowerCase()) || ibpo.trim().toLowerCase().includes(rParty)));
+            (rParty && ibpo && (rParty === ibpo.trim().toLowerCase() || rParty.includes(ibpo.trim().toLowerCase()) || ibpo.trim().toLowerCase().includes(rParty)));
           if (!isMatch) return false;
           if (seenBeamNos.has(rBeamNo.toUpperCase())) return false;
           seenBeamNos.add(rBeamNo.toUpperCase());
@@ -345,7 +345,7 @@ export default function BeamStock() {
           const tDes = designNo.trim().toLowerCase();
           const tOrd = ibpo.trim().toLowerCase();
           return (rDes && (rDes === tDes || rDes.includes(tDes) || tDes.includes(rDes))) ||
-                 (rOrd && (rOrd === tOrd || rOrd.includes(tOrd) || tOrd.includes(rOrd)));
+            (rOrd && (rOrd === tOrd || rOrd.includes(tOrd) || tOrd.includes(rOrd)));
         }).length;
 
         // Count allocations from rawNextPlans for this order/design
@@ -357,7 +357,7 @@ export default function BeamStock() {
           const tIbpo = (ibpo || '').trim().toLowerCase();
           const tDes = (designNo || '').trim().toLowerCase();
           const isMatch = (pIbpo && (pIbpo === tIbpo || pIbpo.includes(tIbpo) || tIbpo.includes(pIbpo))) ||
-                          (pDes && (pDes === tDes || pDes.includes(tDes) || tDes.includes(pDes)));
+            (pDes && (pDes === tDes || pDes.includes(tDes) || tDes.includes(pDes)));
           return isMatch && (p.reserved_beam_id || p.reserved_beam_no || p.beam_status === 'BEAM ALLOCATED' || st === 'CONFIRMED');
         }).length;
 
@@ -393,15 +393,34 @@ export default function BeamStock() {
 
   // Filtered Order Requirements for Display
   const displayedOrderRequirements = useMemo(() => {
-    let list = showAllOrders ? activeOrderRequirements : activeOrderRequirements.filter(r => r.balanceBeams > 0 || r.allocatedBeams > 0 || r.requiredBeams > 0);
-    if (!orderReqSearchTerm.trim()) return list;
-    const q = orderReqSearchTerm.trim().toLowerCase();
-    return list.filter(r =>
-      (r.ibpo || '').toLowerCase().includes(q) ||
-      (r.designNo || '').toLowerCase().includes(q) ||
-      (r.plannedSizingDate || '').toLowerCase().includes(q) ||
-      (r.loomStartDate || '').toLowerCase().includes(q)
-    );
+    const q = (orderReqSearchTerm || '').trim().toLowerCase();
+    
+    // When searching, always search across ALL active orders so that matching orders are never hidden behind the pending filter!
+    const baseList = q 
+      ? activeOrderRequirements 
+      : (showAllOrders ? activeOrderRequirements : activeOrderRequirements.filter(r => r.balanceBeams > 0 || r.allocatedBeams > 0 || r.requiredBeams > 0));
+
+    if (!q) return baseList;
+
+    return baseList.filter(r => {
+      const ibpo = (r.ibpo || '').toLowerCase();
+      const design = (r.designNo || '').toLowerCase();
+      const orderNo = (r.ord?.order_no || '').toLowerCase();
+      const customer = (r.ord?.customer_name || '').toLowerCase();
+      const buyer = (r.ord?.buyer_name || '').toLowerCase();
+      const construction = (r.ord?.construction || '').toLowerCase();
+      const sizingDate = (r.plannedSizingDate || '').toLowerCase();
+      const loomDate = (r.loomStartDate || '').toLowerCase();
+
+      return ibpo.includes(q) || 
+             design.includes(q) || 
+             orderNo.includes(q) || 
+             customer.includes(q) || 
+             buyer.includes(q) || 
+             construction.includes(q) ||
+             sizingDate.includes(q) || 
+             loomDate.includes(q);
+    });
   }, [activeOrderRequirements, showAllOrders, orderReqSearchTerm]);
 
   // Summary Metrics Area
@@ -540,14 +559,14 @@ export default function BeamStock() {
     setRows(prev => prev.map(row => {
       if (row.id !== rowId) return row;
       const updatedRow = { ...row, [field]: value };
-      
+
       if (field === 'date' && value) {
         try {
           const d = new Date(value);
           if (!isNaN(d.getTime())) {
             updatedRow.age_of_beam = Math.max(0, differenceInDays(new Date(), d));
           }
-        } catch(e) {}
+        } catch (e) { }
       }
 
       return updatedRow;
@@ -640,7 +659,7 @@ export default function BeamStock() {
                   valStr = format(parsedDate, 'yyyy-MM-dd');
                   updatedRow.age_of_beam = Math.max(0, differenceInDays(new Date(), parsedDate));
                 }
-              } catch(e) {}
+              } catch (e) { }
               updatedRow.date = valStr;
             } else if (field === 'beam_dia' || field === 'beam_width' || field === 'total_ends' || field === 'warp_meter') {
               const num = Number(valStr.replace(/[^0-9.]/g, ''));
@@ -720,7 +739,7 @@ export default function BeamStock() {
       try {
         const res = await fetch(`${API_BASE_URL}/api/beam-stock/clear-all`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Failed to clear beam stock database');
-        
+
         await fetchData();
         await refreshData();
         setSuccessMsg('All Beam Stock records cleared from Database!');
@@ -885,15 +904,15 @@ export default function BeamStock() {
     // Blank template rows (e.g. for Excel paste) stay visible in ALL view
     if (!bNo) return statusFilter === 'ALL';
 
-    const isLoomRunning = 
-      normSt === 'RUNNING' || normSt === 'IN USE' || normSt === 'ON LOOM' || 
-      runningBeamNos.has(bNo) || 
+    const isLoomRunning =
+      normSt === 'RUNNING' || normSt === 'IN USE' || normSt === 'ON LOOM' ||
+      runningBeamNos.has(bNo) ||
       (rId !== null && runningBeamIds.has(rId)) ||
       (Boolean(r.loom_no_assigned) && Number(r.loom_no_assigned) > 0 && activeLoomNos.has(Number(r.loom_no_assigned)));
 
-    const isAllocated = 
-      normSt === 'ALLOCATED' || normSt === 'RESERVED' || normSt === 'ASSIGNED' || 
-      planAllocatedBeamNos.has(bNo) || 
+    const isAllocated =
+      normSt === 'ALLOCATED' || normSt === 'RESERVED' || normSt === 'ASSIGNED' ||
+      planAllocatedBeamNos.has(bNo) ||
       (rId !== null && planAllocatedBeamIds.has(rId)) ||
       Boolean(r.loom_no_assigned && Number(r.loom_no_assigned) > 0) ||
       Boolean(r.reserved_for && String(r.reserved_for).trim() !== '' && String(r.reserved_for).trim().toUpperCase() !== 'NULL');
@@ -906,11 +925,11 @@ export default function BeamStock() {
     }
 
     const q = (searchTerm || '').trim().toLowerCase();
-    const matchesSearch = !q || 
-      (r.beam_no || '').toLowerCase().includes(q) || 
-      (r.party_beam_no || '').toLowerCase().includes(q) || 
-      (r.order_no || '').toLowerCase().includes(q) || 
-      (r.ibpo || '').toLowerCase().includes(q) || 
+    const matchesSearch = !q ||
+      (r.beam_no || '').toLowerCase().includes(q) ||
+      (r.party_beam_no || '').toLowerCase().includes(q) ||
+      (r.order_no || '').toLowerCase().includes(q) ||
+      (r.ibpo || '').toLowerCase().includes(q) ||
       (r.design_no || '').toLowerCase().includes(q) ||
       (r.set_no || '').toLowerCase().includes(q) ||
       (r.vendor_name || '').toLowerCase().includes(q) ||
@@ -1065,10 +1084,10 @@ export default function BeamStock() {
         <div className="overflow-x-auto custom-scrollbar print:overflow-visible">
           <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
             <thead>
-              <PrintTableHeaderRow 
-                title="Beam Stock & Requirement Control" 
-                subtitle="Physical Beam Inventory & Loom Allocation Report" 
-                colSpan={14} 
+              <PrintTableHeaderRow
+                title="Beam Stock & Requirement Control"
+                subtitle="Physical Beam Inventory & Loom Allocation Report"
+                colSpan={14}
               />
               <tr className="bg-slate-950 text-slate-400 uppercase text-[9.5px] font-black border-b border-slate-800 print:bg-slate-100 print:text-black">
                 <th className="py-2 px-1 text-center">#</th>
@@ -1096,7 +1115,7 @@ export default function BeamStock() {
                 </tr>
               ) : (
                 displayedOrderRequirements.map((req, idx) => (
-                  <tr key={req.ibpo} className="hover:bg-slate-850/60 transition-colors">
+                  <tr key={req.ord?.id ? `order-req-${req.ord.id}` : `order-req-${req.ibpo}-${idx}`} className="hover:bg-slate-850/60 transition-colors">
                     <td className="py-2 px-1 text-center text-slate-500 font-bold">{idx + 1}</td>
 
                     <td className="py-2 px-1.5 font-black text-blue-300">
@@ -1176,7 +1195,7 @@ export default function BeamStock() {
 
       {/* SECTION 3 — EXCEL ENTRY GRID CONTROL BAR & EXCEL TABLE */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4 print:p-0 print:border-none flex-1 flex flex-col">
-        
+
         {/* Controls Bar */}
         <div className="flex flex-wrap justify-between items-center gap-3 border-b border-slate-200 pb-3 print:hidden">
           <div className="flex items-center space-x-3">
@@ -1417,11 +1436,10 @@ export default function BeamStock() {
                       <select
                         value={BEAM_STATUSES.find(s => s.toUpperCase() === (row.beam_status || '').toUpperCase()) || row.beam_status || 'Available'}
                         onChange={e => handleRowChange(row.id, 'beam_status', e.target.value)}
-                        className={`w-full p-1.5 border rounded font-bold text-xs outline-none ${
-                          (row.beam_status || '').toUpperCase() === 'CUT BEAM'
+                        className={`w-full p-1.5 border rounded font-bold text-xs outline-none ${(row.beam_status || '').toUpperCase() === 'CUT BEAM'
                             ? 'border-amber-500 bg-amber-100 text-amber-950 font-black ring-2 ring-amber-400'
                             : 'border-slate-300 bg-white text-slate-900'
-                        }`}
+                          }`}
                       >
                         {BEAM_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
@@ -1514,7 +1532,7 @@ export default function BeamStock() {
       {quickAddOrderModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto print:hidden">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full my-8 overflow-hidden border border-slate-200 animate-in fade-in zoom-in duration-150">
-            
+
             <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
               <h3 className="font-bold text-sm flex items-center">
                 <Plus className="w-4 h-4 mr-2 text-emerald-400" /> ADD BEAM PRODUCTION STOCK ({quickAddOrderModal.ibpo})
@@ -1523,7 +1541,7 @@ export default function BeamStock() {
             </div>
 
             <form onSubmit={handleSaveQuickBeam} className="p-5 space-y-4 text-xs font-medium max-h-[85vh] overflow-y-auto custom-scrollbar">
-              
+
               {/* Read Only Order Specification Header */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">

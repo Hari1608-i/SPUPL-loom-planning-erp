@@ -232,7 +232,9 @@ export default function AvailabilityBoard() {
   const filteredData = boardData.filter(d => {
     const q = (searchTerm || '').trim().toLowerCase();
     if (!q) return true;
+    const cleanLoomQ = q.replace(/^loom\s*|^l-?\s*/i, '');
     return (
+      (cleanLoomQ && d.loomNo.toString().includes(cleanLoomQ)) ||
       d.loomNo.toString().includes(q) ||
       (d.currentDesign || '').toLowerCase().includes(q) ||
       (d.nextDesign || '').toLowerCase().includes(q) ||

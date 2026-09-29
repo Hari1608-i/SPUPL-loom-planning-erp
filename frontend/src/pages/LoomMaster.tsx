@@ -316,8 +316,11 @@ export default function LoomMaster() {
   const filteredRows = rows.filter(r => {
     const q = (searchTerm || '').trim().toLowerCase();
     if (!q) return true;
+    const cleanLoomQ = q.replace(/^loom\s*|^l-?\s*/i, '');
+    const loomStr = (r.loomNo || '').toString().toLowerCase();
     return (
-      (r.loomNo || '').toString().toLowerCase().includes(q) || 
+      (cleanLoomQ && loomStr.includes(cleanLoomQ)) ||
+      loomStr.includes(q) || 
       (r.unit || '').toString().toLowerCase().includes(q) || 
       (r.loomType || '').toString().toLowerCase().includes(q) || 
       (r.beamType || '').toString().toLowerCase().includes(q) || 

@@ -176,7 +176,7 @@ export default function ReedStock() {
       groupMap[reedCount].totalRequiredReedQty += plannedLoomCount;
     });
 
-    return Object.values(groupMap)
+    const allGroups = Object.values(groupMap)
       .map(group => {
         const matchingReeds = reeds.filter(r => (r.reed_count || '').trim().toLowerCase() === group.reedCount.toLowerCase());
         const availableQty = matchingReeds.reduce((sum, r) => sum + Number(r.available_qty !== undefined ? r.available_qty : (r.total_qty || 1)), 0);
@@ -205,23 +205,26 @@ export default function ReedStock() {
           sampleOrder: group.ordersList[0],
           ordersList: group.ordersList
         };
-      })
-      .filter(g => g.stockStatus === 'STOCK LOW' || g.stockStatus === 'OUT OF STOCK')
-      .filter(g => {
-        const q = (searchTerm || '').trim().toLowerCase();
-        if (!q) return true;
-        return (
-          g.reedCount.toLowerCase().includes(q) ||
-          g.orderNosStr.toLowerCase().includes(q) ||
-          g.stockStatus.toLowerCase().includes(q) ||
-          (g.ordersList || []).some((ord: any) =>
-            (ord.design_no_sp_no || '').toLowerCase().includes(q) ||
-            (ord.ibpo_no || '').toLowerCase().includes(q) ||
-            (ord.order_no || '').toLowerCase().includes(q) ||
-            (ord.customer_name || '').toLowerCase().includes(q)
-          )
-        );
       });
+
+    const q = (searchTerm || '').trim().toLowerCase();
+    const baseList = q 
+      ? allGroups 
+      : allGroups.filter(g => g.stockStatus === 'STOCK LOW' || g.stockStatus === 'OUT OF STOCK');
+
+    if (!q) return baseList;
+
+    return baseList.filter(g =>
+      g.reedCount.toLowerCase().includes(q) ||
+      g.orderNosStr.toLowerCase().includes(q) ||
+      g.stockStatus.toLowerCase().includes(q) ||
+      (g.ordersList || []).some((ord: any) =>
+        (ord.design_no_sp_no || '').toLowerCase().includes(q) ||
+        (ord.ibpo_no || '').toLowerCase().includes(q) ||
+        (ord.order_no || '').toLowerCase().includes(q) ||
+        (ord.customer_name || '').toLowerCase().includes(q)
+      )
+    );
   }, [orders, designs, reeds, searchTerm]);
 
   const handleSeedSampleStock = async () => {
