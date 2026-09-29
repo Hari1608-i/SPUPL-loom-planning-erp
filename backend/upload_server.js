@@ -6642,44 +6642,83 @@ app.get('/api/orders', async (req, res) => {
       prisma.orderCompletionHistory.findMany()
     ]);
 
+    // Pre-index daily logs by loom_no and design_no for O(1) fast lookup
+    const dailyLogsByLoomAndDesign = new Map();
+    dailyLogs.forEach(dl => {
+      const key = `${Number(dl.loom_no)}__${(dl.design_no || '').trim().toLowerCase()}`;
+      let arr = dailyLogsByLoomAndDesign.get(key);
+      if (!arr) {
+        arr = [];
+        dailyLogsByLoomAndDesign.set(key, arr);
+      }
+      arr.push(dl);
+    });
+
+    // Pre-index completed history by order and design
+    const completedByOrder = new Map();
+    const completedByDesign = new Map();
+    completedHistory.forEach(h => {
+      const mtr = (Number(h.total_production_meter) || Number(h.warp_meter) || 0);
+      const hOrder = (h.order_no || h.ibpo_no || '').trim().toUpperCase();
+      const hDesign = (h.design_no_sp_no || '').trim().toLowerCase();
+      if (hOrder) {
+        completedByOrder.set(hOrder, (completedByOrder.get(hOrder) || 0) + mtr);
+      }
+      if (hDesign) {
+        completedByDesign.set(hDesign, (completedByDesign.get(hDesign) || 0) + mtr);
+      }
+    });
+
+    // Pre-index active runs by order and design
+    const activeRunsByOrder = new Map();
+    const activeRunsByDesign = new Map();
+    activeRuns.forEach(run => {
+      const rOrder = (run.order_no || '').trim().toUpperCase();
+      const rDesign = (run.design_no_sp_no || '').trim().toLowerCase();
+      if (rOrder) {
+        let arr = activeRunsByOrder.get(rOrder);
+        if (!arr) { arr = []; activeRunsByOrder.set(rOrder, arr); }
+        arr.push(run);
+      }
+      if (rDesign) {
+        let arr = activeRunsByDesign.get(rDesign);
+        if (!arr) { arr = []; activeRunsByDesign.set(rDesign, arr); }
+        arr.push(run);
+      }
+    });
+
     const enrichedOrders = orders.map(order => {
       const designNo = (order.design_no_sp_no || '').trim().toLowerCase();
       const ibpoNo = (order.ibpo_no || '').trim().toUpperCase();
       const orderNo = (order.order_no || '').trim().toLowerCase();
 
       // Find all active running looms for this order/design (strict IBPO/Order priority)
-      const orderActiveRuns = activeRuns.filter(run => {
-        const runDesign = (run.design_no_sp_no || '').trim().toLowerCase();
-        const runOrder = (run.order_no || '').trim().toUpperCase();
-
-        if (ibpoNo && runOrder) {
-          return runOrder === ibpoNo;
-        }
-        if (orderNo && runOrder) {
-          return runOrder.toLowerCase() === orderNo;
-        }
-        return runDesign === designNo;
-      });
+      let orderActiveRuns = [];
+      if (ibpoNo && activeRunsByOrder.has(ibpoNo)) {
+        orderActiveRuns = activeRunsByOrder.get(ibpoNo) || [];
+      } else if (orderNo && activeRunsByOrder.has(orderNo.toUpperCase())) {
+        orderActiveRuns = activeRunsByOrder.get(orderNo.toUpperCase()) || [];
+      } else if (designNo && activeRunsByDesign.has(designNo)) {
+        orderActiveRuns = activeRunsByDesign.get(designNo) || [];
+      }
 
       // 1. Sum completed warp production meters matching Design / IBPO
       let historyMeters = 0;
-      completedHistory.forEach(h => {
-        const hDesign = (h.design_no_sp_no || '').trim().toLowerCase();
-        const hOrder = (h.order_no || h.ibpo_no || '').trim().toUpperCase();
-        if ((ibpoNo && hOrder === ibpoNo) || (!hOrder && hDesign === designNo)) {
-          historyMeters += (Number(h.total_production_meter) || Number(h.warp_meter) || 0);
-        }
-      });
+      if (ibpoNo && completedByOrder.has(ibpoNo)) {
+        historyMeters = completedByOrder.get(ibpoNo) || 0;
+      } else if (orderNo && completedByOrder.has(orderNo.toUpperCase())) {
+        historyMeters = completedByOrder.get(orderNo.toUpperCase()) || 0;
+      } else if (designNo && completedByDesign.has(designNo)) {
+        historyMeters = completedByDesign.get(designNo) || 0;
+      }
 
       // 2. Sum actual daily production logs from active running looms matching Design / IBPO
       let activeProducedMeters = 0;
       const loomProdMap = new Map();
 
       orderActiveRuns.forEach(run => {
-        const loomLogs = dailyLogs.filter(dl =>
-          Number(dl.loom_no) === Number(run.loom_no) &&
-          (dl.design_no || '').trim().toLowerCase() === (run.design_no_sp_no || '').trim().toLowerCase()
-        );
+        const key = `${Number(run.loom_no)}__${(run.design_no_sp_no || '').trim().toLowerCase()}`;
+        const loomLogs = dailyLogsByLoomAndDesign.get(key) || [];
         const loomProduced = loomLogs.reduce((acc, l) => acc + (Number(l.produced_meter) || 0), 0);
         const finalLoomProduced = run.production_override && Number(run.production_override) > 0
           ? Number(run.production_override)

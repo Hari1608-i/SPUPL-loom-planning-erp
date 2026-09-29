@@ -245,7 +245,7 @@ input, select, textarea {
 
 @page {
   size: A4 landscape;
-  margin: 0;
+  margin: 4mm 5mm;
 }
 
 @media print {
@@ -381,8 +381,16 @@ input, select, textarea {
     page-break-inside: auto !important;
     break-inside: auto !important;
     font-size: 8.5px !important;
-    margin-bottom: 8px !important;
+    margin-bottom: 4px !important;
     box-shadow: none !important;
+  }
+
+  table:not(.daily-report-print-root table):last-child,
+  div:last-child {
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 
   thead {

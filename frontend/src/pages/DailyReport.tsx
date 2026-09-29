@@ -2497,7 +2497,7 @@ return (
     <style>{`
         @page {
           size: A4 landscape;
-          margin: 4mm 5mm !important;
+          margin: 3mm 4mm !important;
         }
 
         @media print {
@@ -2505,6 +2505,7 @@ return (
             width: 100% !important;
             height: auto !important;
             min-height: 0 !important;
+            max-height: none !important;
             overflow: visible !important;
             margin: 0 !important;
             padding: 0 !important;
@@ -2566,6 +2567,8 @@ return (
             margin: 0 !important;
             padding: 0 !important;
             background: #ffffff !important;
+            page-break-after: avoid !important;
+            break-after: avoid !important;
           }
 
           /* 5. PREVENT EXTRA PAGES: EXACTLY 2 CONTAINERS (A4 landscape: 297mm x 210mm) */
@@ -2577,6 +2580,7 @@ return (
             position: relative !important;
             background: #ffffff !important;
             padding: 0 !important;
+            display: block !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
           }
@@ -2587,16 +2591,15 @@ return (
             max-height: none !important;
             min-height: 0 !important;
             overflow: visible !important;
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: flex-start !important;
-            page-break-after: always !important;
-            break-after: page !important;
+            display: block !important;
             page-break-before: avoid !important;
             break-before: avoid !important;
+            page-break-after: always !important;
+            break-after: page !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
             padding: 0 !important;
+            margin: 0 !important;
           }
 
           .daily-report-print-page.page-2 {
@@ -2605,13 +2608,12 @@ return (
             max-height: none !important;
             min-height: 0 !important;
             overflow: visible !important;
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: flex-start !important;
+            display: block !important;
             padding: 0 !important;
+            margin: 0 !important;
             box-sizing: border-box !important;
-            page-break-before: auto !important;
-            break-before: auto !important;
+            page-break-before: always !important;
+            break-before: page !important;
             page-break-after: avoid !important;
             break-after: avoid !important;
             page-break-inside: avoid !important;
@@ -2633,14 +2635,14 @@ return (
             border-collapse: collapse !important;
             border-spacing: 0 !important;
             table-layout: fixed !important;
-            border: 0.6pt solid #222 !important;
+            border: 0.5pt solid #222 !important;
             box-shadow: none !important;
             margin: 0 !important;
           }
 
           table.p1-table th, table.p1-table td,
           table.p2-table th, table.p2-table td {
-            border: 0.45pt solid #333 !important;
+            border: 0.4pt solid #333 !important;
             box-shadow: none !important;
             box-sizing: border-box !important;
             vertical-align: middle !important;
@@ -2653,36 +2655,36 @@ return (
           table.p1-table th, table.p2-table th {
             background-color: #fff2cc !important;
             font-weight: bold !important;
-            border: 0.45pt solid #333 !important;
+            border: 0.4pt solid #333 !important;
             text-align: center !important;
           }
 
           table.p1-table th {
             font-family: Arial, Calibri, sans-serif !important;
-            font-size: 6.2pt !important;
-            padding: 0.8px 1.2px !important;
-            line-height: 1.04 !important;
+            font-size: 5.5pt !important;
+            padding: 0.4px 0.8px !important;
+            line-height: 1.02 !important;
           }
 
           table.p1-table td {
             font-family: Arial, Calibri, sans-serif !important;
-            font-size: 5.9pt !important;
-            line-height: 1.04 !important;
-            padding: 0.7px 1.2px !important;
+            font-size: 5.2pt !important;
+            line-height: 1.02 !important;
+            padding: 0.35px 0.8px !important;
           }
 
           table.p2-table th {
             font-family: 'Bookman Old Style', Georgia, 'Times New Roman', serif !important;
-            font-size: 7.5pt !important;
-            padding: 2.8px 2.0px !important;
-            line-height: 1.10 !important;
+            font-size: 6.8pt !important;
+            padding: 1.2px 1.4px !important;
+            line-height: 1.05 !important;
           }
 
           table.p2-table td {
             font-family: 'Bookman Old Style', Georgia, 'Times New Roman', serif !important;
-            font-size: 7.0pt !important;
-            line-height: 1.10 !important;
-            padding: 2.4px 2.0px !important;
+            font-size: 6.4pt !important;
+            line-height: 1.05 !important;
+            padding: 1.0px 1.4px !important;
             text-align: center !important;
           }
 
@@ -2716,10 +2718,10 @@ return (
             border-top: none !important;
             border-bottom: none !important;
             border-right: none !important;
-            border-left: 0.45pt solid #333 !important;
-            padding: 0.6px 1.0px !important;
-            font-size: 5.7pt !important;
-            line-height: 1.04 !important;
+            border-left: 0.4pt solid #333 !important;
+            padding: 0.35px 0.8px !important;
+            font-size: 5.1pt !important;
+            line-height: 1.02 !important;
             box-shadow: none !important;
           }
           .p-sub-table td:first-child, .p-sub-table th:first-child {
@@ -2728,7 +2730,7 @@ return (
 
           /* Multi-row sub-table in Processing: interior horizontal rows */
           table.p-sub-table tr:not(:first-child) td {
-            border-top: 0.45pt solid #333 !important;
+            border-top: 0.4pt solid #333 !important;
           }
           table.p-sub-table tr:first-child td,
           table.p-sub-table thead tr th {
@@ -2742,10 +2744,10 @@ return (
           .p-gi-table th, .p-gi-table td,
           .p-mend-table th, .p-mend-table td,
           .p-samp-table th, .p-samp-table td {
-            border: 0.45pt solid #333 !important;
-            padding: 0.6px 1.0px !important;
-            font-size: 5.7pt !important;
-            line-height: 1.04 !important;
+            border: 0.4pt solid #333 !important;
+            padding: 0.35px 0.8px !important;
+            font-size: 5.1pt !important;
+            line-height: 1.02 !important;
             box-shadow: none !important;
           }
           .p-gi-table thead tr:first-child th,
@@ -2771,10 +2773,10 @@ return (
 
           /* OTD Pending Status nested sub-table (.p-otd-table) */
           .p-otd-table th, .p-otd-table td {
-            border: 0.45pt solid #333 !important;
-            padding: 0.5px 0.8px !important;
-            font-size: 5.4pt !important;
-            line-height: 1.03 !important;
+            border: 0.4pt solid #333 !important;
+            padding: 0.3px 0.6px !important;
+            font-size: 4.8pt !important;
+            line-height: 1.02 !important;
             box-shadow: none !important;
           }
           .p-otd-table thead tr:first-child th {
@@ -2794,49 +2796,49 @@ return (
             display: flex !important;
             justify-content: space-between !important;
             align-items: center !important;
-            border-bottom: 0.5pt solid #222 !important;
-            padding-bottom: 1.2px !important;
-            margin-bottom: 1.2px !important;
+            border-bottom: 0.45pt solid #222 !important;
+            padding-bottom: 0.6px !important;
+            margin-bottom: 0.6px !important;
           }
           .p-page-hdr-logo {
-            height: 22px !important;
+            height: 18px !important;
             width: auto !important;
             object-fit: contain !important;
           }
           .p-page-hdr-co {
-            font-size: 11.0pt !important;
+            font-size: 9.5pt !important;
             font-weight: bold !important;
             letter-spacing: 0.2px !important;
-            line-height: 1.04 !important;
+            line-height: 1.02 !important;
           }
           .p-page-hdr-sub {
-            font-size: 7.2pt !important;
+            font-size: 6.5pt !important;
             font-weight: bold !important;
             color: #222 !important;
-            line-height: 1.04 !important;
+            line-height: 1.02 !important;
           }
           .p-page-hdr-date {
-            font-size: 7.0pt !important;
+            font-size: 6.5pt !important;
             font-weight: bold !important;
             background: #fff2cc !important;
-            padding: 1.0px 4.5px !important;
-            border: 0.45pt solid #222 !important;
+            padding: 0.5px 3.5px !important;
+            border: 0.4pt solid #222 !important;
             display: inline-block !important;
           }
           .p-page-hdr-pgno {
-            font-size: 6.6pt !important;
+            font-size: 6.2pt !important;
             font-weight: bold !important;
-            margin-top: 0.8px !important;
+            margin-top: 0.5px !important;
           }
           .p-page-ftr {
             display: flex !important;
             justify-content: space-between !important;
-            border-top: 0.45pt solid #222 !important;
-            padding-top: 1.2px !important;
-            margin-top: 1.8px !important;
-            font-size: 6.0pt !important;
+            border-top: 0.4pt solid #222 !important;
+            padding-top: 0.6px !important;
+            margin-top: 0.6px !important;
+            font-size: 5.5pt !important;
             font-weight: bold !important;
-            line-height: 1.04 !important;
+            line-height: 1.02 !important;
           }
           .p2-signatory {
             display: none !important;
@@ -3637,7 +3639,7 @@ return (
           </div>
         </div>
 
-        <table className="p2-table" style={{ flex: '1 1 auto' }}>
+        <table className="p2-table">
           <colgroup>
             <col style={{ width: '4.43%' }} />
             <col style={{ width: '8.36%' }} />

@@ -86,7 +86,7 @@ export function triggerPrint(options?: PrintOptions) {
     ? options.orientation
     : detectOrientation();
 
-  const pageCss = `@page { size: A4 ${chosenOrientation}; margin: 0; }`;
+  const pageCss = `@page { size: A4 ${chosenOrientation}; margin: 4mm 5mm; }`;
 
   styleEl.textContent = `
     ${pageCss}
@@ -206,8 +206,16 @@ export function triggerPrint(options?: PrintOptions) {
         page-break-inside: auto !important;
         break-inside: auto !important;
         font-size: 8.5px !important;
-        margin-bottom: 8px !important;
+        margin-bottom: 4px !important;
         box-shadow: none !important;
+      }
+
+      table:last-child,
+      div:last-child {
+        margin-bottom: 0 !important;
+        padding-bottom: 0 !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
       }
 
       thead {
