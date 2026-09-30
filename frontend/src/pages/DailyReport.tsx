@@ -1833,9 +1833,8 @@ export default function DailyReport() {
 
       // Row 54: Yarn Orders Header
       setCell(ws1, prStart + 3, 4, '', styleHdrYellow);
-      merges1.push({ s: { r: prStart + 3, c: 5 }, e: { r: prStart + 3, c: 6 } });
-      applyMergeWithBorders(ws1, prStart + 3, 5, prStart + 3, 6, styleHdrYellow);
-      setCell(ws1, prStart + 3, 5, 'Orders / Status', styleHdrYellow);
+      setCell(ws1, prStart + 3, 5, 'YD', styleHdrYellow);
+      setCell(ws1, prStart + 3, 6, 'GREIGE', styleHdrYellow);
       setCell(ws1, prStart + 3, 7, otdItems[0].dept, styleCellLeftBold);
       setCell(ws1, prStart + 3, 8, otdItems[0].d2, styleCellCenter);
       merges1.push({ s: { r: prStart + 3, c: 8 }, e: { r: prStart + 3, c: 9 } });
@@ -1855,18 +1854,12 @@ export default function DailyReport() {
       r1 += 4;
 
       // 7. RAW MATERIAL (6 rows)
-      const totOrders = getVal('TOTAL_NO_OF_ORDERS');
-      const yarnComp = getVal('YARN_COMPLETED');
-      const yarnNotComp = getVal('YARN_NOT_COMPLETED');
-      const yarnOntime = getVal('YARN_ONTIME');
-      const yarnDelay = getVal('YARN_DELAY');
-
       const rmRows = [
-        { label: 'TOTAL NO OF ORDERS', v: totOrders },
-        { label: 'YARN COMPLETED', v: yarnComp },
-        { label: 'NOT COMPLETED', v: yarnNotComp },
-        { label: 'ONTIME', v: yarnOntime },
-        { label: 'DELAY', v: yarnDelay },
+        { label: 'TOTAL NO OF ORDERS', grey: getVal('GREIGE_TOTAL_ORDERS'), yd: getVal('DYED_TOTAL_ORDERS') },
+        { label: 'YARN COMPLETED', grey: getVal('GREIGE_YARN_COMPLETED'), yd: getVal('DYED_YARN_COMPLETED') },
+        { label: 'NOT COMPLETED', grey: getVal('GREIGE_NOT_COMPLETED'), yd: getVal('DYED_NOT_COMPLETED') },
+        { label: 'ONTIME', grey: getVal('GREIGE_ONTIME'), yd: getVal('DYED_ONTIME') },
+        { label: 'DELAY', grey: getVal('GREIGE_DELAY'), yd: getVal('DYED_DELAY') },
       ];
 
       const rmStart = r1;
@@ -1878,9 +1871,8 @@ export default function DailyReport() {
       for (let i = 0; i < 5; i++) {
         const curR = rmStart + i;
         setCell(ws1, curR, 4, rmRows[i].label, styleCellLeftBold);
-        merges1.push({ s: { r: curR, c: 5 }, e: { r: curR, c: 6 } });
-        applyMergeWithBorders(ws1, curR, 5, curR, 6, styleCellCenter);
-        setCell(ws1, curR, 5, rmRows[i].v !== null ? rmRows[i].v : '', styleCellCenter);
+        setCell(ws1, curR, 5, rmRows[i].yd !== null ? rmRows[i].yd : '', styleCellCenter);
+        setCell(ws1, curR, 6, rmRows[i].grey !== null ? rmRows[i].grey : '', styleCellCenter);
         setCell(ws1, curR, 7, otdItems[i + 1].dept, styleCellLeftBold);
         setCell(ws1, curR, 8, otdItems[i + 1].d2, styleCellCenter);
         merges1.push({ s: { r: curR, c: 8 }, e: { r: curR, c: 9 } });
@@ -2117,7 +2109,7 @@ export default function DailyReport() {
       const diff = (actual !== null && target !== null) ? (actual - target) : null;
       const pctNum = (actual !== null && target !== null && target > 0) ? (actual / target) * 100 : (actual !== null && target === 0 ? 0 : null);
       const pct = pctNum !== null ? `${Math.round(pctNum)}%` : '';
-      const perfScore = (target !== null && actual !== null) ? computePerformanceMark(target, actual, pctNum || 0) : '';
+      const perfScore = r.perfScore !== undefined ? r.perfScore : '';
       const codesToTry = [r.code, ...(METRIC_CODE_ALIASES[r.code] || [])];
       const mItem = mSummaries.find(m => codesToTry.includes(m.metric_code));
       const upto = mItem?.monthlyTotal ?? null;
@@ -2465,11 +2457,11 @@ const getPrintMetricTarget = useCallback((code: string, defaultTarget?: number):
   const codesToTry = [code, ...(METRIC_CODE_ALIASES[code] || [])];
   for (const c of codesToTry) {
     const entry = effectivePrintEntries[c];
-    if (entry?.target_value !== null && entry?.target_value !== undefined && Number(entry.target_value) > 0) {
+    if (entry?.target_value !== null && entry?.target_value !== undefined) {
       return Number(entry.target_value);
     }
   }
-  return (defaultTarget !== undefined && defaultTarget > 0) ? defaultTarget : null;
+  return defaultTarget !== undefined ? defaultTarget : null;
 }, [effectivePrintEntries, METRIC_CODE_ALIASES]);
 
 // Dedicated AS ON DATE Accessors: In SPUPL Daily Report, "AS ON DATE" represents the date-specific daily entry value for the selected report date.
@@ -2488,6 +2480,37 @@ const calcNoOfDays = useCallback((stock: number | null | undefined): string => {
   if (stock === 0) return '0.0';
   return (stock / 30000).toFixed(1);
 }, []);
+
+// Shared calculation for Dispatch Monthly Summary (Lacs)
+const getDispatchMonthlyCalculations = useCallback((isPrint: boolean = false) => {
+  const codesToTry = ['DESPATCH_MTRS', ...(METRIC_CODE_ALIASES['DESPATCH_MTRS'] || [])];
+  const mSummary = (isPrint ? effectivePrintMonthly : monthlySummaries).find(s => codesToTry.includes(s.metric_code));
+  
+  // Use Target Days from Monthly Targets if provided (could be TARGET_DAYS, NO_OF_DAYS, or fallback to 26)
+  const explicitTargetDays = isPrint ? getPrintMetricTarget('TARGET_DAYS') : (editedTargets['TARGET_DAYS'] || editedTargets['NO_OF_DAYS']);
+  const targetDays = explicitTargetDays || 26;
+  
+  const despatchTarget = isPrint ? (getPrintMetricTarget('DESPATCH_MTRS') || 77950) : (editedTargets['DESPATCH_MTRS'] || 77950);
+  
+  const actualDays = mSummary?.daysEntered || 1;
+  const overallTargetLacs = (despatchTarget * targetDays) / 100000;
+  const uptoDateLacs = mSummary?.monthlyTotal ? mSummary.monthlyTotal / 100000 : 0;
+  const balanceLacs = overallTargetLacs - uptoDateLacs;
+  const dailyTargetLacs = overallTargetLacs / targetDays;
+  const avgAchievedLacs = uptoDateLacs / actualDays;
+  const diffLacs = dailyTargetLacs - avgAchievedLacs;
+
+  return {
+    overallTarget: overallTargetLacs.toFixed(2),
+    uptoDate: uptoDateLacs.toFixed(2),
+    balance: balanceLacs.toFixed(2),
+    dailyTarget: dailyTargetLacs.toFixed(2),
+    avgAchieved: avgAchievedLacs.toFixed(2),
+    diff: diffLacs.toFixed(2),
+    targetDays,
+    actualDays
+  };
+}, [monthlySummaries, effectivePrintMonthly, editedTargets, getPrintMetricTarget]);
 
 // Helper for Daily Meeting 30 rows calculation
 // Rules 12, 13, 27, 28, 29: Distinguish null/blank from 0, NO #DIV/0!
@@ -2530,20 +2553,22 @@ const getDailyMeetingStats = useCallback((metricCode: string, defaultTarget: num
     }
   }
   if (target === null) {
-    if (defaultTarget !== undefined && defaultTarget !== null && defaultTarget > 0) {
+    if (defaultTarget !== undefined && defaultTarget !== null) {
       target = defaultTarget;
-    } else if (defaultTarget === 0) {
-      target = null;
     }
   }
 
   let diff: number | null = null;
   let pctStr = '';
 
-  if (actEntered && act !== null && target !== null && target > 0) {
+  if (actEntered && act !== null && target !== null) {
     diff = act - target;
-    const p = Math.round((act / target) * 100);
-    pctStr = `${p}%`;
+    if (target > 0) {
+      const p = Math.round((act / target) * 100);
+      pctStr = `${p}%`;
+    } else if (target === 0) {
+      pctStr = '0%';
+    }
   }
 
   const mSummary = monthlySummaries.find(s => codesToTry.includes(s.metric_code));
@@ -2556,10 +2581,14 @@ const getDailyMeetingStats = useCallback((metricCode: string, defaultTarget: num
 
   let devi: number | null = null;
   let deviPct = '';
-  if (avg !== null && target !== null && target > 0) {
+  if (avg !== null && target !== null) {
     devi = avg - target;
-    const dp = Math.round(((avg - target) / target) * 100);
-    deviPct = `${dp}%`;
+    if (target > 0) {
+      const dp = Math.round(((avg - target) / target) * 100);
+      deviPct = `${dp}%`;
+    } else if (target === 0) {
+      deviPct = '0%';
+    }
   }
 
   return { target, act, actEntered, diff, pctStr, uptoDate, avg, devi, deviPct };
@@ -3716,18 +3745,12 @@ return (
                 { dept: 'Final Dispatch', d1: getOtdVal('OTD_FINAL_DISPATCH') || getOtdVal('OTT_FINAL_DISPATCH'), d2: getPrevOtdVal('OTD_FINAL_DISPATCH') || getPrevOtdVal('OTT_FINAL_DISPATCH') },
               ];
 
-              const totOrders = getAsOnMetricVal('TOTAL_NO_OF_ORDERS');
-              const yarnComp = getAsOnMetricVal('YARN_COMPLETED');
-              const yarnNotComp = getAsOnMetricVal('YARN_NOT_COMPLETED');
-              const yarnOntime = getAsOnMetricVal('YARN_ONTIME');
-              const yarnDelay = getAsOnMetricVal('YARN_DELAY');
-
               const rmRows = [
-                { label: 'TOTAL NO OF ORDERS', v: totOrders },
-                { label: 'YARN COMPLETED', v: yarnComp },
-                { label: 'NOT COMPLETED', v: yarnNotComp },
-                { label: 'ONTIME', v: yarnOntime },
-                { label: 'DELAY', v: yarnDelay },
+                { label: 'TOTAL NO OF ORDERS', grey: getPrintMetricVal('GREIGE_TOTAL_ORDERS'), yd: getPrintMetricVal('DYED_TOTAL_ORDERS') },
+                { label: 'YARN COMPLETED', grey: getPrintMetricVal('GREIGE_YARN_COMPLETED'), yd: getPrintMetricVal('DYED_YARN_COMPLETED') },
+                { label: 'NOT COMPLETED', grey: getPrintMetricVal('GREIGE_NOT_COMPLETED'), yd: getPrintMetricVal('DYED_NOT_COMPLETED') },
+                { label: 'ONTIME', grey: getPrintMetricVal('GREIGE_ONTIME'), yd: getPrintMetricVal('DYED_ONTIME') },
+                { label: 'DELAY', grey: getPrintMetricVal('GREIGE_DELAY'), yd: getPrintMetricVal('DYED_DELAY') },
               ];
 
               return (
@@ -3765,7 +3788,8 @@ return (
                   {/* Row 54: Yarn Orders Header */}
                   <tr>
                     <td style={{ backgroundColor: '#fff2cc' }}></td>
-                    <td colSpan={2} style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>Orders / Status</td>
+                    <td style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>YD</td>
+                    <td style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>GREIGE</td>
                     <td className="p-left p-bold">{otdItems[0].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[0].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[0].d1}</td>
@@ -3778,7 +3802,8 @@ return (
                     <td rowSpan={6} className="p-merged-center">{effectivePrintMasters['YARN_DEPARTMENT']?.head || 'VENKAT'}</td>
                     <td rowSpan={6} className="p-merged-center">{effectivePrintMasters['YARN_DEPARTMENT']?.mentor || 'MOHANA /CHANDRU'}</td>
                     <td className="p-left p-bold">{rmRows[0].label}</td>
-                    <td colSpan={2} className="p-center">{rmRows[0].v !== null ? rmRows[0].v : ''}</td>
+                    <td className="p-center">{rmRows[0].yd !== null ? rmRows[0].yd : ''}</td>
+                    <td className="p-center">{rmRows[0].grey !== null ? rmRows[0].grey : ''}</td>
                     <td className="p-left p-bold">{otdItems[1].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[1].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[1].d1}</td>
@@ -3787,7 +3812,8 @@ return (
                   {/* Row 56: YARN COMPLETED */}
                   <tr>
                     <td className="p-left p-bold">{rmRows[1].label}</td>
-                    <td colSpan={2} className="p-center">{rmRows[1].v !== null ? rmRows[1].v : ''}</td>
+                    <td className="p-center">{rmRows[1].yd !== null ? rmRows[1].yd : ''}</td>
+                    <td className="p-center">{rmRows[1].grey !== null ? rmRows[1].grey : ''}</td>
                     <td className="p-left p-bold">{otdItems[2].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[2].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[2].d1}</td>
@@ -3796,7 +3822,8 @@ return (
                   {/* Row 57: NOT COMPLETED */}
                   <tr>
                     <td className="p-left p-bold">{rmRows[2].label}</td>
-                    <td colSpan={2} className="p-center">{rmRows[2].v !== null ? rmRows[2].v : ''}</td>
+                    <td className="p-center">{rmRows[2].yd !== null ? rmRows[2].yd : ''}</td>
+                    <td className="p-center">{rmRows[2].grey !== null ? rmRows[2].grey : ''}</td>
                     <td className="p-left p-bold">{otdItems[3].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[3].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[3].d1}</td>
@@ -3805,7 +3832,8 @@ return (
                   {/* Row 58: ONTIME */}
                   <tr>
                     <td className="p-left p-bold">{rmRows[3].label}</td>
-                    <td colSpan={2} className="p-center">{rmRows[3].v !== null ? rmRows[3].v : ''}</td>
+                    <td className="p-center">{rmRows[3].yd !== null ? rmRows[3].yd : ''}</td>
+                    <td className="p-center">{rmRows[3].grey !== null ? rmRows[3].grey : ''}</td>
                     <td className="p-left p-bold">{otdItems[4].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[4].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[4].d1}</td>
@@ -3814,7 +3842,8 @@ return (
                   {/* Row 59: DELAY */}
                   <tr>
                     <td className="p-left p-bold">{rmRows[4].label}</td>
-                    <td colSpan={2} className="p-center">{rmRows[4].v !== null ? rmRows[4].v : ''}</td>
+                    <td className="p-center">{rmRows[4].yd !== null ? rmRows[4].yd : ''}</td>
+                    <td className="p-center">{rmRows[4].grey !== null ? rmRows[4].grey : ''}</td>
                     <td className="p-left p-bold">{otdItems[5].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[5].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[5].d1}</td>
@@ -3914,24 +3943,17 @@ return (
           </colgroup>
           <thead>
             {(() => {
-              const despatchTarget = getPrintMetricTarget('DESPATCH_MTRS', 95078) || 95078;
-              const targetLacs = ((despatchTarget * 26) / 100000).toFixed(2);
-              const despatchMItem = effectivePrintMonthly.find(m => m.metric_code === 'DESPATCH_MTRS' || m.metric_code === 'DESPATCH');
-              const achievedLacs = despatchMItem?.monthlyTotal ? (despatchMItem.monthlyTotal / 100000).toFixed(2) : '14.86';
-              const diffLacs = (Number(targetLacs) - Number(achievedLacs)).toFixed(2);
-              const avgTargetLacs = (despatchTarget / 100000).toFixed(2);
-              const avgAchievedLacs = despatchMItem?.monthlyAverage ? (despatchMItem.monthlyAverage / 100000).toFixed(2) : (despatchMItem?.monthlyTotal && despatchMItem?.daysEntered ? (despatchMItem.monthlyTotal / despatchMItem.daysEntered / 100000).toFixed(2) : '0.65');
-              const avgDiffLacs = (Number(avgTargetLacs) - Number(avgAchievedLacs)).toFixed(2);
+              const dispatchCalc = getDispatchMonthlyCalculations(true);
 
               return (
                 <tr style={{ backgroundColor: '#fff2cc' }}>
                   <th colSpan={2} style={{ textAlign: 'left', backgroundColor: '#fff2cc', paddingLeft: '4px' }}>Monthly Target Lacs</th>
-                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{targetLacs}</th>
-                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{achievedLacs}</th>
-                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{diffLacs}</th>
-                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{avgTargetLacs}</th>
-                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{avgAchievedLacs}</th>
-                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{avgDiffLacs}</th>
+                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{dispatchCalc.overallTarget}</th>
+                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{dispatchCalc.uptoDate}</th>
+                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{dispatchCalc.balance}</th>
+                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{dispatchCalc.dailyTarget}</th>
+                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{dispatchCalc.avgAchieved}</th>
+                  <th colSpan={1} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>{dispatchCalc.diff}</th>
                   <th colSpan={2} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>Avg/Day</th>
                   <th colSpan={6} style={{ textAlign: 'center', backgroundColor: '#fff2cc' }}>UP TO DATE / DAY / AVG</th>
                 </tr>
@@ -3977,10 +3999,10 @@ return (
               }
 
               const diff = (actual !== null && target !== null) ? (actual - target) : null;
-              const pctNum = (actual !== null && target !== null && target > 0) ? (actual / target) * 100 : (actual !== null && target === 0 ? 0 : null);
+              const pctNum = (actual !== null && target !== null && target > 0) ? (actual / target) * 100 : (target === 0 ? 0 : null);
               const pct = pctNum !== null ? Math.round(pctNum) + '%' : '';
               
-              const perfScore = (target !== null && actual !== null) ? computePerformanceMark(target, actual, pctNum || 0) : '';
+              const perfScore = r.perfScore !== undefined ? r.perfScore : '';
 
               const codesToTry = [r.code, ...(METRIC_CODE_ALIASES[r.code] || [])];
               const mItem = effectivePrintMonthly.find(m => codesToTry.includes(m.metric_code));
@@ -3989,7 +4011,7 @@ return (
                 ? Math.round(mItem.monthlyAverage)
                 : (upto !== null && mItem?.daysEntered ? Math.round(upto / mItem.daysEntered) : null);
               const devi = (avg !== null && target !== null) ? (avg - target) : null;
-              const deviPctNum = (avg !== null && target !== null && target > 0) ? ((avg - target) / target) * 100 : (avg !== null && target === 0 ? 0 : null);
+              const deviPctNum = (avg !== null && target !== null && target > 0) ? ((avg - target) / target) * 100 : (target === 0 ? 0 : null);
               const deviPct = deviPctNum !== null ? Math.round(deviPctNum) + '%' : '';
 
               return (
@@ -4444,20 +4466,21 @@ return (
                   </p>
                 </div>
 
-                {/* Target Edit Toggle */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setEditMonthlyTargetsMode(v => !v)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                      editMonthlyTargetsMode
-                        ? 'bg-indigo-100 text-indigo-900 border border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300'
-                        : 'bg-indigo-50 text-indigo-800 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 hover:bg-indigo-100'
-                    }`}
-                    title="Edit Monthly Target for selected month"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>{editMonthlyTargetsMode ? 'Close Target Edit' : 'Edit Monthly Target'}</span>
-                  </button>
+                {/* Target Edit Toggle (Only Weaving department's Daily/Monthly Target is editable) */}
+                {currentDept.code === 'WEAVING' && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setEditMonthlyTargetsMode(v => !v)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        editMonthlyTargetsMode
+                          ? 'bg-indigo-100 text-indigo-900 border border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300'
+                          : 'bg-indigo-50 text-indigo-800 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 hover:bg-indigo-100'
+                      }`}
+                      title="Edit Monthly Target for selected month (Weaving)"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>{editMonthlyTargetsMode ? 'Close Target Edit' : 'Edit Monthly Target'}</span>
+                    </button>
                   {editMonthlyTargetsMode && (
                     <>
                       <input
@@ -4505,6 +4528,7 @@ return (
                     </>
                   )}
                 </div>
+                )}
               </div>
 
               <div className="space-y-4">
@@ -4812,6 +4836,51 @@ return (
                       </div>
                     </div>
                   </div>
+                ) : currentDept.code === 'YARN_DEPARTMENT' ? (
+                  <div className="space-y-4">
+                    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 dark:bg-slate-900/80 text-slate-500 dark:text-slate-400 text-[10px] uppercase font-black tracking-wider border-b border-slate-200 dark:border-slate-700">
+                            <th className="p-3">Metrics</th>
+                            <th className="p-3 text-center w-1/3 border-l border-slate-200 dark:border-slate-700">YD</th>
+                            <th className="p-3 text-center w-1/3 border-l border-slate-200 dark:border-slate-700">GREY</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                          {[
+                            { label: 'TOTAL NO OF ORDERS', greyCode: 'GREIGE_TOTAL_ORDERS', ydCode: 'DYED_TOTAL_ORDERS' },
+                            { label: 'YARN COMPLETED', greyCode: 'GREIGE_YARN_COMPLETED', ydCode: 'DYED_YARN_COMPLETED' },
+                            { label: 'NOT COMPLETED', greyCode: 'GREIGE_NOT_COMPLETED', ydCode: 'DYED_NOT_COMPLETED' },
+                            { label: 'ONTIME', greyCode: 'GREIGE_ONTIME', ydCode: 'DYED_ONTIME' },
+                            { label: 'DELAY', greyCode: 'GREIGE_DELAY', ydCode: 'DYED_DELAY' }
+                          ].map((row, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                              <td className="p-3 text-xs font-bold text-slate-800 dark:text-slate-200">{row.label}</td>
+                              <td className="p-2 border-l border-slate-200 dark:border-slate-700">
+                                <input
+                                  type="number"
+                                  value={formInputs[row.ydCode] !== undefined ? formInputs[row.ydCode] : ''}
+                                  onChange={e => handleInputChange(row.ydCode, e.target.value)}
+                                  placeholder="0"
+                                  className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-xs font-bold text-center text-slate-900 dark:text-white outline-none focus:border-indigo-500"
+                                />
+                              </td>
+                              <td className="p-2 border-l border-slate-200 dark:border-slate-700">
+                                <input
+                                  type="number"
+                                  value={formInputs[row.greyCode] !== undefined ? formInputs[row.greyCode] : ''}
+                                  onChange={e => handleInputChange(row.greyCode, e.target.value)}
+                                  placeholder="0"
+                                  className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-xs font-bold text-center text-slate-900 dark:text-white outline-none focus:border-indigo-500"
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 ) : (
                   <>
                     {(currentDept.code === 'PROCESSING_DYEING'
@@ -4846,7 +4915,7 @@ return (
                             </label>
 
                             {/* Target Pill / Input */}
-                            {editMonthlyTargetsMode && metric.type === 'number' ? (
+                            {editMonthlyTargetsMode && metric.type === 'number' && currentDept.code === 'WEAVING' ? (
                               <div className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-300 dark:border-indigo-700">
                                 <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">Target ({targetMonth}):</span>
                                 <input
@@ -4894,6 +4963,48 @@ return (
                         </div>
                       );
                     })}
+
+                    {currentDept.code === 'DISPATCH_PACKING' && (
+                      <div className="col-span-full mt-4 p-4 rounded-xl border bg-amber-50/30 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/50">
+                        <h4 className="text-sm font-bold text-amber-900 dark:text-amber-100 mb-3 uppercase tracking-wider flex items-center gap-2">
+                          <span className="w-1.5 h-4 bg-amber-500 rounded-full"></span>
+                          Monthly Dispatch Status (Lacs)
+                        </h4>
+                        {(() => {
+                          const dispatchCalc = getDispatchMonthlyCalculations(false);
+                          return (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+                              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Overall Target</div>
+                                <div className="text-sm font-black text-slate-800 dark:text-slate-100">{dispatchCalc.overallTarget}</div>
+                                <div className="text-[9px] text-slate-400 mt-0.5">({dispatchCalc.targetDays} days)</div>
+                              </div>
+                              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Up To Date</div>
+                                <div className="text-sm font-black text-blue-600 dark:text-blue-400">{dispatchCalc.uptoDate}</div>
+                                <div className="text-[9px] text-slate-400 mt-0.5">({dispatchCalc.actualDays} days)</div>
+                              </div>
+                              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Balance</div>
+                                <div className="text-sm font-black text-rose-600 dark:text-rose-400">{dispatchCalc.balance}</div>
+                              </div>
+                              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Daily Target</div>
+                                <div className="text-sm font-black text-slate-800 dark:text-slate-100">{dispatchCalc.dailyTarget}</div>
+                              </div>
+                              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Average</div>
+                                <div className="text-sm font-black text-emerald-600 dark:text-emerald-400">{dispatchCalc.avgAchieved}</div>
+                              </div>
+                              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Diff</div>
+                                <div className="text-sm font-black text-orange-600 dark:text-orange-400">{dispatchCalc.diff}</div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
                   </>
                 )}
 

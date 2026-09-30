@@ -1,6 +1,9 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const compression = require('compression');
+const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const { backupDatabase } = require('./backup_db');
 const fs = require('fs');
@@ -11,10 +14,27 @@ let dbUrl = process.env.DATABASE_URL || '';
 if (dbUrl.includes('connection_limit=1')) {
   dbUrl = dbUrl.replace('connection_limit=1', 'connection_limit=10&pool_timeout=30');
 }
-const prisma = new PrismaClient(
+
+// Global Prisma Client instance to prevent connection exhaustion
+const globalForPrisma = global;
+const prisma = globalForPrisma.prisma || new PrismaClient(
   dbUrl ? { datasources: { db: { url: dbUrl } } } : undefined
 );
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+
 const app = express();
+
+// Security and Performance Middlewares
+app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(compression());
+
+// Global Rate Limiting
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // Limit each IP to 1000 requests per windowMs
+  message: { error: 'Too many requests from this IP, please try again later.' }
+});
+app.use('/api/', globalLimiter);
 
 const allowedOrigins = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) : '*';
 app.use(cors({

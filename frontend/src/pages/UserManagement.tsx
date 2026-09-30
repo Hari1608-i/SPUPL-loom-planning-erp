@@ -86,78 +86,19 @@ const getDefaultRolePermissions = (role: string) => {
       print: false,
       excel: false
     };
-
-    if (roleUpper === 'ADMINISTRATOR' || roleUpper === 'ADMIN' || roleUpper === 'SYSTEM ADMINISTRATOR') {
-      actions.forEach(a => perms[screen][a] = true);
-    } else if (roleUpper === 'PLANNING' || roleUpper === 'PLANNING_MANAGER') {
-      const allowedScreens = ["Executive Dashboard", "Analytics", "Design-Wise Loom Running", "Loom Runout", "Design Runout", "Main Entry", "Availability Board", "Smart Recommendation", "Order Management", "Order Tracking & Planning Analytics", "Loom Planning Setup", "Alert Center", "Runout Monitor", "Next Planned Looms", "Order Completion & History", "Completed Warp History", "Completed Warp Analysis", "Loom Master", "Design Master", "Reed Stock", "Beam Stock", "Sizing Dashboard"];
-      if (allowedScreens.includes(screen)) {
-        perms[screen].view = true;
-        perms[screen].create = true;
-        perms[screen].edit = true;
-        perms[screen].approve = true;
-        perms[screen].export = true;
-        perms[screen].print = true;
-        perms[screen].excel = true;
-      }
-    } else if (roleUpper === 'SIZING') {
-      const allowedScreens = ["Executive Dashboard", "Sizing Dashboard", "Beam Stock", "Reed Stock", "Alert Center", "Runout Monitor", "Main Entry", "Availability Board", "Order Tracking & Planning Analytics"];
-      if (allowedScreens.includes(screen)) {
-        perms[screen].view = true;
-        perms[screen].create = true;
-        perms[screen].edit = true;
-        perms[screen].export = true;
-        perms[screen].print = true;
-        perms[screen].excel = true;
-      }
-    } else if (roleUpper === 'WEAVING') {
-      const allowedScreens = ["Executive Dashboard", "Main Entry", "Availability Board", "Loom Runout", "Design Runout", "Loom Master", "Design Master", "Order Tracking & Planning Analytics"];
-      if (allowedScreens.includes(screen)) {
-        perms[screen].view = true;
-        perms[screen].create = true;
-        perms[screen].edit = true;
-        perms[screen].export = true;
-        perms[screen].print = true;
-        perms[screen].excel = true;
-      }
-    } else if (roleUpper === 'MANAGEMENT') {
-      const allowedScreens = ["Executive Dashboard", "Analytics", "Design-Wise Loom Running", "Loom Runout", "Design Runout", "Order Completion & History", "Completed Warp History", "Completed Warp Analysis", "Order Management", "Order Tracking & Planning Analytics"];
-      if (allowedScreens.includes(screen)) {
-        perms[screen].view = true;
-        perms[screen].export = true;
-        perms[screen].print = true;
-        perms[screen].excel = true;
-      }
-    } else if (roleUpper === 'MERCH') {
-      const allowedScreens = ["Executive Dashboard", "Analytics", "Order Management", "Order Completion & History", "Design Master", "Order Tracking & Planning Analytics"];
-      if (allowedScreens.includes(screen)) {
-        perms[screen].view = true;
-        perms[screen].create = true;
-        perms[screen].edit = true;
-        perms[screen].export = true;
-        perms[screen].print = true;
-        perms[screen].excel = true;
-      }
-    } else if (roleUpper === 'VIEWER') {
-      const allowedScreens = ["Executive Dashboard", "Analytics", "Design-Wise Loom Running", "Availability Board", "Order Tracking & Planning Analytics"];
-      if (allowedScreens.includes(screen)) {
-        perms[screen].view = true;
-      }
-    }
   });
 
   // Daily & Periodic Operational Reports permissions per department
   perms['Daily & Periodic Operational Reports'] = {};
   REPORT_DEPARTMENTS.forEach(dept => {
-    const isFullAdmin = roleUpper === 'ADMINISTRATOR' || roleUpper === 'ADMIN' || roleUpper === 'SYSTEM ADMINISTRATOR';
     perms['Daily & Periodic Operational Reports'][dept.code] = {
-      view: isFullAdmin,
-      entry: isFullAdmin,
-      edit: isFullAdmin,
-      delete: isFullAdmin,
-      print: isFullAdmin,
-      excel: isFullAdmin,
-      approved: isFullAdmin
+      view: false,
+      entry: false,
+      edit: false,
+      delete: false,
+      print: false,
+      excel: false,
+      approved: false
     };
   });
 
@@ -378,11 +319,9 @@ export default function UserManagement() {
   };
 
   const handleSelectRole = (selectedRole: string) => {
-    const defaultPerms = getDefaultRolePermissions(selectedRole);
     setFormData((prev: any) => ({
       ...prev,
-      role: selectedRole,
-      permissions: defaultPerms
+      role: selectedRole
     }));
   };
 
@@ -642,7 +581,7 @@ export default function UserManagement() {
                 <div className="max-w-3xl mx-auto space-y-4">
                   <div className="text-center mb-6">
                     <h3 className="text-lg font-bold text-slate-800">Select Base Role</h3>
-                    <p className="text-xs text-slate-500">Choosing a role automatically populates standard screen and report permission defaults. You can fine-tune permissions in Steps 4 and 5.</p>
+                    <p className="text-xs text-slate-500">Choosing a role will NOT alter screen and report permissions. You must manually grant permissions in Steps 4 and 5.</p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     {PREDEFINED_ROLES.map(r => (
