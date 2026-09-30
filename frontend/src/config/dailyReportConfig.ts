@@ -454,29 +454,39 @@ export const DEPARTMENTS: DepartmentConfig[] = [
     mentor: 'MOHANA / CHANDRU',
     description: 'Greige yarn and Dyed yarn order completion, on-time, delays and pending orders',
     rawMetrics: [
-      { code: 'TOTAL_NO_OF_ORDERS', name: 'Total No of Orders', type: 'number', unit: 'Orders', placeholder: 'Count' },
-      { code: 'YARN_COMPLETED', name: 'Yarn Completed', type: 'number', unit: 'Orders', placeholder: 'Count' },
-      { code: 'YARN_NOT_COMPLETED', name: 'Yarn Not Completed', type: 'number', unit: 'Orders', placeholder: 'Count' },
-      { code: 'YARN_ONTIME', name: 'Yarn Ontime', type: 'number', unit: 'Orders', placeholder: 'Count' },
-      { code: 'YARN_DELAY', name: 'Yarn Delay', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      // Greige Yarn Metrics
+      { code: 'GREIGE_TOTAL_ORDERS', name: 'Greige Yarn - Total No of Orders', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'GREIGE_YARN_COMPLETED', name: 'Greige Yarn - Completed', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'GREIGE_NOT_COMPLETED', name: 'Greige Yarn - Not Completed', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'GREIGE_ONTIME', name: 'Greige Yarn - Ontime', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'GREIGE_DELAY', name: 'Greige Yarn - Delay', type: 'number', unit: 'Orders', placeholder: 'Count' },
+
+      // Dyed Yarn (YD) Metrics
+      { code: 'DYED_TOTAL_ORDERS', name: 'Dyed Yarn - Total No of Orders', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'DYED_YARN_COMPLETED', name: 'Dyed Yarn - Completed', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'DYED_NOT_COMPLETED', name: 'Dyed Yarn - Not Completed', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'DYED_ONTIME', name: 'Dyed Yarn - Ontime', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'DYED_DELAY', name: 'Dyed Yarn - Delay', type: 'number', unit: 'Orders', placeholder: 'Count' },
+
       { code: 'DAILY_REMARKS', name: 'Daily Remarks / Observations', type: 'text', placeholder: 'Enter observations' }
     ],
     calculatedMetrics: [],
     calculate: (raw) => {
-      const isTot = isEntered(raw.TOTAL_NO_OF_ORDERS);
-      const isComp = isEntered(raw.YARN_COMPLETED);
+      // Greige yarn auto-calculation for not completed if not manually entered
+      let gNotComp = raw.GREIGE_NOT_COMPLETED;
+      if (!isEntered(gNotComp) && isEntered(raw.GREIGE_TOTAL_ORDERS) && isEntered(raw.GREIGE_YARN_COMPLETED)) {
+        gNotComp = Math.max(0, Number(raw.GREIGE_TOTAL_ORDERS) - Number(raw.GREIGE_YARN_COMPLETED));
+      }
 
-      const tot = isTot ? Number(raw.TOTAL_NO_OF_ORDERS) : null;
-      const comp = isComp ? Number(raw.YARN_COMPLETED) : null;
-
-      // If user hasn't explicitly entered YARN_NOT_COMPLETED, calculate it
-      let notCompleted = raw.YARN_NOT_COMPLETED;
-      if (!isEntered(notCompleted) && tot !== null && comp !== null) {
-         notCompleted = Math.max(0, tot - comp);
+      // Dyed yarn auto-calculation for not completed if not manually entered
+      let ydNotComp = raw.DYED_NOT_COMPLETED;
+      if (!isEntered(ydNotComp) && isEntered(raw.DYED_TOTAL_ORDERS) && isEntered(raw.DYED_YARN_COMPLETED)) {
+        ydNotComp = Math.max(0, Number(raw.DYED_TOTAL_ORDERS) - Number(raw.DYED_YARN_COMPLETED));
       }
 
       return {
-        YARN_NOT_COMPLETED: notCompleted !== undefined ? notCompleted : ''
+        GREIGE_NOT_COMPLETED: gNotComp !== undefined ? gNotComp : '',
+        DYED_NOT_COMPLETED: ydNotComp !== undefined ? ydNotComp : ''
       };
     }
   },

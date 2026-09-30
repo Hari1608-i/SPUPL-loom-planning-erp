@@ -1996,11 +1996,11 @@ export default function DailyReport() {
       const codes = [code, ...(METRIC_CODE_ALIASES[code] || [])];
       for (const c of codes) {
         const entry = dailyEntries[c];
-        if (entry?.target_value !== null && entry?.target_value !== undefined && Number(entry.target_value) > 0) {
+        if (entry?.target_value !== null && entry?.target_value !== undefined) {
           return Number(entry.target_value);
         }
       }
-      return (defTarget !== undefined && defTarget > 0) ? defTarget : null;
+      return defTarget !== undefined ? defTarget : null;
     };
 
     let r2 = 0;
@@ -2485,13 +2485,13 @@ const calcNoOfDays = useCallback((stock: number | null | undefined): string => {
 const getDispatchMonthlyCalculations = useCallback((isPrint: boolean = false) => {
   const codesToTry = ['DESPATCH_MTRS', ...(METRIC_CODE_ALIASES['DESPATCH_MTRS'] || [])];
   const mSummary = (isPrint ? effectivePrintMonthly : monthlySummaries).find(s => codesToTry.includes(s.metric_code));
-  
+
   // Use Target Days from Monthly Targets if provided (could be TARGET_DAYS, NO_OF_DAYS, or fallback to 26)
   const explicitTargetDays = isPrint ? getPrintMetricTarget('TARGET_DAYS') : (editedTargets['TARGET_DAYS'] || editedTargets['NO_OF_DAYS']);
   const targetDays = explicitTargetDays || 26;
-  
+
   const despatchTarget = isPrint ? (getPrintMetricTarget('DESPATCH_MTRS') || 77950) : (editedTargets['DESPATCH_MTRS'] || 77950);
-  
+
   const actualDays = mSummary?.daysEntered || 1;
   const overallTargetLacs = (despatchTarget * targetDays) / 100000;
   const uptoDateLacs = mSummary?.monthlyTotal ? mSummary.monthlyTotal / 100000 : 0;
