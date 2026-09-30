@@ -2039,10 +2039,12 @@ app.get('/api/daily-report', async (req, res) => {
       }
     });
 
-    // Apply saved monthly target to entries if target_value is not explicitly customized per day
+    // Apply saved monthly target to entries for NON-WEAVING departments (Requirement 31: WEAVING is daily date-based)
     finalEntries.forEach(e => {
-      if (monthlyTargetsMap[e.department_code] && monthlyTargetsMap[e.department_code][e.metric_code] !== undefined) {
-        e.target_value = monthlyTargetsMap[e.department_code][e.metric_code];
+      if (e.department_code !== 'WEAVING') {
+        if (monthlyTargetsMap[e.department_code] && monthlyTargetsMap[e.department_code][e.metric_code] !== undefined) {
+          e.target_value = monthlyTargetsMap[e.department_code][e.metric_code];
+        }
       }
     });
 
@@ -2256,39 +2258,8 @@ app.post('/api/daily-report', async (req, res) => {
         }
       }
 
-      // Weaving Monthly Target Persistence (Requirement 1, 2, 4, 5, 23)
-      if (deptCode === 'WEAVING' && metricCode === 'INHOUSE_MTRS' && targetVal !== null && targetVal > 0) {
-        try {
-          const monthStr = dateStr.substring(0, 7);
-          const targetKey = `TARGET__WEAVING__${unitStr || 'ALL'}__${monthStr}`;
-          const allTargetKey = `TARGET__WEAVING__ALL__${monthStr}`;
-          const targetJson = JSON.stringify({ INHOUSE_MTRS: targetVal });
-          await Promise.all([
-            prisma.departmentMasterInfo.upsert({
-              where: { department_code: targetKey },
-              update: { department_name: targetJson, department_head: String(targetVal) },
-              create: { department_code: targetKey, department_name: targetJson, department_head: String(targetVal), mentor: userStr }
-            }),
-            prisma.departmentMasterInfo.upsert({
-              where: { department_code: allTargetKey },
-              update: { department_name: targetJson, department_head: String(targetVal) },
-              create: { department_code: allTargetKey, department_name: targetJson, department_head: String(targetVal), mentor: userStr }
-            }),
-            prisma.dailyReportEntry.updateMany({
-              where: {
-                report_date: { startsWith: monthStr },
-                department_code: 'WEAVING',
-                metric_code: 'INHOUSE_MTRS'
-              },
-              data: {
-                target_value: targetVal
-              }
-            })
-          ]);
-        } catch (e) {
-          console.warn('Weaving monthly target persistence warning:', e.message);
-        }
-      }
+      // Note: Weaving targets remain strictly daily/date based per Requirement 31 (stored in dailyReportEntry.target_value)
+
     }
 
     res.json({ success: true, count: results.length, entries: results });
@@ -2371,9 +2342,9 @@ app.get('/api/daily-report/department-masters', async (req, res) => {
 // GET /api/daily-report/targets — Fetch saved monthly targets by department, month, and unit
 app.get('/api/daily-report/targets', async (req, res) => {
   try {
-    const { month, department, unit } = req.query;
+    const { month, department, department_code, unit } = req.query;
     const monthStr = String(month || new Date().toISOString().substring(0, 7)).trim();
-    const deptStr = String(department || 'WEAVING').trim().toUpperCase();
+    const deptStr = String(department_code || department || 'WEAVING').trim().toUpperCase();
     const unitStr = String(unit || 'ALL').trim();
 
     const targetKeys = [
@@ -2437,7 +2408,8 @@ app.post('/api/daily-report/targets', async (req, res) => {
       })
     ]);
 
-    // Permanently update all existing daily report entries for this month
+    // Permanently update all existing daily report entries for this month & ensure first day of month record exists (Requirement 30)
+    const monthFirstDate = `${monthStr}-01`;
     for (const [mCode, tVal] of Object.entries(targets)) {
       const numVal = Number(tVal);
       if (!isNaN(numVal) && isFinite(numVal)) {
@@ -2451,6 +2423,33 @@ app.post('/api/daily-report/targets', async (req, res) => {
             target_value: numVal
           }
         });
+
+        // Ensure record exists on first day of month for non-weaving departments
+        if (deptStr !== 'WEAVING') {
+          await prisma.dailyReportEntry.upsert({
+            where: {
+              report_date_department_code_metric_code: {
+                report_date: monthFirstDate,
+                department_code: deptStr,
+                metric_code: mCode
+              }
+            },
+            update: {
+              target_value: numVal
+            },
+            create: {
+              report_date: monthFirstDate,
+              department_code: deptStr,
+              metric_code: mCode,
+              metric_name: mCode,
+              actual_value: null,
+              target_value: numVal,
+              department_head: '',
+              mentor: '',
+              entered_by: 'TARGET_SETUP'
+            }
+          });
+        }
       }
     }
 

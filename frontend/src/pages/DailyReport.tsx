@@ -408,6 +408,14 @@ export default function DailyReport() {
   // Target edit toggle mode (Rule 8)
   const [editTargetsMode, setEditTargetsMode] = useState<boolean>(false);
 
+  // Monthly target editor: month selection for non-Weaving departments
+  const [targetMonth, setTargetMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [editMonthlyTargetsMode, setEditMonthlyTargetsMode] = useState<boolean>(false);
+  const [savingMonthlyTargets, setSavingMonthlyTargets] = useState<boolean>(false);
+
   // Weekly & Monthly states
   const [weeklyStartDate, setWeeklyStartDate] = useState<string>('2026-08-20');
   const [weeklyEndDate, setWeeklyEndDate] = useState<string>('2026-08-26');
@@ -446,6 +454,22 @@ export default function DailyReport() {
       }
     }
   }, [userDept, isAdminOrManager]);
+  // Fetch monthly targets when targetMonth or editMonthlyTargetsMode changes (for non-Weaving departments)
+  useEffect(() => {
+    if (editMonthlyTargetsMode && selectedDeptCode !== 'WEAVING' && targetMonth) {
+      fetch(`${API_BASE_URL}/api/daily-report/targets?department_code=${selectedDeptCode}&month=${targetMonth}&unit=${encodeURIComponent(selectedUnit)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (d?.targets && typeof d.targets === 'object') {
+            setEditedTargets(prev => ({
+              ...prev,
+              ...d.targets
+            }));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [editMonthlyTargetsMode, targetMonth, selectedDeptCode, selectedUnit]);
 
   // Active department configuration
   const currentDept = useMemo(() => {
@@ -548,13 +572,16 @@ export default function DailyReport() {
         }
       });
 
-      // WEAVING MONTHLY TARGET: Apply saved monthly target to all dates in this month
-      if (selectedDeptCode === 'WEAVING' && data.monthlyTargets && data.monthlyTargets.targets) {
-        Object.entries(data.monthlyTargets.targets).forEach(([mCode, tVal]) => {
-          if (tVal !== undefined && tVal !== null) {
-            targetsMap[mCode] = Number(tVal);
-          }
-        });
+      // NON-WEAVING MONTHLY TARGET: Apply saved monthly target to non-weaving departments (Requirements 30 & 31)
+      if (selectedDeptCode !== 'WEAVING' && data.monthlyTargets) {
+        const deptTargets = data.monthlyTargets[selectedDeptCode] || data.monthlyTargets.targets;
+        if (deptTargets && typeof deptTargets === 'object') {
+          Object.entries(deptTargets).forEach(([mCode, tVal]) => {
+            if (tVal !== undefined && tVal !== null && targetsMap[mCode] === undefined) {
+              targetsMap[mCode] = Number(tVal);
+            }
+          });
+        }
       }
 
       setDailyEntries(entriesMap);
@@ -792,6 +819,67 @@ export default function DailyReport() {
         };
       });
 
+      // Save Greige Inspection calculated metrics to SQL so API, report and print preview get exact persistent values
+      if (currentDept.code === 'GREIGE_INSPECTION') {
+        const inInspRaw = formInputs['INHOUSE_TOTAL_INSPECTED'];
+        const inPassRaw = formInputs['INHOUSE_TOTAL_PASSED'];
+        const inInsp = inInspRaw !== undefined && inInspRaw !== '' ? Number(inInspRaw) : null;
+        const inPass = inPassRaw !== undefined && inPassRaw !== '' ? Number(inPassRaw) : null;
+        const inRej = (inInsp !== null && inPass !== null) ? Math.max(0, Number((inInsp - inPass).toFixed(1))) : null;
+        const inRejPct = (inInsp !== null && inInsp > 0 && inRej !== null) ? Number(((inRej / inInsp) * 100).toFixed(2)) : null;
+
+        const venInspRaw = formInputs['VENDOR_TOTAL_INSPECTED'];
+        const venPassRaw = formInputs['VENDOR_TOTAL_PASSED'];
+        const venInsp = venInspRaw !== undefined && venInspRaw !== '' ? Number(venInspRaw) : null;
+        const venPass = venPassRaw !== undefined && venPassRaw !== '' ? Number(venPassRaw) : null;
+        const venRej = (venInsp !== null && venPass !== null) ? Math.max(0, Number((venInsp - venPass).toFixed(1))) : null;
+        const venRejPct = (venInsp !== null && venInsp > 0 && venRej !== null) ? Number(((venRej / venInsp) * 100).toFixed(2)) : null;
+
+        const washTotRaw = formInputs['WASHING_TOTAL_MTRS'];
+        const washPassRaw = formInputs['WASHING_TOTAL_PASSED'];
+        const washTot = washTotRaw !== undefined && washTotRaw !== '' ? Number(washTotRaw) : null;
+        const washPass = washPassRaw !== undefined && washPassRaw !== '' ? Number(washPassRaw) : null;
+        const washRej = (washTot !== null && washPass !== null) ? Math.max(0, Number((washTot - washPass).toFixed(1))) : null;
+        const washRejPct = (washTot !== null && washTot > 0 && washRej !== null) ? Number(((washRej / washTot) * 100).toFixed(2)) : (washTot !== null ? 0 : null);
+
+        const hasAnyInsp = inInsp !== null || venInsp !== null || washTot !== null;
+        const totInsp = hasAnyInsp ? Number(((inInsp || 0) + (venInsp || 0) + (washTot || 0)).toFixed(1)) : null;
+        const hasAnyPass = inPass !== null || venPass !== null || washPass !== null;
+        const totPass = hasAnyPass ? Number(((inPass || 0) + (venPass || 0) + (washPass || 0)).toFixed(1)) : null;
+        const hasAnyRej = inRej !== null || venRej !== null || washRej !== null;
+        const totRej = hasAnyRej ? Number(((inRej || 0) + (venRej || 0) + (washRej || 0)).toFixed(1)) : null;
+        const totRejPct = (totInsp !== null && totInsp > 0 && totRej !== null) ? Number(((totRej / totInsp) * 100).toFixed(2)) : null;
+
+        const calculatedToSave = [
+          { code: 'INHOUSE_TOTAL_REJECTED', name: 'Inhouse - Total Rejected', val: inRej },
+          { code: 'INHOUSE_REJECTION_PCT', name: 'Inhouse - Rejection %', val: inRejPct },
+          { code: 'VENDOR_TOTAL_REJECTED', name: 'Vendor - Total Rejected', val: venRej },
+          { code: 'VENDOR_REJECTION_PCT', name: 'Vendor - Rejection %', val: venRejPct },
+          { code: 'WASHING_TOTAL_REJECTED', name: 'Washing - Total Rejected', val: washRej },
+          { code: 'WASHING_REJECTION_PCT', name: 'Washing - Rejection %', val: washRejPct },
+          { code: 'TOTAL_MTRS_INSPECTED', name: 'Combined Total Inspected', val: totInsp },
+          { code: 'TOTAL_MTRS_PASSED', name: 'Combined Total Passed', val: totPass },
+          { code: 'TOTAL_MTRS_REJECTED', name: 'Combined Total Rejected', val: totRej },
+          { code: 'OVERALL_REJECTION_PCT', name: 'Combined Overall Rejection %', val: totRejPct }
+        ];
+
+        calculatedToSave.forEach(c => {
+          if (c.val !== null && c.val !== undefined) {
+            metricsToSave.push({
+              metric_code: c.code,
+              metric_name: c.name,
+              raw_value: String(c.val),
+              actual_value: c.val,
+              target_value: 0,
+              diff_value: 0,
+              pct_value: c.code.endsWith('_PCT') ? c.val : 0,
+              performance_mark: 'LOGGED',
+              remarks: deptRemarks || ''
+            });
+          }
+        });
+      }
+
       const payload = {
         report_date: selectedDate,
         department_code: currentDept.code,
@@ -812,32 +900,6 @@ export default function DailyReport() {
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.error || 'Failed to save daily entries');
-      }
-
-      // WEAVING MONTHLY TARGET FIXING: Save target permanently for the entire month
-      if (currentDept.code === 'WEAVING') {
-        const monthStr = selectedDate.substring(0, 7);
-        const weavingTargets: Record<string, number> = {};
-        if (editedTargets['INHOUSE_MTRS'] !== undefined) {
-          weavingTargets['INHOUSE_MTRS'] = editedTargets['INHOUSE_MTRS'];
-        }
-        if (editedTargets['INHOUSE_KPICKS'] !== undefined) {
-          weavingTargets['INHOUSE_KPICKS'] = editedTargets['INHOUSE_KPICKS'];
-        }
-        try {
-          await fetch(`${API_BASE_URL}/api/daily-report/targets`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              department_code: 'WEAVING',
-              month: monthStr,
-              unit: selectedUnit,
-              targets: weavingTargets
-            })
-          });
-        } catch (tErr) {
-          console.warn('Target save warning:', tErr);
-        }
       }
 
       setSaveSuccess(true);
@@ -1322,18 +1384,21 @@ export default function DailyReport() {
       // 4. GREIGE INSPECTION (20 rows)
       const inInspU = mSummaries.find(m => m.metric_code === 'INHOUSE_TOTAL_INSPECTED' || m.metric_code === 'INHOUSE_GREIGE_INSPECTED_MTRS')?.monthlyTotal ?? null;
       const inPassU = mSummaries.find(m => m.metric_code === 'INHOUSE_TOTAL_PASSED' || m.metric_code === 'INHOUSE_GREIGE_PASSED_MTRS')?.monthlyTotal ?? null;
-      const inRejU = mSummaries.find(m => m.metric_code === 'INHOUSE_TOTAL_REJECTED' || m.metric_code === 'INHOUSE_GREIGE_REJECTED_MTRS')?.monthlyTotal ?? null;
-      const inRejPctU = (inInspU && inInspU > 0 && inRejU !== null) ? ((inRejU / inInspU) * 100).toFixed(2) + '%' : '';
+      const inRejURaw = mSummaries.find(m => m.metric_code === 'INHOUSE_TOTAL_REJECTED' || m.metric_code === 'INHOUSE_GREIGE_REJECTED_MTRS')?.monthlyTotal ?? null;
+      const inRejU = inRejURaw !== null ? inRejURaw : (inInspU !== null && inPassU !== null ? Math.max(0, Number((inInspU - inPassU).toFixed(1))) : null);
+      const inRejPctU = (inInspU && inInspU > 0 && inRejU !== null) ? ((inRejU / inInspU) * 100).toFixed(2) + '%' : (inInspU !== null && inRejU === 0 ? '0.00%' : '');
 
       const vnInspU = mSummaries.find(m => m.metric_code === 'VENDOR_TOTAL_INSPECTED' || m.metric_code === 'VENDOR_GREIGE_INSPECTED_MTRS')?.monthlyTotal ?? null;
       const vnPassU = mSummaries.find(m => m.metric_code === 'VENDOR_TOTAL_PASSED' || m.metric_code === 'VENDOR_GREIGE_PASSED_MTRS')?.monthlyTotal ?? null;
-      const vnRejU = mSummaries.find(m => m.metric_code === 'VENDOR_TOTAL_REJECTED' || m.metric_code === 'VENDOR_GREIGE_REJECTED_MTRS')?.monthlyTotal ?? null;
-      const vnRejPctU = (vnInspU && vnInspU > 0 && vnRejU !== null) ? ((vnRejU / vnInspU) * 100).toFixed(2) + '%' : '';
+      const vnRejURaw = mSummaries.find(m => m.metric_code === 'VENDOR_TOTAL_REJECTED' || m.metric_code === 'VENDOR_GREIGE_REJECTED_MTRS')?.monthlyTotal ?? null;
+      const vnRejU = vnRejURaw !== null ? vnRejURaw : (vnInspU !== null && vnPassU !== null ? Math.max(0, Number((vnInspU - vnPassU).toFixed(1))) : null);
+      const vnRejPctU = (vnInspU && vnInspU > 0 && vnRejU !== null) ? ((vnRejU / vnInspU) * 100).toFixed(2) + '%' : (vnInspU !== null && vnRejU === 0 ? '0.00%' : '');
 
       const washTotU = mSummaries.find(m => m.metric_code === 'WASHING_TOTAL_MTRS')?.monthlyTotal ?? null;
       const washPassU = mSummaries.find(m => m.metric_code === 'WASHING_TOTAL_PASSED')?.monthlyTotal ?? null;
-      const washRejU = mSummaries.find(m => m.metric_code === 'WASHING_TOTAL_REJECTED')?.monthlyTotal ?? null;
-      const washRejPctU = (washTotU && washTotU > 0 && washRejU !== null) ? ((washRejU / washTotU) * 100).toFixed(2) + '%' : '';
+      const washRejURaw = mSummaries.find(m => m.metric_code === 'WASHING_TOTAL_REJECTED')?.monthlyTotal ?? null;
+      const washRejU = washRejURaw !== null ? washRejURaw : (washTotU !== null && washPassU !== null ? Math.max(0, Number((washTotU - washPassU).toFixed(1))) : null);
+      const washRejPctU = (washTotU && washTotU > 0 && washRejU !== null) ? ((washRejU / washTotU) * 100).toFixed(2) + '%' : (washTotU !== null && washRejU === 0 ? '0.00%' : '');
 
       const hasAnyInspU = (inInspU !== null || vnInspU !== null || washTotU !== null);
       const totInspU = hasAnyInspU ? ((inInspU || 0) + (vnInspU || 0) + (washTotU || 0)) : null;
@@ -1341,7 +1406,7 @@ export default function DailyReport() {
       const totPassU = hasAnyPassU ? ((inPassU || 0) + (vnPassU || 0) + (washPassU || 0)) : null;
       const hasAnyRejU = (inRejU !== null || vnRejU !== null || washRejU !== null);
       const totRejU = hasAnyRejU ? ((inRejU || 0) + (vnRejU || 0) + (washRejU || 0)) : null;
-      const rejPctU = (totInspU && totInspU > 0 && totRejU !== null) ? ((totRejU / totInspU) * 100).toFixed(2) + '%' : '';
+      const rejPctU = (totInspU && totInspU > 0 && totRejU !== null) ? ((totRejU / totInspU) * 100).toFixed(2) + '%' : (totInspU !== null && totRejU === 0 ? '0.00%' : '');
 
       const finInspU = mSummaries.find(m => m.metric_code === 'FINISHED_INSPECTION_MTRS' || m.metric_code === 'FINISHED_INSPECTED_MTRS' || m.metric_code === 'FINISH_PRODN_MTRS')?.monthlyTotal ?? null;
       const procRejU = mSummaries.find(m => m.metric_code === 'PROCESSING_REJECTION_MTRS')?.monthlyTotal ?? null;
@@ -1351,6 +1416,9 @@ export default function DailyReport() {
       const weavRejU = mSummaries.find(m => m.metric_code === 'WEAVING_REJECTION_MTRS')?.monthlyTotal ?? null;
       const weavRejPctU = (finInspU && finInspU > 0 && weavRejU !== null) ? ((weavRejU / finInspU) * 100).toFixed(2) + '%' : '';
       const hasAnyRejFinU = (procRejU !== null || venRejU !== null || weavRejU !== null);
+      // TOTAL = FINISHED INSPECTION MTRS + PROCESSING REJECTION + VENDOR REJECTION + WEAVING REJECTION
+      const totFinFabU = (finInspU !== null) || hasAnyRejFinU
+        ? ((finInspU || 0) + (procRejU || 0) + (venRejU || 0) + (weavRejU || 0)) : null;
       const totRejFinU = hasAnyRejFinU ? ((procRejU || 0) + (venRejU || 0) + (weavRejU || 0)) : null;
       const realPctU = (finInspU && finInspU > 0 && totRejFinU !== null) ? (Math.max(0, 100 - (totRejFinU / finInspU) * 100)).toFixed(2) + '%' : '';
 
@@ -1364,17 +1432,17 @@ export default function DailyReport() {
       // Cumulative "AS ON DATE" values (Month Start -> Selected Report Date)
       const inInspAsOn = getAsOnNum('INHOUSE_TOTAL_INSPECTED') ?? getAsOnNum('INHOUSE_GREIGE_INSPECTED_MTRS');
       const inPassAsOn = getAsOnNum('INHOUSE_TOTAL_PASSED') ?? getAsOnNum('INHOUSE_GREIGE_PASSED_MTRS');
-      const inRejAsOn = getAsOnNum('INHOUSE_TOTAL_REJECTED') ?? getAsOnNum('INHOUSE_GREIGE_REJECTED_MTRS');
+      const inRejAsOn = getAsOnNum('INHOUSE_TOTAL_REJECTED') ?? getAsOnNum('INHOUSE_GREIGE_REJECTED_MTRS') ?? (inInspAsOn !== null && inPassAsOn !== null ? Math.max(0, Number((inInspAsOn - inPassAsOn).toFixed(1))) : null);
       const inRejPctAsOn = (inInspAsOn && inInspAsOn > 0 && inRejAsOn !== null) ? ((inRejAsOn / inInspAsOn) * 100).toFixed(2) + '%' : (inInspAsOn !== null && inRejAsOn === 0 ? '0.00%' : '');
 
       const vnInspAsOn = getAsOnNum('VENDOR_TOTAL_INSPECTED') ?? getAsOnNum('VENDOR_GREIGE_INSPECTED_MTRS');
       const vnPassAsOn = getAsOnNum('VENDOR_TOTAL_PASSED') ?? getAsOnNum('VENDOR_GREIGE_PASSED_MTRS');
-      const vnRejAsOn = getAsOnNum('VENDOR_TOTAL_REJECTED') ?? getAsOnNum('VENDOR_GREIGE_REJECTED_MTRS');
+      const vnRejAsOn = getAsOnNum('VENDOR_TOTAL_REJECTED') ?? getAsOnNum('VENDOR_GREIGE_REJECTED_MTRS') ?? (vnInspAsOn !== null && vnPassAsOn !== null ? Math.max(0, Number((vnInspAsOn - vnPassAsOn).toFixed(1))) : null);
       const vnRejPctAsOn = (vnInspAsOn && vnInspAsOn > 0 && vnRejAsOn !== null) ? ((vnRejAsOn / vnInspAsOn) * 100).toFixed(2) + '%' : (vnInspAsOn !== null && vnRejAsOn === 0 ? '0.00%' : '');
 
       const washTotAsOn = getAsOnNum('WASHING_TOTAL_MTRS');
       const washPassAsOn = getAsOnNum('WASHING_TOTAL_PASSED');
-      const washRejAsOn = getAsOnNum('WASHING_TOTAL_REJECTED');
+      const washRejAsOn = getAsOnNum('WASHING_TOTAL_REJECTED') ?? (washTotAsOn !== null && washPassAsOn !== null ? Math.max(0, Number((washTotAsOn - washPassAsOn).toFixed(1))) : null);
       const washRejPctAsOn = (washTotAsOn && washTotAsOn > 0 && washRejAsOn !== null) ? ((washRejAsOn / washTotAsOn) * 100).toFixed(2) + '%' : (washTotAsOn !== null && washRejAsOn === 0 ? '0.00%' : '');
 
       const hasAnyInspAsOn = (inInspAsOn !== null || vnInspAsOn !== null || washTotAsOn !== null);
@@ -1393,6 +1461,9 @@ export default function DailyReport() {
       const weavRejAsOn = getAsOnNum('WEAVING_REJECTION_MTRS');
       const weavRejPctAsOn = (finInspAsOn && finInspAsOn > 0 && weavRejAsOn !== null) ? ((weavRejAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && weavRejAsOn === 0 ? '0.00%' : '');
       const hasAnyRejFinAsOn = (procRejAsOn !== null || venRejAsOn !== null || weavRejAsOn !== null);
+      // TOTAL = FINISHED INSPECTION MTRS + PROCESSING REJECTION + VENDOR REJECTION + WEAVING REJECTION
+      const totFinFabAsOn = (finInspAsOn !== null) || hasAnyRejFinAsOn
+        ? ((finInspAsOn || 0) + (procRejAsOn || 0) + (venRejAsOn || 0) + (weavRejAsOn || 0)) : null;
       const totRejFinAsOn = hasAnyRejFinAsOn ? ((procRejAsOn || 0) + (venRejAsOn || 0) + (weavRejAsOn || 0)) : null;
       const realPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRejFinAsOn !== null) ? (Math.max(0, 100 - (totRejFinAsOn / finInspAsOn) * 100)).toFixed(2) + '%' : '';
 
@@ -1414,7 +1485,7 @@ export default function DailyReport() {
         { leftLabel: 'VENDOR - TOTAL MTRS INSPECTED', leftAsOn: vnInspAsOn !== null ? vnInspAsOn : '', leftUpto: vnInspU !== null ? vnInspU : '', rightLabel: 'REJECTION%', rightAsOn: venRejPctAsOn, rightUpto: venRejPctU },
         { leftLabel: 'VENDOR - TOTAL MTRS PASSED', leftAsOn: vnPassAsOn !== null ? vnPassAsOn : '', leftUpto: vnPassU !== null ? vnPassU : '', rightLabel: 'WEAVING REJECTION MTRS', rightAsOn: weavRejAsOn !== null ? weavRejAsOn : '', rightUpto: weavRejU !== null ? weavRejU : '' },
         { leftLabel: 'VENDOR - TOTAL MTRS REJECTED', leftAsOn: vnRejAsOn !== null ? vnRejAsOn : '', leftUpto: vnRejU !== null ? vnRejU : '', rightLabel: 'REJECTION %', rightAsOn: weavRejPctAsOn, rightUpto: weavRejPctU },
-        { leftLabel: 'VENDOR - REJECTION %', leftAsOn: vnRejPctAsOn, leftUpto: vnRejPctU, rightLabel: 'TOTAL', rightAsOn: totRejFinAsOn !== null ? totRejFinAsOn : '', rightUpto: totRejFinU !== null ? totRejFinU : '', isRightBold: true },
+        { leftLabel: 'VENDOR - REJECTION %', leftAsOn: vnRejPctAsOn, leftUpto: vnRejPctU, rightLabel: 'TOTAL', rightAsOn: totFinFabAsOn !== null ? totFinFabAsOn : '', rightUpto: totFinFabU !== null ? totFinFabU : '', isRightBold: true },
         { leftLabel: '', leftAsOn: '', leftUpto: '', rightLabel: 'PROCESSING REWASH MTRS', rightAsOn: procRewAsOn !== null ? procRewAsOn : '', rightUpto: procRewU !== null ? procRewU : '' },
         { leftLabel: 'WASHING-TOTAL MTRS', leftAsOn: washTotAsOn !== null ? washTotAsOn : '', leftUpto: washTotU !== null ? washTotU : '', rightLabel: 'REWASH%', rightAsOn: procRewPctAsOn, rightUpto: procRewPctU },
         { leftLabel: 'WASHING-TOTAL PASSED', leftAsOn: washPassAsOn !== null ? washPassAsOn : '', leftUpto: washPassU !== null ? washPassU : '', rightLabel: 'VENDOR REWASH MTRS', rightAsOn: venRewAsOn !== null ? venRewAsOn : '', rightUpto: venRewU !== null ? venRewU : '' },
@@ -2464,7 +2535,10 @@ const renderPctCell = (p: string | null | undefined) => {
 const renderNumCell = (n: number | null | undefined) => {
   if (n === null || n === undefined || isNaN(n)) return '';
   if (n === 0) return '0';
-  return n.toLocaleString('en-IN');
+  const hasDecimals = n % 1 !== 0;
+  return hasDecimals
+    ? n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : n.toLocaleString('en-IN');
 };
 
 // 30 Daily Meeting Rows matching Reference Image 1 exactly
@@ -3155,26 +3229,29 @@ return (
               // Monthly summaries for UP TO DATE column
               const inInspU = effectivePrintMonthly.find(m => m.metric_code === 'INHOUSE_TOTAL_INSPECTED' || m.metric_code === 'INHOUSE_GREIGE_INSPECTED_MTRS')?.monthlyTotal;
               const inPassU = effectivePrintMonthly.find(m => m.metric_code === 'INHOUSE_TOTAL_PASSED' || m.metric_code === 'INHOUSE_GREIGE_PASSED_MTRS')?.monthlyTotal;
-              const inRejU = effectivePrintMonthly.find(m => m.metric_code === 'INHOUSE_TOTAL_REJECTED' || m.metric_code === 'INHOUSE_GREIGE_REJECTED_MTRS')?.monthlyTotal;
-              const inRejPctU = (inInspU && inInspU > 0 && inRejU !== undefined && inRejU !== null) ? ((inRejU / inInspU) * 100).toFixed(2) + '%' : '';
+              const inRejURaw = effectivePrintMonthly.find(m => m.metric_code === 'INHOUSE_TOTAL_REJECTED' || m.metric_code === 'INHOUSE_GREIGE_REJECTED_MTRS')?.monthlyTotal;
+              const inRejU = (inRejURaw !== undefined && inRejURaw !== null) ? inRejURaw : ((inInspU !== undefined && inInspU !== null && inPassU !== undefined && inPassU !== null) ? Math.max(0, Number((inInspU - inPassU).toFixed(1))) : null);
+              const inRejPctU = (inInspU && inInspU > 0 && inRejU !== null) ? ((inRejU / inInspU) * 100).toFixed(2) + '%' : (inInspU !== undefined && inInspU !== null && inRejU === 0 ? '0.00%' : '');
 
               const vnInspU = effectivePrintMonthly.find(m => m.metric_code === 'VENDOR_TOTAL_INSPECTED' || m.metric_code === 'VENDOR_GREIGE_INSPECTED_MTRS')?.monthlyTotal;
               const vnPassU = effectivePrintMonthly.find(m => m.metric_code === 'VENDOR_TOTAL_PASSED' || m.metric_code === 'VENDOR_GREIGE_PASSED_MTRS')?.monthlyTotal;
-              const vnRejU = effectivePrintMonthly.find(m => m.metric_code === 'VENDOR_TOTAL_REJECTED' || m.metric_code === 'VENDOR_GREIGE_REJECTED_MTRS')?.monthlyTotal;
-              const vnRejPctU = (vnInspU && vnInspU > 0 && vnRejU !== undefined && vnRejU !== null) ? ((vnRejU / vnInspU) * 100).toFixed(2) + '%' : '';
+              const vnRejURaw = effectivePrintMonthly.find(m => m.metric_code === 'VENDOR_TOTAL_REJECTED' || m.metric_code === 'VENDOR_GREIGE_REJECTED_MTRS')?.monthlyTotal;
+              const vnRejU = (vnRejURaw !== undefined && vnRejURaw !== null) ? vnRejURaw : ((vnInspU !== undefined && vnInspU !== null && vnPassU !== undefined && vnPassU !== null) ? Math.max(0, Number((vnInspU - vnPassU).toFixed(1))) : null);
+              const vnRejPctU = (vnInspU && vnInspU > 0 && vnRejU !== null) ? ((vnRejU / vnInspU) * 100).toFixed(2) + '%' : (vnInspU !== undefined && vnInspU !== null && vnRejU === 0 ? '0.00%' : '');
 
               const washTotU = effectivePrintMonthly.find(m => m.metric_code === 'WASHING_TOTAL_MTRS')?.monthlyTotal;
               const washPassU = effectivePrintMonthly.find(m => m.metric_code === 'WASHING_TOTAL_PASSED')?.monthlyTotal;
-              const washRejU = effectivePrintMonthly.find(m => m.metric_code === 'WASHING_TOTAL_REJECTED')?.monthlyTotal;
-              const washRejPctU = (washTotU && washTotU > 0 && washRejU !== undefined && washRejU !== null) ? ((washRejU / washTotU) * 100).toFixed(2) + '%' : '';
+              const washRejURaw = effectivePrintMonthly.find(m => m.metric_code === 'WASHING_TOTAL_REJECTED')?.monthlyTotal;
+              const washRejU = (washRejURaw !== undefined && washRejURaw !== null) ? washRejURaw : ((washTotU !== undefined && washTotU !== null && washPassU !== undefined && washPassU !== null) ? Math.max(0, Number((washTotU - washPassU).toFixed(1))) : null);
+              const washRejPctU = (washTotU && washTotU > 0 && washRejU !== null) ? ((washRejU / washTotU) * 100).toFixed(2) + '%' : (washTotU !== undefined && washTotU !== null && washRejU === 0 ? '0.00%' : '');
 
               const hasAnyInspU = (inInspU !== undefined && inInspU !== null) || (vnInspU !== undefined && vnInspU !== null) || (washTotU !== undefined && washTotU !== null);
               const totInspU = hasAnyInspU ? ((inInspU || 0) + (vnInspU || 0) + (washTotU || 0)) : null;
               const hasAnyPassU = (inPassU !== undefined && inPassU !== null) || (vnPassU !== undefined && vnPassU !== null) || (washPassU !== undefined && washPassU !== null);
               const totPassU = hasAnyPassU ? ((inPassU || 0) + (vnPassU || 0) + (washPassU || 0)) : null;
-              const hasAnyRejU = (inRejU !== undefined && inRejU !== null) || (vnRejU !== undefined && vnRejU !== null) || (washRejU !== undefined && washRejU !== null);
+              const hasAnyRejU = (inRejU !== null) || (vnRejU !== null) || (washRejU !== null);
               const totRejU = hasAnyRejU ? ((inRejU || 0) + (vnRejU || 0) + (washRejU || 0)) : null;
-              const rejPctU = (totInspU && totInspU > 0 && totRejU !== null) ? ((totRejU / totInspU) * 100).toFixed(2) + '%' : '';
+              const rejPctU = (totInspU && totInspU > 0 && totRejU !== null) ? ((totRejU / totInspU) * 100).toFixed(2) + '%' : (totInspU !== null && totRejU === 0 ? '0.00%' : '');
 
               // Finished Fabric Monthly
               const finInspU = effectivePrintMonthly.find(m => m.metric_code === 'FINISHED_INSPECTION_MTRS' || m.metric_code === 'FINISHED_INSPECTED_MTRS' || m.metric_code === 'FINISH_PRODN_MTRS')?.monthlyTotal;
@@ -3185,6 +3262,9 @@ return (
               const weavRejU = effectivePrintMonthly.find(m => m.metric_code === 'WEAVING_REJECTION_MTRS')?.monthlyTotal;
               const weavRejPctU = (finInspU && finInspU > 0 && weavRejU !== undefined && weavRejU !== null) ? ((weavRejU / finInspU) * 100).toFixed(2) + '%' : '';
               const hasAnyFinRejU = (procRejU !== undefined && procRejU !== null) || (venRejU !== undefined && venRejU !== null) || (weavRejU !== undefined && weavRejU !== null);
+              // TOTAL (right TOTAL row) = FINISHED INSPECTION + PROC REJECTION + VENDOR REJECTION + WEAVING REJECTION
+              const totFinFabU = (finInspU !== undefined && finInspU !== null) || hasAnyFinRejU
+                ? ((finInspU || 0) + (procRejU || 0) + (venRejU || 0) + (weavRejU || 0)) : null;
               const totRejFinU = hasAnyFinRejU ? ((procRejU || 0) + (venRejU || 0) + (weavRejU || 0)) : null;
               const realPctU = (finInspU && finInspU > 0 && totRejFinU !== null) ? (Math.max(0, 100 - (totRejFinU / finInspU) * 100)).toFixed(2) + '%' : '';
 
@@ -3198,18 +3278,18 @@ return (
               // Cumulative "AS ON DATE" values (Month Start -> Selected Report Date)
               const inInspAsOn = getAsOnMetricNum('INHOUSE_TOTAL_INSPECTED') ?? getAsOnMetricNum('INHOUSE_GREIGE_INSPECTED_MTRS');
               const inPassAsOn = getAsOnMetricNum('INHOUSE_TOTAL_PASSED') ?? getAsOnMetricNum('INHOUSE_GREIGE_PASSED_MTRS');
-              const inRejAsOn = getAsOnMetricNum('INHOUSE_TOTAL_REJECTED') ?? getAsOnMetricNum('INHOUSE_GREIGE_REJECTED_MTRS');
-              const inRejPctAsOn = (inInspAsOn && inInspAsOn > 0 && inRejAsOn !== null) ? ((inRejAsOn / inInspAsOn) * 100).toFixed(2) + '%' : '';
+              const inRejAsOn = getAsOnMetricNum('INHOUSE_TOTAL_REJECTED') ?? getAsOnMetricNum('INHOUSE_GREIGE_REJECTED_MTRS') ?? (inInspAsOn !== null && inPassAsOn !== null ? Math.max(0, Number((inInspAsOn - inPassAsOn).toFixed(1))) : null);
+              const inRejPctAsOn = (inInspAsOn && inInspAsOn > 0 && inRejAsOn !== null) ? ((inRejAsOn / inInspAsOn) * 100).toFixed(2) + '%' : (inInspAsOn !== null && inRejAsOn === 0 ? '0.00%' : '');
 
               const vnInspAsOn = getAsOnMetricNum('VENDOR_TOTAL_INSPECTED') ?? getAsOnMetricNum('VENDOR_GREIGE_INSPECTED_MTRS');
               const vnPassAsOn = getAsOnMetricNum('VENDOR_TOTAL_PASSED') ?? getAsOnMetricNum('VENDOR_GREIGE_PASSED_MTRS');
-              const vnRejAsOn = getAsOnMetricNum('VENDOR_TOTAL_REJECTED') ?? getAsOnMetricNum('VENDOR_GREIGE_REJECTED_MTRS');
-              const vnRejPctAsOn = (vnInspAsOn && vnInspAsOn > 0 && vnRejAsOn !== null) ? ((vnRejAsOn / vnInspAsOn) * 100).toFixed(2) + '%' : '';
+              const vnRejAsOn = getAsOnMetricNum('VENDOR_TOTAL_REJECTED') ?? getAsOnMetricNum('VENDOR_GREIGE_REJECTED_MTRS') ?? (vnInspAsOn !== null && vnPassAsOn !== null ? Math.max(0, Number((vnInspAsOn - vnPassAsOn).toFixed(1))) : null);
+              const vnRejPctAsOn = (vnInspAsOn && vnInspAsOn > 0 && vnRejAsOn !== null) ? ((vnRejAsOn / vnInspAsOn) * 100).toFixed(2) + '%' : (vnInspAsOn !== null && vnRejAsOn === 0 ? '0.00%' : '');
 
               const washTotAsOn = getAsOnMetricNum('WASHING_TOTAL_MTRS');
               const washPassAsOn = getAsOnMetricNum('WASHING_TOTAL_PASSED');
-              const washRejAsOn = getAsOnMetricNum('WASHING_TOTAL_REJECTED');
-              const washRejPctAsOn = (washTotAsOn && washTotAsOn > 0 && washRejAsOn !== null) ? ((washRejAsOn / washTotAsOn) * 100).toFixed(2) + '%' : '';
+              const washRejAsOn = getAsOnMetricNum('WASHING_TOTAL_REJECTED') ?? (washTotAsOn !== null && washPassAsOn !== null ? Math.max(0, Number((washTotAsOn - washPassAsOn).toFixed(1))) : null);
+              const washRejPctAsOn = (washTotAsOn && washTotAsOn > 0 && washRejAsOn !== null) ? ((washRejAsOn / washTotAsOn) * 100).toFixed(2) + '%' : (washTotAsOn !== null && washRejAsOn === 0 ? '0.00%' : '');
 
               const hasAnyInspAsOn = inInspAsOn !== null || vnInspAsOn !== null || washTotAsOn !== null;
               const totInspAsOn = hasAnyInspAsOn ? ((inInspAsOn || 0) + (vnInspAsOn || 0) + (washTotAsOn || 0)) : null;
@@ -3228,6 +3308,9 @@ return (
               const weavRejAsOn = getAsOnMetricNum('WEAVING_REJECTION_MTRS');
               const weavRejPctAsOn = (finInspAsOn && finInspAsOn > 0 && weavRejAsOn !== null) ? ((weavRejAsOn / finInspAsOn) * 100).toFixed(2) + '%' : '';
               const hasAnyFinRejAsOn = procRejAsOn !== null || venRejAsOn !== null || weavRejAsOn !== null;
+              // TOTAL = FINISHED INSPECTION MTRS + PROCESSING REJECTION + VENDOR REJECTION + WEAVING REJECTION
+              const totFinFabAsOn = (finInspAsOn !== null) || hasAnyFinRejAsOn
+                ? ((finInspAsOn || 0) + (procRejAsOn || 0) + (venRejAsOn || 0) + (weavRejAsOn || 0)) : null;
               const totRejFinAsOn = hasAnyFinRejAsOn ? ((procRejAsOn || 0) + (venRejAsOn || 0) + (weavRejAsOn || 0)) : null;
               const realPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRejFinAsOn !== null) ? (Math.max(0, 100 - (totRejFinAsOn / finInspAsOn * 100))).toFixed(2) + '%' : '';
 
@@ -3249,7 +3332,7 @@ return (
                 { leftLabel: 'VENDOR - TOTAL MTRS INSPECTED', leftAsOn: renderNumCell(vnInspAsOn), leftUpto: renderNumCell(vnInspU), rightLabel: 'REJECTION%', rightAsOn: venRejPctAsOn, rightUpto: venRejPctU },
                 { leftLabel: 'VENDOR - TOTAL MTRS PASSED', leftAsOn: renderNumCell(vnPassAsOn), leftUpto: renderNumCell(vnPassU), rightLabel: 'WEAVING REJECTION MTRS', rightAsOn: renderNumCell(weavRejAsOn), rightUpto: renderNumCell(weavRejU) },
                 { leftLabel: 'VENDOR - TOTAL MTRS REJECTED', leftAsOn: renderNumCell(vnRejAsOn), leftUpto: renderNumCell(vnRejU), rightLabel: 'REJECTION %', rightAsOn: weavRejPctAsOn, rightUpto: weavRejPctU },
-                { leftLabel: 'VENDOR - REJECTION %', leftAsOn: vnRejPctAsOn, leftUpto: vnRejPctU, rightLabel: 'TOTAL', rightAsOn: renderNumCell(totRejFinAsOn), rightUpto: renderNumCell(totRejFinU), isRightBold: true },
+                { leftLabel: 'VENDOR - REJECTION %', leftAsOn: vnRejPctAsOn, leftUpto: vnRejPctU, rightLabel: 'TOTAL', rightAsOn: renderNumCell(totFinFabAsOn), rightUpto: renderNumCell(totFinFabU), isRightBold: true },
                 { leftLabel: '', leftAsOn: '', leftUpto: '', rightLabel: 'PROCESSING REWASH MTRS', rightAsOn: renderNumCell(procRewAsOn), rightUpto: renderNumCell(procRewU) },
                 { leftLabel: 'WASHING-TOTAL MTRS', leftAsOn: renderNumCell(washTotAsOn), leftUpto: renderNumCell(washTotU), rightLabel: 'REWASH%', rightAsOn: procRewPctAsOn, rightUpto: procRewPctU },
                 { leftLabel: 'WASHING-TOTAL PASSED', leftAsOn: renderNumCell(washPassAsOn), leftUpto: renderNumCell(washPassU), rightLabel: 'VENDOR REWASH MTRS', rightAsOn: renderNumCell(venRewAsOn), rightUpto: renderNumCell(venRewU) },
@@ -4288,15 +4371,72 @@ return (
                       ? 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950 dark:text-amber-300'
                       : 'bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 hover:bg-amber-100'
                       }`}
-                    title="Change Weaving Monthly Target"
+                    title="Change Weaving Daily Target for selected date"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
-                    <span>{editTargetsMode ? 'Close Target Edit' : 'Edit Weaving Target'}</span>
+                    <span>{editTargetsMode ? 'Close Target Edit' : 'Edit Daily Target'}</span>
                   </button>
                 ) : (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                    Monthly Target Fixed
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setEditMonthlyTargetsMode(v => !v)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        editMonthlyTargetsMode
+                          ? 'bg-indigo-100 text-indigo-900 border border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300'
+                          : 'bg-indigo-50 text-indigo-800 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 hover:bg-indigo-100'
+                      }`}
+                      title="Edit Monthly Target for selected month"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>{editMonthlyTargetsMode ? 'Close Target Edit' : 'Edit Monthly Target'}</span>
+                    </button>
+                    {editMonthlyTargetsMode && (
+                      <>
+                        <input
+                          type="month"
+                          value={targetMonth}
+                          onChange={e => setTargetMonth(e.target.value)}
+                          className="px-2 py-0.5 rounded border border-indigo-300 text-xs font-bold text-indigo-800 dark:text-indigo-200 bg-white dark:bg-slate-800 outline-none"
+                          title="Select target month"
+                        />
+                        <button
+                          disabled={savingMonthlyTargets}
+                          onClick={async () => {
+                            setSavingMonthlyTargets(true);
+                            try {
+                              const targets: Record<string, number> = {};
+                              currentDept.rawMetrics.forEach((m: MetricDefinition) => {
+                                if (m.type === 'number' && editedTargets[m.code] !== undefined) {
+                                  targets[m.code] = editedTargets[m.code];
+                                }
+                              });
+                              const res = await fetch(`${API_BASE_URL}/api/daily-report/targets`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  department_code: currentDept.code,
+                                  month: targetMonth,
+                                  unit: selectedUnit,
+                                  targets
+                                })
+                              });
+                              if (!res.ok) throw new Error('Failed to save monthly targets');
+                              setFeedbackMessage({ type: 'success', text: `Monthly targets saved for ${currentDept.name} — ${targetMonth}` });
+                              setEditMonthlyTargetsMode(false);
+                            } catch (err: any) {
+                              setFeedbackMessage({ type: 'error', text: 'Error saving monthly targets: ' + err.message });
+                            } finally {
+                              setSavingMonthlyTargets(false);
+                            }
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 disabled:opacity-60 transition-all"
+                        >
+                          <Save className="w-3 h-3" />
+                          <span>{savingMonthlyTargets ? 'Saving...' : 'Save Targets'}</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -4386,52 +4526,141 @@ return (
                           Section A: Greige &amp; Finished Inspection (Inhouse, Vendor &amp; Washing)
                         </h4>
                       </div>
-                      {currentDept.rawMetrics
-                        .filter(m => !['TOTAL_PRODN_GREIGE', 'TOTAL_PRODN_FINISH', 'GREIGE_YD_OUTWARD'].includes(m.code))
-                        .map((metric: MetricDefinition) => {
-                          const val = formInputs[metric.code] !== undefined ? formInputs[metric.code] : '';
-                          const effectiveTarget = editedTargets[metric.code] !== undefined
-                            ? editedTargets[metric.code]
-                            : (metric.target || 0);
+                      {(() => {
+                        const inInsp = formInputs['INHOUSE_TOTAL_INSPECTED'] !== undefined && formInputs['INHOUSE_TOTAL_INSPECTED'] !== '' ? Number(formInputs['INHOUSE_TOTAL_INSPECTED']) : null;
+                        const inPass = formInputs['INHOUSE_TOTAL_PASSED'] !== undefined && formInputs['INHOUSE_TOTAL_PASSED'] !== '' ? Number(formInputs['INHOUSE_TOTAL_PASSED']) : null;
+                        const inRej = (inInsp !== null && inPass !== null) ? Math.max(0, Number((inInsp - inPass).toFixed(1))) : null;
+                        const inRejPct = (inInsp !== null && inInsp > 0 && inRej !== null) ? ((inRej / inInsp) * 100).toFixed(2) + '%' : (inInsp !== null && inRej === 0 ? '0.00%' : '—');
 
-                          return (
-                            <div
-                              key={metric.code}
-                              className="bg-slate-50 dark:bg-slate-900/50 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors"
-                            >
-                              <div className="flex items-center justify-between mb-1.5">
-                                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                                  <span>{metric.name}</span>
-                                  {metric.unit && (
-                                    <span className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-800 rounded text-[10px] font-semibold text-slate-600 dark:text-slate-400">
-                                      {metric.unit}
-                                    </span>
-                                  )}
-                                </label>
-                                {effectiveTarget > 0 && (
-                                  <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-900">
-                                    Target: {effectiveTarget.toLocaleString()} {metric.unit}
-                                  </span>
-                                )}
+                        const venInsp = formInputs['VENDOR_TOTAL_INSPECTED'] !== undefined && formInputs['VENDOR_TOTAL_INSPECTED'] !== '' ? Number(formInputs['VENDOR_TOTAL_INSPECTED']) : null;
+                        const venPass = formInputs['VENDOR_TOTAL_PASSED'] !== undefined && formInputs['VENDOR_TOTAL_PASSED'] !== '' ? Number(formInputs['VENDOR_TOTAL_PASSED']) : null;
+                        const venRej = (venInsp !== null && venPass !== null) ? Math.max(0, Number((venInsp - venPass).toFixed(1))) : null;
+                        const venRejPct = (venInsp !== null && venInsp > 0 && venRej !== null) ? ((venRej / venInsp) * 100).toFixed(2) + '%' : (venInsp !== null && venRej === 0 ? '0.00%' : '—');
+
+                        const washTot = formInputs['WASHING_TOTAL_MTRS'] !== undefined && formInputs['WASHING_TOTAL_MTRS'] !== '' ? Number(formInputs['WASHING_TOTAL_MTRS']) : null;
+                        const washPass = formInputs['WASHING_TOTAL_PASSED'] !== undefined && formInputs['WASHING_TOTAL_PASSED'] !== '' ? Number(formInputs['WASHING_TOTAL_PASSED']) : null;
+                        const washRej = (washTot !== null && washPass !== null) ? Math.max(0, Number((washTot - washPass).toFixed(1))) : null;
+                        const washRejPct = (washTot !== null && washTot > 0 && washRej !== null) ? ((washRej / washTot) * 100).toFixed(2) + '%' : (washTot !== null && washRej === 0 ? '0.00%' : '—');
+
+                        const hasAnyInsp = inInsp !== null || venInsp !== null || washTot !== null;
+                        const totInsp = hasAnyInsp ? Number(((inInsp || 0) + (venInsp || 0) + (washTot || 0)).toFixed(1)) : null;
+                        const hasAnyPass = inPass !== null || venPass !== null || washPass !== null;
+                        const totPass = hasAnyPass ? Number(((inPass || 0) + (venPass || 0) + (washPass || 0)).toFixed(1)) : null;
+                        const hasAnyRej = inRej !== null || venRej !== null || washRej !== null;
+                        const totRej = hasAnyRej ? Number(((inRej || 0) + (venRej || 0) + (washRej || 0)).toFixed(1)) : null;
+                        const totRejPct = (totInsp !== null && totInsp > 0 && totRej !== null) ? ((totRej / totInsp) * 100).toFixed(2) + '%' : (totInsp !== null && totRej === 0 ? '0.00%' : '—');
+
+                        const groups = [
+                          {
+                            title: 'INHOUSE',
+                            inspCode: 'INHOUSE_TOTAL_INSPECTED',
+                            inspName: 'Inhouse - Total Mtrs Inspected',
+                            passCode: 'INHOUSE_TOTAL_PASSED',
+                            passName: 'Inhouse - Total Mtrs Passed',
+                            rejName: 'Inhouse - Total Mtrs Rejected',
+                            rejVal: inRej,
+                            pctName: 'Inhouse - Rejection %',
+                            pctVal: inRejPct
+                          },
+                          {
+                            title: 'VENDOR',
+                            inspCode: 'VENDOR_TOTAL_INSPECTED',
+                            inspName: 'Vendor - Total Mtrs Inspected',
+                            passCode: 'VENDOR_TOTAL_PASSED',
+                            passName: 'Vendor - Total Mtrs Passed',
+                            rejName: 'Vendor - Total Mtrs Rejected',
+                            rejVal: venRej,
+                            pctName: 'Vendor - Rejection %',
+                            pctVal: venRejPct
+                          },
+                          {
+                            title: 'WASHING',
+                            inspCode: 'WASHING_TOTAL_MTRS',
+                            inspName: 'Washing - Total Mtrs',
+                            passCode: 'WASHING_TOTAL_PASSED',
+                            passName: 'Washing - Total Passed',
+                            rejName: 'Washing - Total Mtrs Rejected',
+                            rejVal: washRej,
+                            pctName: 'Washing - Rejection %',
+                            pctVal: washRejPct
+                          }
+                        ];
+
+                        return (
+                          <div className="space-y-4">
+                            {groups.map(g => (
+                              <div key={g.title} className="bg-slate-50 dark:bg-slate-900/50 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+                                <div className="text-[11px] font-black tracking-wider text-indigo-700 dark:text-indigo-300 uppercase border-b border-slate-200 dark:border-slate-700 pb-1">
+                                  {g.title}
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
+                                      {g.inspName} <span className="text-[10px] text-slate-500 font-semibold">(Mtrs)</span>
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      value={formInputs[g.inspCode] !== undefined ? formInputs[g.inspCode] : ''}
+                                      onChange={e => handleInputChange(g.inspCode, e.target.value)}
+                                      placeholder="0"
+                                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-bold text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
+                                      {g.passName} <span className="text-[10px] text-slate-500 font-semibold">(Mtrs)</span>
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      value={formInputs[g.passCode] !== undefined ? formInputs[g.passCode] : ''}
+                                      onChange={e => handleInputChange(g.passCode, e.target.value)}
+                                      placeholder="0"
+                                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-bold text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-xs">
+                                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-rose-50/60 dark:bg-rose-950/20 rounded-lg border border-rose-200/60 dark:border-rose-900/40">
+                                    <span className="font-semibold text-rose-800 dark:text-rose-300 text-[11px]">{g.rejName}:</span>
+                                    <span className="font-bold text-rose-900 dark:text-rose-200">{g.rejVal !== null ? `${g.rejVal.toLocaleString()} Mtrs` : '—'}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-50/60 dark:bg-amber-950/20 rounded-lg border border-amber-200/60 dark:border-amber-900/40">
+                                    <span className="font-semibold text-amber-800 dark:text-amber-300 text-[11px]">{g.pctName}:</span>
+                                    <span className="font-bold text-amber-900 dark:text-amber-200">{g.pctVal}</span>
+                                  </div>
+                                </div>
                               </div>
-                              <div className="relative">
-                                <input
-                                  type="number"
-                                  step="any"
-                                  value={val}
-                                  onChange={e => handleInputChange(metric.code, e.target.value)}
-                                  placeholder={metric.placeholder || `Enter actual ${metric.unit ? `(${metric.unit})` : 'value'}...`}
-                                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                />
-                                {metric.unit && (
-                                  <span className="absolute right-3 top-2 text-xs font-bold text-slate-400 pointer-events-none">
-                                    {metric.unit}
-                                  </span>
-                                )}
+                            ))}
+
+                            {/* TOTAL (COMBINED) CARD */}
+                            <div className="bg-gradient-to-r from-indigo-50/80 to-purple-50/80 dark:from-indigo-950/30 dark:to-purple-950/30 p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-2">
+                              <div className="text-[11px] font-black tracking-wider text-indigo-900 dark:text-indigo-200 uppercase border-b border-indigo-200 dark:border-indigo-800/60 pb-1">
+                                TOTAL (COMBINED INSPECTION)
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs pt-1">
+                                <div className="p-2 bg-white/80 dark:bg-slate-800/80 rounded-lg border border-indigo-100 dark:border-indigo-900">
+                                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">Total Mtrs Inspected</div>
+                                  <div className="text-xs font-black text-slate-900 dark:text-slate-100">{totInsp !== null ? totInsp.toLocaleString() : '—'}</div>
+                                </div>
+                                <div className="p-2 bg-white/80 dark:bg-slate-800/80 rounded-lg border border-indigo-100 dark:border-indigo-900">
+                                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">Total Mtrs Passed</div>
+                                  <div className="text-xs font-black text-emerald-700 dark:text-emerald-300">{totPass !== null ? totPass.toLocaleString() : '—'}</div>
+                                </div>
+                                <div className="p-2 bg-white/80 dark:bg-slate-800/80 rounded-lg border border-indigo-100 dark:border-indigo-900">
+                                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">Total Mtrs Rejected</div>
+                                  <div className="text-xs font-black text-rose-700 dark:text-rose-300">{totRej !== null ? totRej.toLocaleString() : '—'}</div>
+                                </div>
+                                <div className="p-2 bg-white/80 dark:bg-slate-800/80 rounded-lg border border-indigo-100 dark:border-indigo-900">
+                                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">Total Rejection %</div>
+                                  <div className="text-xs font-black text-amber-700 dark:text-amber-300">{totRejPct}</div>
+                                </div>
                               </div>
                             </div>
-                          );
-                        })}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Section B: Greige Warehouse */}
@@ -4476,10 +4705,23 @@ return (
                                       </span>
                                     )}
                                   </label>
-                                  {effectiveTarget > 0 && (
-                                    <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-2 py-0.5 rounded-md border border-blue-100 dark:border-blue-900">
-                                      Target: {effectiveTarget.toLocaleString()} {metric.unit}
-                                    </span>
+                                  {editMonthlyTargetsMode ? (
+                                    <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-300 dark:border-blue-700">
+                                      <span className="text-[10px] font-bold text-blue-700 dark:text-blue-300">Target ({targetMonth}):</span>
+                                      <input
+                                        type="number"
+                                        value={effectiveTarget !== undefined ? effectiveTarget : ''}
+                                        onChange={e => handleTargetChange(metric.code, e.target.value)}
+                                        className="w-24 px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-blue-400 rounded text-xs font-bold text-blue-900 dark:text-blue-100 outline-none"
+                                      />
+                                      <span className="text-[10px] text-slate-400 font-bold">{metric.unit}</span>
+                                    </div>
+                                  ) : (
+                                    effectiveTarget > 0 && (
+                                      <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-2 py-0.5 rounded-md border border-blue-100 dark:border-blue-900">
+                                        Target: {effectiveTarget.toLocaleString()} {metric.unit}
+                                      </span>
+                                    )
                                   )}
                                 </div>
                                 <div className="relative">
@@ -4537,23 +4779,34 @@ return (
                             </label>
 
                             {/* Target Pill / Input */}
-                            {isWeavingTarget ? (
+                            {editMonthlyTargetsMode && !isWeaving && metric.type === 'number' ? (
+                              <div className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-300 dark:border-indigo-700">
+                                <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">Target ({targetMonth}):</span>
+                                <input
+                                  type="number"
+                                  value={effectiveTarget !== undefined ? effectiveTarget : ''}
+                                  onChange={e => handleTargetChange(metric.code, e.target.value)}
+                                  className="w-24 px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-indigo-400 rounded text-xs font-bold text-indigo-900 dark:text-indigo-100 outline-none"
+                                />
+                                <span className="text-[10px] text-slate-400 font-bold">{metric.unit}</span>
+                              </div>
+                            ) : isWeavingTarget ? (
                               <div className="flex items-center gap-1.5 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-lg border-2 border-amber-400 shadow-2xs">
                                 <span className="text-[10px] font-black text-amber-700 dark:text-amber-300 uppercase">
-                                  Monthly Fixed Target ({selectedDate.substring(0, 7)}):
+                                  Daily Target ({selectedDate}):
                                 </span>
                                 <input
                                   type="number"
                                   value={effectiveTarget || ''}
                                   onChange={e => handleTargetChange(metric.code, e.target.value)}
                                   className="w-24 px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/60 border border-amber-400 rounded text-xs font-black text-amber-900 dark:text-amber-100 outline-none"
-                                  title="Weaving Unit Entry Target: Saving fixes this target for all dates in this month"
+                                  title="Weaving Daily Target: Saved for this selected date"
                                 />
                                 <span className="text-[10px] text-slate-400 font-bold">{metric.unit}</span>
                               </div>
                             ) : editTargetsMode && isWeaving ? (
                               <div className="flex items-center gap-1">
-                                <span className="text-[10px] font-bold text-slate-400">Target:</span>
+                                <span className="text-[10px] font-bold text-slate-400">Daily Target ({selectedDate}):</span>
                                 <input
                                   type="number"
                                   value={effectiveTarget}
@@ -4798,16 +5051,30 @@ return (
                     const actNum = (isNumericMetric && act !== null && act !== undefined && !isNaN(Number(act))) ? Number(act) : null;
                     const target = entry?.target_value !== undefined && entry?.target_value !== null
                       ? entry.target_value
-                      : (editedTargets[m.code] !== undefined ? editedTargets[m.code] : (m.target || 0));
+                      : (editedTargets[m.code] !== undefined ? editedTargets[m.code] : (m.target !== undefined ? m.target : null));
 
-                    const hasTarget = isNumericMetric && target > 0;
-                    const diff = hasTarget && actNum !== null ? Number((actNum - target).toFixed(2)) : null;
-                    const ach = hasTarget && actNum !== null ? Number(((actNum / target) * 100).toFixed(1)) : null;
+                    let diff: number | null = null;
+                    let ach: number | null = null;
+
+                    if (isNumericMetric && target !== null && target !== undefined && actNum !== null) {
+                      if (target === 0) {
+                        if (actNum === 0) {
+                          diff = 0;
+                          ach = 0;
+                        } else {
+                          diff = actNum;
+                          ach = null;
+                        }
+                      } else if (target > 0) {
+                        diff = Number((actNum - target).toFixed(2));
+                        ach = Number(((actNum / target) * 100).toFixed(2));
+                      }
+                    }
 
                     // HEAD/MENTOR: use departmentMasters (from DB per dept) first, then dept config defaults
                     const head = master?.head || dept.head || entry?.department_head || '';
                     const mentor = master?.mentor || dept.mentor || entry?.mentor || '';
-                    const perfMark = entry?.performance_mark || (actNum !== null ? computePerformanceMark(target, actNum, ach || 0) : 'NOT ENTERED');
+                    const perfMark = entry?.performance_mark || (actNum !== null ? computePerformanceMark(target ?? undefined, actNum, ach || 0) : 'NOT ENTERED');
 
                     if (searchQuery && !m.name.toLowerCase().includes(searchQuery.toLowerCase()) && !dept.name.toLowerCase().includes(searchQuery.toLowerCase())) {
                       return null;
@@ -4828,11 +5095,13 @@ return (
                           {m.name}
                         </td>
                         <td className="px-3 py-2.5 text-right font-medium text-slate-500 border-r border-slate-100 dark:border-slate-800">
-                          {hasTarget ? target.toLocaleString() : '—'}
+                          {isNumericMetric && target !== null && target !== undefined ? target.toLocaleString() : '—'}
                         </td>
                         <td className="px-4 py-2.5 text-right font-bold text-slate-900 dark:text-slate-100 bg-slate-50/50 dark:bg-slate-900/30 border-r border-slate-100 dark:border-slate-800">
                           {act !== null && act !== undefined
-                            ? (typeof act === 'number' ? act.toLocaleString() : act)
+                            ? (isNumericMetric
+                                ? (!isNaN(Number(act)) ? Number(act).toLocaleString() : (entry?.raw_value || '—'))
+                                : String(act))
                             : (entry?.raw_value || '—')}
                         </td>
                         <td className="px-2 py-2.5 text-center text-slate-400 text-[10px] border-r border-slate-100 dark:border-slate-800">
@@ -4844,7 +5113,7 @@ return (
                         </td>
                         <td className={`px-3 py-2.5 text-right font-bold border-r border-slate-100 dark:border-slate-800 ${ach === null ? 'text-slate-300' : ach >= 100 ? 'text-emerald-600' : ach >= 80 ? 'text-amber-600' : 'text-rose-600'
                           }`}>
-                          {ach !== null ? `${ach}%` : '—'}
+                          {ach !== null ? `${ach.toFixed(2)}%` : '—'}
                         </td>
                         <td className="px-3 py-2.5 text-center border-r border-slate-100 dark:border-slate-800">
                           <span className={`px-2 py-0.5 rounded text-[9px] font-black border ${getPerfBadgeClass(perfMark)}`}>
