@@ -1919,7 +1919,9 @@ export default function MainEntry() {
                 const forecastAvgProd = calc.avgProduction > 0 ? calc.avgProduction : 300;
 
                 // Cascade: compute expected start/runout for each queued plan
-                const cascadedPlans = nextPlansList.map((plan, idx) => {
+                const cascadedPlans: any[] = [];
+                for (let idx = 0; idx < nextPlansList.length; idx++) {
+                  const plan = nextPlansList[idx];
                   // Expected start of this plan = runout of the previous step + 1 day
                   let expectedStart: Date;
                   if (idx === 0) {
@@ -1961,7 +1963,7 @@ export default function MainEntry() {
                   if (rawStatus === 'CONFIRMED') statusLabel = 'CONFIRMED ✓';
                   if (!planBeamNo) statusLabel = 'BEAM PENDING';
 
-                  return {
+                  cascadedPlans.push({
                     plan,
                     expectedStart,
                     expectedRunout,
@@ -1970,8 +1972,8 @@ export default function MainEntry() {
                     planAvgProd,
                     planBeamNo,
                     statusLabel
-                  };
-                });
+                  });
+                }
 
                 return (
                   <React.Fragment key={loom.loomNo}>
