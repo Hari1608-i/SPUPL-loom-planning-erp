@@ -23,15 +23,17 @@ const prisma = globalForPrisma.prisma || new PrismaClient(
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 const app = express();
+app.set('trust proxy', 1);
 
 // Security and Performance Middlewares
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(compression());
 
-// Global Rate Limiting
+// Global Rate Limiting (configured safely for serverless / proxy environments)
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 1000, // Limit each IP to 1000 requests per windowMs
+  validate: { xForwardedForHeader: false, default: false },
   message: { error: 'Too many requests from this IP, please try again later.' }
 });
 app.use('/api/', globalLimiter);
