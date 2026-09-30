@@ -1524,6 +1524,277 @@ app.post('/api/orders/bulk-delete', async (req, res) => {
   }
 });
 
+// Bulk Multiple Orders Completion Endpoint (Excel-style paste batch completion)
+app.post('/api/orders/bulk-complete', async (req, res) => {
+  try {
+    const { ibpos, adminUser, remarks } = req.body;
+    if (!Array.isArray(ibpos) || ibpos.length === 0) {
+      return res.status(400).json({ error: 'No IBPO numbers provided.' });
+    }
+
+    const completedByUser = adminUser || 'Planning Manager';
+    const completionDate = new Date();
+
+    // 1. Clean, trim and track unique inputs
+    const cleanedInputs = [];
+    const seenMap = new Set();
+    const duplicateList = new Set();
+
+    for (const raw of ibpos) {
+      const trimmed = String(raw || '').trim();
+      if (!trimmed) continue;
+      const normalizedKey = trimmed.toUpperCase().replace(/\s+/g, '');
+      if (seenMap.has(normalizedKey)) {
+        duplicateList.add(trimmed);
+      } else {
+        seenMap.add(normalizedKey);
+        cleanedInputs.push(trimmed);
+      }
+    }
+
+    if (cleanedInputs.length === 0) {
+      return res.status(400).json({ error: 'No valid non-empty IBPO numbers found.' });
+    }
+
+    // 2. Fetch all matching orders efficiently using indexed lookups
+    const matchedOrders = await prisma.orderMaster.findMany({
+      where: {
+        OR: [
+          { ibpo_no: { in: cleanedInputs } },
+          { order_no: { in: cleanedInputs } }
+        ]
+      },
+      include: { designMaster: true }
+    });
+
+    const orderLookup = new Map();
+    for (const ord of matchedOrders) {
+      if (ord.ibpo_no) orderLookup.set(ord.ibpo_no.trim().toUpperCase(), ord);
+      if (ord.order_no) orderLookup.set(ord.order_no.trim().toUpperCase(), ord);
+    }
+
+    const results = [];
+    let completedCount = 0;
+    let skippedCount = 0;
+    let alreadyCompletedCount = 0;
+    let failedCount = 0;
+
+    // Process each unique input
+    for (const inputIbpo of cleanedInputs) {
+      const key = inputIbpo.toUpperCase();
+      const order = orderLookup.get(key);
+
+      // Rule 10: Invalid / Non-available IBPO -> Skip
+      if (!order) {
+        skippedCount++;
+        results.push({
+          ibpo: inputIbpo,
+          result: 'SKIPPED',
+          message: 'IBPO not found in active order database'
+        });
+        continue;
+      }
+
+      // Rule 11: Already Completed IBPO -> Skip
+      if (order.order_completion_status === 'COMPLETED' || order.status === 'ORDER COMPLETED') {
+        alreadyCompletedCount++;
+        results.push({
+          ibpo: inputIbpo,
+          order_id: order.id,
+          result: 'ALREADY COMPLETED',
+          message: 'Order is already marked completed'
+        });
+        continue;
+      }
+
+      // Execute Existing Completion Workflow safely per order
+      try {
+        const prodQty = Number(order.produced_qty || order.order_qty || 0);
+        const shortExcess = prodQty - (order.order_qty || 0);
+        const compStatus = prodQty >= (order.order_qty || 0) ? 'COMPLETED' : 'SHORT CLOSED';
+
+        // Calculate schedule variance / delay
+        let delayDays = 0;
+        const targetDateStr = order.weaving_completion_date || order.target_delivery_date;
+        if (targetDateStr) {
+          const compD = new Date(completionDate);
+          const targetD = new Date(targetDateStr);
+          compD.setHours(0, 0, 0, 0);
+          targetD.setHours(0, 0, 0, 0);
+          const diffMs = compD.getTime() - targetD.getTime();
+          delayDays = Math.ceil(diffMs / (1000 * 3600 * 24));
+        }
+
+        const designNo = order.design_no_sp_no;
+        const ibpoNo = order.ibpo_no || order.order_no;
+
+        // Perform transactional update for this individual order
+        await prisma.$transaction(async (tx) => {
+          // A. Upsert OrderCompletionHistory
+          if (tx.orderCompletionHistory) {
+            const histKey = order.order_no || order.ibpo_no || `ORD-${order.id}`;
+            await tx.orderCompletionHistory.upsert({
+              where: { order_no: histKey },
+              update: {
+                final_status: compStatus,
+                produced_qty: prodQty,
+                short_excess_qty: shortExcess,
+                actual_completion_date: completionDate,
+                delay_days: delayDays,
+                completed_by: completedByUser,
+                planner_remarks: remarks || 'Batch Order Completion'
+              },
+              create: {
+                order_no: histKey,
+                ibpo_no: order.ibpo_no,
+                customer_name: order.customer_name,
+                buyer_name: order.buyer_name,
+                design_no_sp_no: designNo,
+                construction: order.construction,
+                order_qty: order.order_qty,
+                grey_qty: order.grey_qty,
+                warp_qty: order.warp_qty,
+                uom: order.uom || 'Meters',
+                order_received_date: order.order_received_date,
+                target_delivery_date: order.target_delivery_date,
+                final_status: compStatus,
+                produced_qty: prodQty,
+                short_excess_qty: shortExcess,
+                actual_completion_date: completionDate,
+                delay_days: delayDays,
+                completed_by: completedByUser,
+                planner_remarks: remarks || 'Batch Order Completion'
+              }
+            });
+          }
+
+          // B. Update OrderMaster
+          await tx.orderMaster.update({
+            where: { id: order.id },
+            data: {
+              status: 'ORDER COMPLETED',
+              order_completion_status: 'COMPLETED',
+              actual_completion_date: completionDate,
+              completion_remarks: remarks || 'Batch Order Completion',
+              completed_by: completedByUser
+            }
+          });
+
+          // C. Free active loom runs associated with this order/design
+          await tx.loomRunEntry.deleteMany({
+            where: {
+              OR: [
+                { design_no_sp_no: designNo },
+                { order_no: ibpoNo || '' },
+                { order_no: order.order_no || '' }
+              ]
+            }
+          });
+
+          // D. Update PlannedAssignments to COMPLETED
+          await tx.plannedAssignment.updateMany({
+            where: {
+              OR: [
+                { current_design: designNo },
+                { next_design: designNo },
+                { order_no: ibpoNo || '' },
+                { order_no: order.order_no || '' }
+              ]
+            },
+            data: {
+              status: 'COMPLETED',
+              confirmation_status: 'COMPLETED',
+              delay_status: 'COMPLETED'
+            }
+          });
+
+          // E. Release Reed Reservations
+          await tx.reedStockMaster.updateMany({
+            where: {
+              OR: [
+                { reserved_for_order: ibpoNo || '' },
+                { reserved_for_order: order.order_no || '' }
+              ]
+            },
+            data: {
+              reserved_qty: 0,
+              reserved_for_order: null,
+              reserved_for_loom: null,
+              status: 'Available'
+            }
+          });
+
+          // F. Mark assigned beams to Completed
+          await tx.beamStockMaster.updateMany({
+            where: {
+              OR: [
+                { order_no: ibpoNo || '' },
+                { order_no: order.order_no || '' },
+                { design_no: designNo || '' }
+              ]
+            },
+            data: {
+              status: 'Completed',
+              reserved_for: null
+            }
+          });
+
+          // G. Audit Log
+          await tx.systemAuditLog.create({
+            data: {
+              username: completedByUser,
+              screen: 'Order Management',
+              action: 'BULK_COMPLETE_ORDER',
+              oldValue: order.status,
+              newValue: `ORDER COMPLETED (${compStatus}) - IBPO: ${inputIbpo}`
+            }
+          });
+        });
+
+        completedCount++;
+        results.push({
+          ibpo: inputIbpo,
+          order_id: order.id,
+          result: 'COMPLETED',
+          message: 'Order completed successfully'
+        });
+      } catch (orderErr) {
+        console.error(`Failed to complete order IBPO ${inputIbpo}:`, orderErr);
+        failedCount++;
+        results.push({
+          ibpo: inputIbpo,
+          order_id: order.id,
+          result: 'FAILED',
+          message: orderErr.message || 'Database transaction error'
+        });
+      }
+    }
+
+    // Add duplicates to result summary
+    for (const dup of duplicateList) {
+      results.push({
+        ibpo: dup,
+        result: 'SKIPPED',
+        message: 'Duplicate entry in batch paste (ignored)'
+      });
+    }
+
+    res.json({
+      success: true,
+      totalPasted: ibpos.length,
+      validCount: completedCount + alreadyCompletedCount,
+      completedCount,
+      skippedCount: skippedCount + duplicateList.size,
+      alreadyCompletedCount,
+      failedCount,
+      results
+    });
+  } catch (error) {
+    console.error('Bulk Order Completion Master Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Order Approval Route
 app.put('/api/orders/:id/approve', async (req, res) => {
   try {

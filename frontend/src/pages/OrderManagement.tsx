@@ -168,6 +168,21 @@ export default function OrderManagement() {
   const [multiErrorMsg, setMultiErrorMsg] = useState<string | null>(null);
   const [isSubmittingMulti, setIsSubmittingMulti] = useState(false);
 
+  // Multiple Order Completion States (Excel single-column IBPO paste)
+  const [showMultiCompleteModal, setShowMultiCompleteModal] = useState(false);
+  const [completeIbposText, setCompleteIbposText] = useState('');
+  const [parsedIbpos, setParsedIbpos] = useState<string[]>([]);
+  const [isProcessingComplete, setIsProcessingComplete] = useState(false);
+  const [completeBatchResult, setCompleteBatchResult] = useState<{
+    totalPasted: number;
+    validCount: number;
+    completedCount: number;
+    skippedCount: number;
+    alreadyCompletedCount: number;
+    failedCount: number;
+    results: Array<{ ibpo: string; result: string; message: string }>;
+  } | null>(null);
+
   // Permission Checks
   const canCreate = hasActionPermission('Order Management', 'create');
   const canEdit = hasActionPermission('Order Management', 'edit');
@@ -1000,6 +1015,57 @@ export default function OrderManagement() {
     }
   };
 
+  // Multiple Order Completion Handlers (Excel single-column grid)
+  const handleOpenMultiComplete = () => {
+    setCompleteIbposText('');
+    setParsedIbpos([]);
+    setCompleteBatchResult(null);
+    setShowMultiCompleteModal(true);
+  };
+
+  const handleIbposTextChange = (text: string) => {
+    setCompleteIbposText(text);
+    // Parse single column lines, trim spaces, ignore completely blank rows
+    const lines = text
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+    setParsedIbpos(lines);
+  };
+
+  const handleProcessBatchCompletion = async () => {
+    if (parsedIbpos.length === 0) {
+      alert('Please paste at least one IBPO number to complete.');
+      return;
+    }
+
+    setIsProcessingComplete(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/orders/bulk-complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ibpos: parsedIbpos,
+          adminUser: user?.username || 'Planning Manager',
+          remarks: 'Multiple Order Completion via Excel Grid'
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setCompleteBatchResult(data);
+        await loadData();
+        await refreshData();
+      } else {
+        alert(data.error || 'Failed to process multiple order completion.');
+      }
+    } catch (err: any) {
+      alert('Network or server error during batch completion: ' + (err?.message || String(err)));
+    } finally {
+      setIsProcessingComplete(false);
+    }
+  };
+
   const filteredOrders = orders.filter(o => {
     const q = (searchTerm || '').trim().toLowerCase();
     const matchesSearch = !q || (
@@ -1177,6 +1243,14 @@ export default function OrderManagement() {
 
           {canCreate && (
             <>
+              <button
+                onClick={handleOpenMultiComplete}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl font-black text-xs shadow-md hover:from-emerald-700 hover:to-teal-700 transition-all transform hover:-translate-y-0.5"
+                title="Excel-style bulk IBPO paste and complete"
+              >
+                <CheckCircle className="w-4 h-4" /> MULTIPLE ORDER COMPLETION
+              </button>
+
               <button
                 onClick={handleOpenMultiEntry}
                 className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-black text-xs shadow-md hover:from-purple-700 hover:to-indigo-700 transition-all transform hover:-translate-y-0.5"
@@ -2381,6 +2455,214 @@ export default function OrderManagement() {
                   {isSubmittingMulti ? 'Saving Changes...' : 'SAVE CHANGES'}
                 </button>
               </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MULTIPLE ORDER COMPLETION MODAL (Excel-style single-column IBPO paste) */}
+      {showMultiCompleteModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
+            
+            {/* Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-emerald-700 to-teal-700 text-white flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-emerald-200" />
+                <div>
+                  <h2 className="text-base font-black tracking-tight">Multiple Order Completion</h2>
+                  <p className="text-xs text-emerald-100">Paste multiple IBPO numbers directly from Excel to complete valid active orders.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMultiCompleteModal(false)}
+                className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              
+              {!completeBatchResult ? (
+                <>
+                  <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-900 space-y-1">
+                    <p className="font-bold flex items-center gap-1.5">
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-700" />
+                      Excel Copy-Paste Instructions:
+                    </p>
+                    <ul className="list-disc list-inside space-y-0.5 text-emerald-800 text-[11px] pl-1">
+                      <li>Copy one column of <strong>IBPO Numbers</strong> directly from Excel (<kbd className="bg-white px-1 py-0.5 rounded border border-emerald-300 font-mono">Ctrl+C</kbd>).</li>
+                      <li>Paste into the box below (<kbd className="bg-white px-1 py-0.5 rounded border border-emerald-300 font-mono">Ctrl+V</kbd>).</li>
+                      <li>Invalid/non-existing IBPOs will be skipped automatically without stopping remaining orders.</li>
+                      <li>Already completed IBPOs will not be re-completed.</li>
+                    </ul>
+                  </div>
+
+                  {/* Single Column Excel-style Grid Input */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-black text-slate-700 uppercase tracking-wider">
+                        IBPO Numbers (One per row)
+                      </label>
+                      <span className="text-xs font-bold text-slate-500">
+                        Detected: <strong className="text-emerald-700 font-black">{parsedIbpos.length}</strong> IBPOs
+                      </span>
+                    </div>
+
+                    <div className="border border-slate-300 rounded-xl overflow-hidden shadow-inner focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-200 transition-all">
+                      <div className="bg-slate-100 px-4 py-2 border-b border-slate-300 flex items-center justify-between text-xs font-bold text-slate-600">
+                        <span>COLUMN A: IBPO NUMBER</span>
+                        <span className="text-[11px] font-normal text-slate-400">Excel Paste Ready</span>
+                      </div>
+                      <textarea
+                        rows={10}
+                        value={completeIbposText}
+                        onChange={(e) => handleIbposTextChange(e.target.value)}
+                        placeholder="SP26/001-00001&#10;SP26/001-00002&#10;SP26/001-00003&#10;..."
+                        className="w-full p-4 font-mono text-xs text-slate-800 bg-white outline-none resize-none leading-relaxed"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Preview Table of First Few Rows */}
+                  {parsedIbpos.length > 0 && (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                      <div className="bg-slate-50 px-3 py-1.5 border-b border-slate-200 text-[11px] font-bold text-slate-600 flex justify-between">
+                        <span>Pasted Items Preview (showing up to 5 of {parsedIbpos.length})</span>
+                      </div>
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-100/60 text-slate-500 text-[10px] uppercase font-bold">
+                          <tr>
+                            <th className="py-1 px-3 text-center w-12 border-r border-slate-200">#</th>
+                            <th className="py-1 px-3 text-left">IBPO NUMBER</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-mono">
+                          {parsedIbpos.slice(0, 5).map((ibpo, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50">
+                              <td className="py-1 px-3 text-center text-slate-400 border-r border-slate-200">{idx + 1}</td>
+                              <td className="py-1 px-3 text-slate-800 font-semibold">{ibpo}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* Results Screen */
+                <div className="space-y-4">
+                  {/* Summary Metric Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                      <div className="text-[10px] uppercase font-bold text-slate-500">Total Pasted</div>
+                      <div className="text-xl font-black text-slate-800">{completeBatchResult.totalPasted}</div>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
+                      <div className="text-[10px] uppercase font-bold text-emerald-700">Completed</div>
+                      <div className="text-xl font-black text-emerald-700">{completeBatchResult.completedCount}</div>
+                    </div>
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+                      <div className="text-[10px] uppercase font-bold text-amber-700">Skipped (Invalid/Dup)</div>
+                      <div className="text-xl font-black text-amber-700">{completeBatchResult.skippedCount}</div>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
+                      <div className="text-[10px] uppercase font-bold text-blue-700">Already Completed</div>
+                      <div className="text-xl font-black text-blue-700">{completeBatchResult.alreadyCompletedCount}</div>
+                    </div>
+                  </div>
+
+                  {completeBatchResult.failedCount > 0 && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-2.5 text-xs text-red-800 font-bold flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-600" />
+                      Failed count: {completeBatchResult.failedCount} (Inspect results below)
+                    </div>
+                  )}
+
+                  {/* Detailed Per-IBPO Result Grid */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-100 text-slate-600 text-[11px] font-bold uppercase sticky top-0 border-b border-slate-200">
+                        <tr>
+                          <th className="py-2 px-3 text-left w-10">#</th>
+                          <th className="py-2 px-3 text-left">IBPO NUMBER</th>
+                          <th className="py-2 px-3 text-center">STATUS</th>
+                          <th className="py-2 px-3 text-left">DETAILS / REASON</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-mono">
+                        {completeBatchResult.results.map((r, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 text-slate-400">{idx + 1}</td>
+                            <td className="py-2 px-3 font-bold text-slate-800">{r.ibpo}</td>
+                            <td className="py-2 px-3 text-center">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                r.result === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                                r.result === 'ALREADY COMPLETED' ? 'bg-blue-100 text-blue-800 border border-blue-300' :
+                                r.result === 'SKIPPED' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                                'bg-red-100 text-red-800 border border-red-300'
+                              }`}>
+                                {r.result}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-slate-600 font-sans text-[11px]">{r.message}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              {!completeBatchResult ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowMultiCompleteModal(false)}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isProcessingComplete || parsedIbpos.length === 0}
+                    onClick={handleProcessBatchCompletion}
+                    className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-md transition-all disabled:opacity-50"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    {isProcessingComplete ? 'Processing Completion...' : `COMPLETE ${parsedIbpos.length} ORDERS`}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompleteBatchResult(null);
+                      setCompleteIbposText('');
+                      setParsedIbpos([]);
+                    }}
+                    className="px-4 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100 rounded-xl transition-colors border border-emerald-200"
+                  >
+                    Complete Another Batch
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMultiCompleteModal(false)}
+                    className="px-6 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-black rounded-xl shadow-md transition-all"
+                  >
+                    Done
+                  </button>
+                </>
+              )}
             </div>
 
           </div>
