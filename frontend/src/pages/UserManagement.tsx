@@ -45,9 +45,35 @@ const screens = [
 
 const actions = ["view", "create", "edit", "delete", "approve", "export", "print", "excel"];
 
+export const REPORT_DEPARTMENTS = [
+  { code: 'PLANNING', name: '1. PLANNING' },
+  { code: 'SIZING', name: '2. SIZING' },
+  { code: 'WEAVING', name: '3. WEAVING' },
+  { code: 'GREIGE_INSPECTION', name: '4. GREIGE INSPECTION (GREY WAREHOUSE)' },
+  { code: 'FINISHED_INSPECTION', name: '5. FINISHED INSPECTION' },
+  { code: 'SAMPLING', name: '6. SAMPLING' },
+  { code: 'MENDING', name: '7. MENDING' },
+  { code: 'PROCESSING_DYEING', name: '8. PROCESSING & DYEING' },
+  { code: 'YARN_DEPARTMENT', name: '9. YARN DEPARTMENT' },
+  { code: 'OUTSOURCING', name: '10. OUTSOURCING' },
+  { code: 'DISPATCH_PACKING', name: '11. DISPATCH & PACKING' },
+  { code: 'SPINNING', name: '12. SPINNING' },
+  { code: 'HRD', name: '13. HRD' },
+  { code: 'TRANSPORT', name: '14. TRANSPORT' }
+];
+
+export const REPORT_ACTIONS = [
+  { key: 'view', label: 'VIEW' },
+  { key: 'entry', label: 'ENTRY' },
+  { key: 'edit', label: 'EDIT' },
+  { key: 'delete', label: 'DELETE' },
+  { key: 'print', label: 'PRINT' },
+  { key: 'excel', label: 'EXPORT EXCEL' }
+];
+
 const getDefaultRolePermissions = (role: string) => {
   const roleUpper = role?.toUpperCase() || '';
-  const perms: Record<string, Record<string, boolean>> = {};
+  const perms: Record<string, any> = {};
 
   screens.forEach(screen => {
     perms[screen] = {
@@ -118,6 +144,21 @@ const getDefaultRolePermissions = (role: string) => {
         perms[screen].view = true;
       }
     }
+  });
+
+  // Daily & Periodic Operational Reports permissions per department
+  perms['Daily & Periodic Operational Reports'] = {};
+  REPORT_DEPARTMENTS.forEach(dept => {
+    const isFullAdmin = roleUpper === 'ADMINISTRATOR' || roleUpper === 'ADMIN' || roleUpper === 'SYSTEM ADMINISTRATOR';
+    perms['Daily & Periodic Operational Reports'][dept.code] = {
+      view: isFullAdmin,
+      entry: isFullAdmin,
+      edit: isFullAdmin,
+      delete: isFullAdmin,
+      print: isFullAdmin,
+      excel: isFullAdmin,
+      approved: isFullAdmin
+    };
   });
 
   return perms;
@@ -252,7 +293,87 @@ export default function UserManagement() {
         updated[screen] = {};
         actions.forEach(a => updated[screen][a] = select);
       });
-      return { ...prev, permissions: updated };
+      return { ...prev, permissions: { ...prev.permissions, ...updated } };
+    });
+  };
+
+  const toggleReportPermission = (deptCode: string, actionKey: string) => {
+    setFormData((prev: any) => {
+      const perms = { ...(prev.permissions || {}) };
+      const reportPerms = { ...(perms['Daily & Periodic Operational Reports'] || {}) };
+      const deptPerms = { ...(reportPerms[deptCode] || { view: false, entry: false, edit: false, delete: false, print: false, excel: false, approved: false }) };
+
+      const currentVal = !!deptPerms[actionKey];
+      const newVal = !currentVal;
+      deptPerms[actionKey] = newVal;
+
+      // Dependency: Any active action or approval requires view
+      if (actionKey !== 'view' && newVal) {
+        deptPerms.view = true;
+      }
+      // If view is turned off, turn off all actions
+      if (actionKey === 'view' && !newVal) {
+        REPORT_ACTIONS.forEach(a => deptPerms[a.key] = false);
+        deptPerms.approved = false;
+      }
+
+      reportPerms[deptCode] = deptPerms;
+      perms['Daily & Periodic Operational Reports'] = reportPerms;
+      return { ...prev, permissions: perms };
+    });
+  };
+
+  const handleSelectAllReportDept = (deptCode: string, select: boolean) => {
+    setFormData((prev: any) => {
+      const perms = { ...(prev.permissions || {}) };
+      const reportPerms = { ...(perms['Daily & Periodic Operational Reports'] || {}) };
+      const deptPerms: Record<string, boolean> = {};
+      REPORT_ACTIONS.forEach(a => deptPerms[a.key] = select);
+      deptPerms.approved = select;
+      reportPerms[deptCode] = deptPerms;
+      perms['Daily & Periodic Operational Reports'] = reportPerms;
+      return { ...prev, permissions: perms };
+    });
+  };
+
+  const handleSelectAllReportAction = (actionKey: string, select: boolean) => {
+    setFormData((prev: any) => {
+      const perms = { ...(prev.permissions || {}) };
+      const reportPerms = { ...(perms['Daily & Periodic Operational Reports'] || {}) };
+      REPORT_DEPARTMENTS.forEach(dept => {
+        const d = { ...(reportPerms[dept.code] || { view: false, entry: false, edit: false, delete: false, print: false, excel: false, approved: false }) };
+        d[actionKey] = select;
+        if (actionKey !== 'view' && select) {
+          d.view = true;
+        }
+        if (actionKey === 'view' && !select) {
+          REPORT_ACTIONS.forEach(a => d[a.key] = false);
+          d.approved = false;
+        }
+        reportPerms[dept.code] = d;
+      });
+      perms['Daily & Periodic Operational Reports'] = reportPerms;
+      return { ...prev, permissions: perms };
+    });
+  };
+
+  const handleSelectAllReportMatrix = (select: boolean) => {
+    setFormData((prev: any) => {
+      const perms = { ...(prev.permissions || {}) };
+      const reportPerms: Record<string, Record<string, boolean>> = {};
+      REPORT_DEPARTMENTS.forEach(dept => {
+        reportPerms[dept.code] = {
+          view: select,
+          entry: select,
+          edit: select,
+          delete: select,
+          print: select,
+          excel: select,
+          approved: select
+        };
+      });
+      perms['Daily & Periodic Operational Reports'] = reportPerms;
+      return { ...prev, permissions: perms };
     });
   };
 
@@ -462,7 +583,7 @@ export default function UserManagement() {
             <div className="flex-1 overflow-auto p-8 custom-scrollbar">
               {/* Step indicator */}
               <div className="flex justify-between mb-8 relative before:content-[''] before:absolute before:top-1/2 before:left-0 before:w-full before:h-0.5 before:bg-slate-100 before:-z-10">
-                {['Employee Info', 'Login Credentials', 'Role Assignment', 'Permission Matrix'].map((step, idx) => (
+                {['Employee Info', 'Login Credentials', 'Role Assignment', 'Screen Matrix', 'Daily Report Matrix'].map((step, idx) => (
                   <div key={step} className="flex flex-col items-center gap-2 bg-white px-2 cursor-pointer" onClick={() => setWizardStep(idx + 1)}>
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${wizardStep === idx + 1 ? 'bg-spu-primary text-white shadow-lg' : wizardStep > idx + 1 ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
                       {wizardStep > idx + 1 ? '✓' : idx + 1}
@@ -521,7 +642,7 @@ export default function UserManagement() {
                 <div className="max-w-3xl mx-auto space-y-4">
                   <div className="text-center mb-6">
                     <h3 className="text-lg font-bold text-slate-800">Select Base Role</h3>
-                    <p className="text-xs text-slate-500">Choosing a role automatically populates standard screen permission defaults. You can fine-tune permissions per screen in Step 4.</p>
+                    <p className="text-xs text-slate-500">Choosing a role automatically populates standard screen and report permission defaults. You can fine-tune permissions in Steps 4 and 5.</p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     {PREDEFINED_ROLES.map(r => (
@@ -541,14 +662,14 @@ export default function UserManagement() {
                 </div>
               )}
 
-              {/* Step 4: Permission Matrix */}
+              {/* Step 4: Screen Permission Matrix */}
               {wizardStep === 4 && (
                 <div className="max-w-5xl mx-auto space-y-4">
                   
                   {/* Action Toolbar for Bulk Matrix Selection */}
                   <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center justify-between flex-wrap gap-3">
                     <div className="text-xs font-bold text-slate-700">
-                      Granular Matrix Control — User: <span className="text-indigo-600 font-black">{formData.employeeName || formData.username}</span> ({formData.role})
+                      Standard Screen Permissions — User: <span className="text-indigo-600 font-black">{formData.employeeName || formData.username}</span> ({formData.role})
                     </div>
                     <div className="flex items-center gap-2">
                       <button 
@@ -556,14 +677,14 @@ export default function UserManagement() {
                         onClick={() => handleSelectAllMatrix(true)}
                         className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-1 shadow-sm"
                       >
-                        <CheckSquare className="w-3.5 h-3.5" /> Select All Matrix
+                        <CheckSquare className="w-3.5 h-3.5" /> Select All Screens
                       </button>
                       <button 
                         type="button" 
                         onClick={() => handleSelectAllMatrix(false)}
                         className="px-3 py-1.5 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-colors flex items-center gap-1"
                       >
-                        <Square className="w-3.5 h-3.5" /> Clear All Matrix
+                        <Square className="w-3.5 h-3.5" /> Clear All Screens
                       </button>
                     </div>
                   </div>
@@ -628,6 +749,118 @@ export default function UserManagement() {
                 </div>
               )}
 
+              {/* Step 5: Daily & Periodic Operational Reports Matrix */}
+              {wizardStep === 5 && (
+                <div className="max-w-5xl mx-auto space-y-4">
+                  {/* Action Toolbar for Bulk Report Matrix Selection */}
+                  <div className="bg-indigo-50/80 p-4 rounded-2xl border border-indigo-200 flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                      <div className="text-xs font-black text-indigo-950 uppercase tracking-wide flex items-center gap-1.5">
+                        <Shield className="w-4 h-4 text-indigo-600" />
+                        Daily &amp; Periodic Operational Reports — Department-Wise Permissions
+                      </div>
+                      <p className="text-[11px] text-indigo-700 mt-0.5">
+                        Configure View, Entry, Edit, Delete, Print, Export Excel, and Approval rights for each department in the Daily Report.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        type="button" 
+                        onClick={() => handleSelectAllReportMatrix(true)}
+                        className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-1 shadow-sm"
+                      >
+                        <CheckSquare className="w-3.5 h-3.5" /> Grant All Depts
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => handleSelectAllReportMatrix(false)}
+                        className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1"
+                      >
+                        <Square className="w-3.5 h-3.5" /> Clear All Depts
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Report Matrix Table */}
+                  <div className="overflow-x-auto custom-scrollbar border border-slate-200 rounded-2xl bg-white shadow-sm">
+                    <table className="w-full text-left border-collapse whitespace-nowrap">
+                      <thead className="bg-slate-100 border-b border-slate-200">
+                        <tr>
+                          <th className="py-3 px-4 text-xs font-black text-slate-800 uppercase sticky left-0 bg-slate-100 z-20 border-r border-slate-200 min-w-[240px]">
+                            Department Name
+                          </th>
+                          {REPORT_ACTIONS.map(a => (
+                            <th key={a.key} className="py-3 px-3 text-[10px] font-black text-slate-700 uppercase text-center min-w-[85px]">
+                              <div className="flex flex-col items-center gap-1">
+                                <span>{a.label}</span>
+                                <div className="flex gap-1 text-[9px] font-semibold text-indigo-600">
+                                  <button type="button" onClick={() => handleSelectAllReportAction(a.key, true)} title={`Select all ${a.label}`}>All</button>
+                                  <span>/</span>
+                                  <button type="button" onClick={() => handleSelectAllReportAction(a.key, false)} title={`Clear all ${a.label}`}>None</button>
+                                </div>
+                              </div>
+                            </th>
+                          ))}
+                          <th className="py-3 px-3 text-[10px] font-black text-emerald-800 uppercase text-center min-w-[100px] bg-emerald-50/50">
+                            <div className="flex flex-col items-center gap-1">
+                              <span>APPROVED</span>
+                              <div className="flex gap-1 text-[9px] font-semibold text-emerald-700">
+                                <button type="button" onClick={() => handleSelectAllReportAction('approved', true)} title="Approve all">All</button>
+                                <span>/</span>
+                                <button type="button" onClick={() => handleSelectAllReportAction('approved', false)} title="Unapprove all">None</button>
+                              </div>
+                            </div>
+                          </th>
+                          <th className="py-3 px-3 text-[10px] font-black text-slate-500 uppercase text-center min-w-[100px]">Row Options</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {REPORT_DEPARTMENTS.map(dept => {
+                          const reportPerms = (formData.permissions && formData.permissions['Daily & Periodic Operational Reports']) || {};
+                          const deptPerms = reportPerms[dept.code] || {};
+                          const isAllSelected = REPORT_ACTIONS.every(a => !!deptPerms[a.key]) && !!deptPerms.approved;
+                          return (
+                            <tr key={dept.code} className="hover:bg-indigo-50/20 transition-colors">
+                              <td className="py-3 px-4 text-xs font-bold text-slate-800 sticky left-0 bg-white group-hover:bg-indigo-50/20 border-r border-slate-200">
+                                {dept.name}
+                              </td>
+                              {REPORT_ACTIONS.map(a => (
+                                <td key={a.key} className="py-3 px-3 text-center">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={!!deptPerms[a.key]}
+                                    onChange={() => toggleReportPermission(dept.code, a.key)}
+                                    className="w-4 h-4 rounded text-spu-primary focus:ring-spu-primary cursor-pointer accent-indigo-600"
+                                  />
+                                </td>
+                              ))}
+                              <td className="py-3 px-3 text-center bg-emerald-50/30">
+                                <input 
+                                  type="checkbox" 
+                                  checked={!!deptPerms.approved}
+                                  onChange={() => toggleReportPermission(dept.code, 'approved')}
+                                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-600 cursor-pointer accent-emerald-600"
+                                  title={`Enable Approved Status for ${dept.name}`}
+                                />
+                              </td>
+                              <td className="py-3 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectAllReportDept(dept.code, !isAllSelected)}
+                                  className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${isAllSelected ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                  {isAllSelected ? 'Clear Row' : 'Select All'}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
             </div>
 
             <div className="px-8 py-6 border-t border-slate-100 bg-slate-50/50 flex justify-between">
@@ -635,7 +868,7 @@ export default function UserManagement() {
                 <button onClick={() => setWizardStep(s => s - 1)} className="px-6 py-3 font-bold text-slate-500 hover:bg-slate-200 rounded-xl transition-colors">Back</button>
               ) : <div></div>}
               
-              {wizardStep < 4 ? (
+              {wizardStep < 5 ? (
                 <GradientButton label="Next Step" onClick={() => setWizardStep(s => s + 1)} />
               ) : (
                 <GradientButton label="Save User Profile & Permissions" onClick={handleSaveUser} />

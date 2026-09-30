@@ -440,17 +440,62 @@ export default function DailyReport() {
     );
   }, [userRole]);
 
-  // Restrict or pre-select department based on logged-in user
+  // Granular Daily & Periodic Operational Reports Permissions
+  const userReportPerms = useMemo(() => {
+    if (isAdminOrManager) return null; // Admin has unrestricted access to all depts
+    if (!user?.permissions) return null;
+    try {
+      const p = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions;
+      return p['Daily & Periodic Operational Reports'] || null;
+    } catch (e) {
+      return null;
+    }
+  }, [isAdminOrManager, user?.permissions]);
+
+  // Filter accessible departments for non-admin users if granular permissions exist
+  const accessibleDepartments = useMemo(() => {
+    if (isAdminOrManager || !userReportPerms) {
+      return DEPARTMENTS;
+    }
+    const filtered = DEPARTMENTS.filter(d => {
+      const dp = userReportPerms[d.code];
+      return dp && dp.view && dp.approved;
+    });
+    return filtered.length > 0 ? filtered : DEPARTMENTS;
+  }, [isAdminOrManager, userReportPerms]);
+
+  // Current department granular permission flags
+  const currentDeptPerm = useMemo(() => {
+    if (isAdminOrManager || !userReportPerms) {
+      return { view: true, entry: true, edit: true, delete: true, print: true, excel: true, approved: true };
+    }
+    const dp = userReportPerms[selectedDeptCode] || {};
+    return {
+      view: !!(dp.view && dp.approved),
+      entry: !!(dp.entry && dp.approved),
+      edit: !!(dp.edit && dp.approved),
+      delete: !!(dp.delete && dp.approved),
+      print: !!(dp.print && dp.approved),
+      excel: !!(dp.excel && dp.approved),
+      approved: !!dp.approved
+    };
+  }, [isAdminOrManager, userReportPerms, selectedDeptCode]);
+
+  // Restrict or pre-select department based on logged-in user and permissions
   useEffect(() => {
-    if (!isAdminOrManager && userDept) {
-      const match = DEPARTMENTS.find(
-        d => d.code.toUpperCase() === userDept || userDept.includes(d.code.toUpperCase())
-      );
-      if (match) {
-        setSelectedDeptCode(match.code);
+    if (!isAdminOrManager) {
+      if (accessibleDepartments.length > 0 && !accessibleDepartments.some(d => d.code === selectedDeptCode)) {
+        setSelectedDeptCode(accessibleDepartments[0].code);
+      } else if (userDept) {
+        const match = accessibleDepartments.find(
+          d => d.code.toUpperCase() === userDept || userDept.includes(d.code.toUpperCase())
+        );
+        if (match) {
+          setSelectedDeptCode(match.code);
+        }
       }
     }
-  }, [userDept, isAdminOrManager]);
+  }, [userDept, isAdminOrManager, accessibleDepartments, selectedDeptCode]);
   // Fetch monthly targets when targetMonth or editMonthlyTargetsMode changes (for non-Weaving departments)
   useEffect(() => {
     if (editMonthlyTargetsMode && selectedDeptCode !== 'WEAVING' && targetMonth) {
@@ -4175,9 +4220,9 @@ return (
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleExportExcel}
-                  disabled={loading || printFromDate > printToDate}
+                  disabled={loading || printFromDate > printToDate || !currentDeptPerm.excel}
                   className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black shadow-sm transition-all"
-                  title="Export complete report to Excel based on selected print date range"
+                  title={!currentDeptPerm.excel ? "Permission Denied: Excel Export not granted for this department" : "Export complete report to Excel based on selected print date range"}
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                   <span>Export Excel</span>
@@ -4185,9 +4230,9 @@ return (
 
                 <button
                   onClick={handlePrintReport}
-                  disabled={loading || printFromDate > printToDate}
+                  disabled={loading || printFromDate > printToDate || !currentDeptPerm.print}
                   className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black shadow-sm transition-all"
-                  title="Generate and print 2-Page Daily Report for selected print date range"
+                  title={!currentDeptPerm.print ? "Permission Denied: Print not granted for this department" : "Generate and print 2-Page Daily Report for selected print date range"}
                 >
                   <Printer className="w-4 h-4" />
                   <span>Print Report</span>
@@ -4229,7 +4274,7 @@ return (
 
         {/* Department Horizontal Tabs */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin print:hidden">
-          {DEPARTMENTS.map(dept => {
+          {accessibleDepartments.map(dept => {
             const hasSaved = dept.rawMetrics.some(m => {
               const e = dailyEntries[m.code];
               return e !== undefined && e.actual_value !== null && e.actual_value !== undefined;
@@ -4879,8 +4924,8 @@ return (
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {/* Delete button only if record exists */}
-                  {isCurrentDeptSaved && (
+                  {/* Delete button only if record exists and user has delete permission */}
+                  {isCurrentDeptSaved && currentDeptPerm.delete && (
                     <button
                       onClick={handleDeleteDepartment}
                       disabled={deleting}
@@ -4892,21 +4937,23 @@ return (
                     </button>
                   )}
 
-                  {/* Save / Update Button */}
-                  <button
-                    onClick={handleSaveDepartment}
-                    disabled={saving}
-                    className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-md shadow-indigo-200 dark:shadow-none transition-all disabled:opacity-50"
-                  >
-                    <Save className="w-4 h-4" />
-                    <span>
-                      {saving
-                        ? 'Saving to SQL...'
-                        : isCurrentDeptSaved
-                          ? `Update ${currentDept.name} Entry`
-                          : `Save ${currentDept.name} Entry`}
-                    </span>
-                  </button>
+                  {/* Save / Update Button with permission guard */}
+                  {((isCurrentDeptSaved && currentDeptPerm.edit) || (!isCurrentDeptSaved && currentDeptPerm.entry)) && (
+                    <button
+                      onClick={handleSaveDepartment}
+                      disabled={saving}
+                      className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-md shadow-indigo-200 dark:shadow-none transition-all disabled:opacity-50"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>
+                        {saving
+                          ? 'Saving to SQL...'
+                          : isCurrentDeptSaved
+                            ? `Update ${currentDept.name} Entry`
+                            : `Save ${currentDept.name} Entry`}
+                      </span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

@@ -51,8 +51,9 @@ export default function BeamStock() {
   const navigate = useNavigate();
   const { orders, designs, looms, beams, rawNextPlans, activeRuns, refreshData } = useAppContext();
 
-  const [activeTab, setActiveTab] = useState<'STOCK' | 'REQUIREMENTS'>('STOCK');
+  const [activeTab, setActiveTab] = useState<'STOCK' | 'REQUIREMENTS' | 'ALLOCATED'>('STOCK');
   const [rows, setRows] = useState<BeamRowState[]>([]);
+  const [allocatedStockRows, setAllocatedStockRows] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -250,6 +251,17 @@ export default function BeamStock() {
           remarks: ''
         }));
         setRows(emptyRows);
+      }
+
+      // Fetch Allocated Stock Beams
+      try {
+        const allocRes = await fetch(`${API_BASE_URL}/api/beam-stock/allocated`);
+        if (allocRes.ok) {
+          const allocData = await allocRes.json();
+          setAllocatedStockRows(Array.isArray(allocData) ? allocData : []);
+        }
+      } catch (e) {
+        console.error('Error loading allocated beam stock:', e);
       }
     } catch (err: any) {
       console.error('Error loading beam stock:', err);
@@ -530,8 +542,10 @@ export default function BeamStock() {
       warp_meter: Number(quickForm.warp_meter),
       available_meter: Number(quickForm.warp_meter),
       location: quickForm.location,
-      beam_status: 'Available',
-      remarks: quickForm.remarks
+      beam_status: 'Allocated',
+      status: 'Allocated',
+      reserved_for: quickAddOrderModal.ibpo,
+      remarks: quickForm.remarks || `Allocated for Order ${quickAddOrderModal.ibpo}`
     }];
 
     try {
@@ -1040,11 +1054,11 @@ export default function BeamStock() {
         </div>
       </div>
 
-      {/* SECTION TABS: SWITCH BETWEEN PHYSICAL BEAM STOCK & LOOM PLAN / ALLOCATION */}
+      {/* SECTION TABS: SWITCH BETWEEN 1. PHYSICAL BEAM STOCK, 2. ORDER AGAINST REQUIREMENT, 3. ALLOCATED STOCK */}
       <div className="flex border-b border-slate-200 gap-2 print:hidden bg-slate-100 p-1.5 rounded-2xl">
         <button
           onClick={() => setActiveTab('STOCK')}
-          className={`flex-1 py-3 px-6 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+          className={`flex-1 py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
             activeTab === 'STOCK'
               ? 'bg-blue-600 text-white shadow-md'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
@@ -1055,19 +1069,30 @@ export default function BeamStock() {
         </button>
         <button
           onClick={() => setActiveTab('REQUIREMENTS')}
-          className={`flex-1 py-3 px-6 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+          className={`flex-1 py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
             activeTab === 'REQUIREMENTS'
               ? 'bg-indigo-700 text-white shadow-md'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
           }`}
         >
           <Layers className="w-4 h-4" />
-          2. LOOM PLAN / BEAM ALLOCATION ({displayedOrderRequirements.length} Orders)
+          2. ORDER AGAINST REQUIREMENT ({displayedOrderRequirements.length} Orders)
+        </button>
+        <button
+          onClick={() => setActiveTab('ALLOCATED')}
+          className={`flex-1 py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+            activeTab === 'ALLOCATED'
+              ? 'bg-purple-700 text-white shadow-md'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+          }`}
+        >
+          <CheckCircle className="w-4 h-4" />
+          3. ALLOCATED STOCK ({allocatedStockRows.length} Beams)
         </button>
       </div>
 
       {/* SECTION 2 — ORDER-WISE BEAM REQUIREMENT & PRODUCTION STATUS PANEL (EXACT 14 COLUMNS) */}
-      <div className={`bg-slate-900 text-white rounded-2xl border border-slate-800 p-5 shadow-xl space-y-4 ${activeTab === 'STOCK' ? 'hidden print:block' : ''}`}>
+      <div className={`bg-slate-900 text-white rounded-2xl border border-slate-800 p-5 shadow-xl space-y-4 ${activeTab !== 'REQUIREMENTS' ? 'hidden print:block' : ''}`}>
         <div className="flex flex-wrap justify-between items-center border-b border-slate-800 pb-3 gap-3">
           <div>
             <h3 className="text-base font-black text-blue-300 uppercase tracking-wide flex items-center">
@@ -1223,7 +1248,7 @@ export default function BeamStock() {
       </div>
 
       {/* SECTION 3 — EXCEL ENTRY GRID CONTROL BAR & EXCEL TABLE */}
-      <div className={`bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4 print:p-0 print:border-none flex-1 flex flex-col ${activeTab === 'REQUIREMENTS' ? 'hidden print:block' : ''}`}>
+      <div className={`bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4 print:p-0 print:border-none flex-1 flex flex-col ${activeTab !== 'STOCK' ? 'hidden print:block' : ''}`}>
 
         {/* Controls Bar */}
         <div className="flex flex-wrap justify-between items-center gap-3 border-b border-slate-200 pb-3 print:hidden">
@@ -1518,7 +1543,144 @@ export default function BeamStock() {
         </div>
       </div>
 
-      {/* MANUAL WARP OVERRIDE MODAL */}
+      {/* SECTION 4 — ALLOCATED STOCK TABLE (AGE-WISE DISPLAY & PER-BEAM CONFIRMATION) */}
+      <div className={`bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4 print:p-0 print:border-none flex-1 flex flex-col ${activeTab !== 'ALLOCATED' ? 'hidden print:block' : ''}`}>
+        <div className="flex flex-wrap justify-between items-center gap-3 border-b border-slate-200 pb-3 print:hidden">
+          <div className="flex items-center space-x-3">
+            <h3 className="font-black text-slate-900 text-sm uppercase flex items-center">
+              <CheckCircle className="w-4 h-4 mr-2 text-purple-700" />
+              ALLOCATED BEAM STOCK & CONFIRMATION ({allocatedStockRows.length} Allocated Beams)
+            </h3>
+            <span className="text-xs text-slate-500 font-semibold">
+              (Age-wise real-time physical beam allocations linked to Orders & Loom Planning)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                await fetchData();
+                await refreshData();
+              }}
+              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl border border-indigo-200 transition-all flex items-center"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh Allocated Stock
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto flex-1 custom-scrollbar">
+          <table className="w-full text-left border-collapse whitespace-nowrap text-xs font-mono">
+            <thead>
+              <tr className="bg-slate-900 text-white uppercase text-[10px] font-black border-b border-slate-800">
+                <th className="p-2.5 text-center w-10">S.No</th>
+                <th className="p-2.5 min-w-[110px] text-amber-300">Beam No</th>
+                <th className="p-2.5 min-w-[120px] text-blue-300">IBPO / Order No</th>
+                <th className="p-2.5 min-w-[130px]">Design No</th>
+                <th className="p-2.5 min-w-[120px]">Vendor / Warper</th>
+                <th className="p-2.5 min-w-[90px] text-center">Loom No</th>
+                <th className="p-2.5 min-w-[100px] text-right text-emerald-300">Warp Mtr</th>
+                <th className="p-2.5 min-w-[110px] text-center">Allocation Date</th>
+                <th className="p-2.5 min-w-[90px] text-center text-purple-300">Age (Days)</th>
+                <th className="p-2.5 min-w-[110px] text-center">Status</th>
+                <th className="p-2.5 min-w-[120px] text-center">Confirmation</th>
+                <th className="p-2.5 min-w-[130px] text-center print:hidden">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {allocatedStockRows.length === 0 ? (
+                <tr>
+                  <td colSpan={12} className="py-12 text-center text-slate-400 font-medium text-xs">
+                    No physical beams currently allocated. Allocate available beams from Tab 1 or Tab 2.
+                  </td>
+                </tr>
+              ) : (
+                allocatedStockRows.map((b: any, idx: number) => {
+                  let formattedDate = '—';
+                  let ageDays = 0;
+                  try {
+                    const rawDate = b.updatedAt || b.date;
+                    if (rawDate) {
+                      const d = new Date(rawDate);
+                      if (!isNaN(d.getTime())) {
+                        formattedDate = format(d, 'yyyy-MM-dd');
+                        ageDays = Math.max(0, differenceInDays(new Date(), d));
+                      }
+                    }
+                  } catch (e) {}
+
+                  const normStatus = (b.status || 'Allocated').toUpperCase();
+                  const isConfirmed = normStatus === 'CONFIRMED';
+
+                  return (
+                    <tr key={b.id || idx} className="hover:bg-purple-50/30 transition-colors">
+                      <td className="p-2.5 text-center font-bold text-slate-400">{idx + 1}</td>
+                      <td className="p-2.5 font-black text-amber-700 bg-amber-50/50">
+                        {b.beam_no}
+                      </td>
+                      <td className="p-2.5 font-bold text-blue-900">
+                        {b.ibpo || b.order_no || b.party_beam_no || '—'}
+                      </td>
+                      <td className="p-2.5 font-semibold text-slate-800">
+                        {b.design_no || '—'}
+                      </td>
+                      <td className="p-2.5 text-slate-600">
+                        {b.vendor_name || b.party || '—'}
+                      </td>
+                      <td className="p-2.5 text-center font-black text-indigo-700">
+                        {b.loom_no_assigned ? `Loom ${b.loom_no_assigned}` : 'Unassigned'}
+                      </td>
+                      <td className="p-2.5 text-right font-black text-emerald-800">
+                        {(Number(b.available_meter) || Number(b.total_warped_meter) || 0).toLocaleString()} M
+                      </td>
+                      <td className="p-2.5 text-center font-medium text-slate-600">
+                        {formattedDate}
+                      </td>
+                      <td className="p-2.5 text-center font-black text-purple-700">
+                        <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-[10px]">
+                          {ageDays} {ageDays === 1 ? 'Day' : 'Days'}
+                        </span>
+                      </td>
+                      <td className="p-2.5 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                          isConfirmed ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {b.status || 'Allocated'}
+                        </span>
+                      </td>
+                      <td className="p-2.5 text-center">
+                        {isConfirmed ? (
+                          <span className="flex items-center justify-center text-emerald-600 font-bold text-[11px] gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Confirmed
+                          </span>
+                        ) : (
+                          <span className="text-amber-600 font-bold text-[11px]">
+                            Pending Confirmation
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-2 text-center print:hidden">
+                        <button
+                          onClick={() => {
+                            const beamNoEnc = encodeURIComponent(b.beam_no || '');
+                            const designEnc = encodeURIComponent(b.design_no || '');
+                            const ibpoEnc = encodeURIComponent(b.ibpo || b.order_no || '');
+                            navigate(`/plan?beamId=${b.id}&beamNo=${beamNoEnc}&designNo=${designEnc}&ibpo=${ibpoEnc}${b.loom_no_assigned ? `&confirmLoom=${b.loom_no_assigned}` : ''}`);
+                          }}
+                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] rounded-lg shadow-sm transition-all flex items-center justify-center mx-auto gap-1"
+                          title={`Confirm Beam #${b.beam_no} in Loom Planning Confirmation Workflow`}
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" /> CONFIRM
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
       {editingWarpModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-4 border border-slate-200 animate-in fade-in zoom-in duration-150">

@@ -1742,6 +1742,113 @@ app.post('/api/beam-stock', async (req, res) => {
   }
 });
 
+app.get('/api/beam-stock/allocated', async (req, res) => {
+  try {
+    const beams = await prisma.beamStockMaster.findMany({
+      where: {
+        OR: [
+          { status: { in: ['ALLOCATED', 'Allocated', 'RESERVED', 'Reserved', 'ASSIGNED', 'Assigned', 'CONFIRMED', 'Confirmed'] } },
+          { loom_no_assigned: { not: null, gt: 0 } },
+          { reserved_for: { not: null } }
+        ]
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    res.json(beams);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/beam-stock/allocate', async (req, res) => {
+  try {
+    const { beam_id, beam_no, order_no, ibpo, design_no, warp_meter, loom_no, remarks, planner_name } = req.body;
+    if (!beam_id && !beam_no) {
+      return res.status(400).json({ error: 'beam_id or beam_no is required for allocation' });
+    }
+
+    const where = beam_id ? { id: Number(beam_id) } : { beam_no: String(beam_no).trim() };
+    const beam = await prisma.beamStockMaster.findFirst({ where });
+    if (!beam) {
+      return res.status(404).json({ error: `Beam not found` });
+    }
+
+    const normStatus = (beam.status || '').toUpperCase();
+    if (['ALLOCATED', 'RUNNING', 'ON LOOM', 'CONFIRMED'].includes(normStatus)) {
+      return res.status(400).json({ error: `Beam #${beam.beam_no} is already ${normStatus} and cannot be double allocated.` });
+    }
+
+    const allocatedMtr = Number(warp_meter) || Number(beam.available_meter) || Number(beam.total_warped_meter) || 0;
+    const updatedBeam = await prisma.beamStockMaster.update({
+      where: { id: beam.id },
+      data: {
+        status: 'Allocated',
+        order_no: order_no || ibpo || beam.order_no,
+        ibpo: ibpo || order_no || beam.ibpo,
+        design_no: design_no || beam.design_no,
+        loom_no_assigned: loom_no ? Number(loom_no) : beam.loom_no_assigned,
+        reserved_for: ibpo || order_no || `Allocated by ${planner_name || 'Planner'}`,
+        remarks: remarks || `Allocated to Order ${ibpo || order_no || ''}`.trim()
+      }
+    });
+
+    try {
+      await prisma.systemAuditLog.create({
+        data: {
+          username: planner_name || 'Planner',
+          screen: 'Beam Stock',
+          action: 'ALLOCATE_BEAM',
+          oldValue: JSON.stringify({ beam_no: beam.beam_no, status: beam.status }),
+          newValue: JSON.stringify({ beam_no: updatedBeam.beam_no, status: 'Allocated', order: ibpo || order_no })
+        }
+      });
+    } catch (e) {}
+
+    res.json({ success: true, message: `Beam #${updatedBeam.beam_no} allocated successfully!`, beam: updatedBeam });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/beam-stock/confirm-beam', async (req, res) => {
+  try {
+    const { beam_id, beam_no, confirmed_by, remarks } = req.body;
+    if (!beam_id && !beam_no) {
+      return res.status(400).json({ error: 'beam_id or beam_no is required' });
+    }
+
+    const where = beam_id ? { id: Number(beam_id) } : { beam_no: String(beam_no).trim() };
+    const beam = await prisma.beamStockMaster.findFirst({ where });
+    if (!beam) {
+      return res.status(404).json({ error: 'Beam not found' });
+    }
+
+    const updated = await prisma.beamStockMaster.update({
+      where: { id: beam.id },
+      data: {
+        status: 'Confirmed',
+        remarks: remarks || `Confirmed for production by ${confirmed_by || 'Planner'}`
+      }
+    });
+
+    try {
+      await prisma.systemAuditLog.create({
+        data: {
+          username: confirmed_by || 'Planner',
+          screen: 'Beam Stock',
+          action: 'CONFIRM_BEAM',
+          oldValue: JSON.stringify({ beam_no: beam.beam_no, status: beam.status }),
+          newValue: JSON.stringify({ beam_no: updated.beam_no, status: 'Confirmed' })
+        }
+      });
+    } catch (e) {}
+
+    res.json({ success: true, message: `Beam #${updated.beam_no} confirmed for production!`, beam: updated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Dedicated Beam Stock Image Upload & Auto-Update Endpoint
 app.post('/api/beam-stock/upload-image', async (req, res) => {
   try {
@@ -2066,6 +2173,27 @@ app.post('/api/daily-report', async (req, res) => {
     const dateStr = String(report_date).trim();
     const deptCode = String(department_code).trim().toUpperCase();
     const userStr = entered_by || 'ADMIN';
+
+    // Granular User Report Permission Enforcement
+    const authUser = authenticateUser(req);
+    if (authUser) {
+      const roleUpper = (authUser.role || '').toUpperCase();
+      if (!['ADMIN', 'ADMINISTRATOR', 'SYSTEM ADMINISTRATOR'].includes(roleUpper)) {
+        const dbUser = await prisma.user.findUnique({ where: { id: authUser.id } });
+        if (dbUser && dbUser.permissions) {
+          try {
+            const p = JSON.parse(dbUser.permissions);
+            const reportPerms = p['Daily & Periodic Operational Reports'];
+            if (reportPerms) {
+              const deptPerm = reportPerms[deptCode];
+              if (!deptPerm || !deptPerm.approved || (!deptPerm.entry && !deptPerm.edit)) {
+                return res.status(403).json({ error: `Access Denied: You do not have approved Entry/Edit permission for department "${deptCode}" in Daily & Periodic Operational Reports.` });
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    }
     const deptRemarks = remarks || '';
     const deptHead = department_head !== undefined ? String(department_head).trim() : null;
     const deptMentor = mentor !== undefined ? String(mentor).trim() : null;
@@ -2281,6 +2409,27 @@ app.delete('/api/daily-report', async (req, res) => {
 
     const dateStr = String(date).trim();
     const deptCode = String(department).trim().toUpperCase();
+
+    // Granular User Report Permission Enforcement
+    const authUser = authenticateUser(req);
+    if (authUser) {
+      const roleUpper = (authUser.role || '').toUpperCase();
+      if (!['ADMIN', 'ADMINISTRATOR', 'SYSTEM ADMINISTRATOR'].includes(roleUpper)) {
+        const dbUser = await prisma.user.findUnique({ where: { id: authUser.id } });
+        if (dbUser && dbUser.permissions) {
+          try {
+            const p = JSON.parse(dbUser.permissions);
+            const reportPerms = p['Daily & Periodic Operational Reports'];
+            if (reportPerms) {
+              const deptPerm = reportPerms[deptCode];
+              if (!deptPerm || !deptPerm.approved || !deptPerm.delete) {
+                return res.status(403).json({ error: `Access Denied: You do not have approved Delete permission for department "${deptCode}" in Daily & Periodic Operational Reports.` });
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    }
 
     let deleteWhere = {
       report_date: dateStr,
