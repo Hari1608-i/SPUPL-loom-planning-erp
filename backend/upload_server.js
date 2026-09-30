@@ -2488,6 +2488,91 @@ app.post('/api/daily-report/department-masters', async (req, res) => {
   }
 });
 
+app.get('/api/daily-report/approval', async (req, res) => {
+  try {
+    const { report_date, department_code } = req.query;
+    const where = {};
+    if (report_date) where.report_date = String(report_date).trim();
+    if (department_code && department_code !== 'ALL') where.department_code = String(department_code).trim().toUpperCase();
+
+    const entries = await prisma.dailyReportEntry.findMany({
+      where,
+      select: {
+        id: true,
+        report_date: true,
+        department_code: true,
+        status: true,
+        entered_by: true,
+        remarks: true,
+        updatedAt: true
+      },
+      orderBy: [{ report_date: 'desc' }, { department_code: 'asc' }]
+    });
+
+    // Group by report_date + department_code
+    const approvalMap = new Map();
+    entries.forEach(e => {
+      const key = `${e.report_date}__${e.department_code}`;
+      if (!approvalMap.has(key)) {
+        approvalMap.set(key, {
+          report_date: e.report_date,
+          department_code: e.department_code,
+          status: e.status || 'SUBMITTED',
+          entered_by: e.entered_by || 'ADMIN',
+          remarks: e.remarks || '',
+          updatedAt: e.updatedAt
+        });
+      }
+    });
+
+    res.json({ approvals: Array.from(approvalMap.values()) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/daily-report/approval', async (req, res) => {
+  try {
+    const { report_date, department_code, status, approver, remarks } = req.body;
+    if (!report_date || !department_code || !status) {
+      return res.status(400).json({ error: 'report_date, department_code, and status are required' });
+    }
+
+    const dateStr = String(report_date).trim();
+    const deptStr = String(department_code).trim().toUpperCase();
+    const validStatuses = ['DRAFT', 'SUBMITTED', 'PENDING APPROVAL', 'APPROVED', 'REJECTED', 'RE-ENTRY REQUIRED'];
+    const newStatus = String(status).trim().toUpperCase();
+
+    if (!validStatuses.includes(newStatus)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+
+    const updateData = { status: newStatus };
+    if (approver) {
+      updateData.entered_by = `${approver} (${newStatus})`;
+    }
+    if (remarks !== undefined) {
+      updateData.remarks = remarks;
+    }
+
+    const updated = await prisma.dailyReportEntry.updateMany({
+      where: {
+        report_date: dateStr,
+        department_code: deptStr
+      },
+      data: updateData
+    });
+
+    res.json({
+      success: true,
+      message: `Status updated to ${newStatus} for ${deptStr} on ${dateStr}`,
+      updatedCount: updated.count
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/daily-report/history-dates', async (req, res) => {
   try {
     const rawDates = await prisma.dailyReportEntry.groupBy({

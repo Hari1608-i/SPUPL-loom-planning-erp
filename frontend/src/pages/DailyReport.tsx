@@ -405,10 +405,7 @@ export default function DailyReport() {
   // Explicit edit mode for saved record (Rule 7, 11)
   const [isEditingSaved, setIsEditingSaved] = useState<boolean>(false);
 
-  // Target edit toggle mode (Rule 8)
-  const [editTargetsMode, setEditTargetsMode] = useState<boolean>(false);
-
-  // Monthly target editor: month selection for non-Weaving departments
+  // Monthly target editor: month selection
   const [targetMonth, setTargetMonth] = useState<string>(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -572,8 +569,8 @@ export default function DailyReport() {
         }
       });
 
-      // NON-WEAVING MONTHLY TARGET: Apply saved monthly target to non-weaving departments (Requirements 30 & 31)
-      if (selectedDeptCode !== 'WEAVING' && data.monthlyTargets) {
+      // Apply saved monthly target to departments
+      if (data.monthlyTargets) {
         const deptTargets = data.monthlyTargets[selectedDeptCode] || data.monthlyTargets.targets;
         if (deptTargets && typeof deptTargets === 'object') {
           Object.entries(deptTargets).forEach(([mCode, tVal]) => {
@@ -903,8 +900,7 @@ export default function DailyReport() {
       }
 
       setSaveSuccess(true);
-      setEditHeadMentorMode(false);
-      setEditTargetsMode(false);
+      setEditMonthlyTargetsMode(false);
       setIsEditingSaved(false);
       setFeedbackMessage({
         type: 'success',
@@ -976,7 +972,7 @@ export default function DailyReport() {
     setFormInputs({});
     setDeptRemarks('');
     setIsEditingSaved(false);
-    setEditTargetsMode(false);
+    setEditMonthlyTargetsMode(false);
     setFeedbackMessage({
       type: 'success',
       text: `Switched ${currentDept.name} to next date. If no saved record exists, fields start empty for fresh data entry.`
@@ -1406,8 +1402,10 @@ export default function DailyReport() {
       const totPassU = hasAnyPassU ? ((inPassU || 0) + (vnPassU || 0) + (washPassU || 0)) : null;
       const hasAnyRejU = (inRejU !== null || vnRejU !== null || washRejU !== null);
       const totRejU = hasAnyRejU ? ((inRejU || 0) + (vnRejU || 0) + (washRejU || 0)) : null;
-      const rejPctU = (totInspU && totInspU > 0 && totRejU !== null) ? ((totRejU / totInspU) * 100).toFixed(2) + '%' : (totInspU !== null && totRejU === 0 ? '0.00%' : '');
-
+      const inRejPctUNum = (inInspU && inInspU > 0 && inRejU !== null) ? (inRejU / inInspU) * 100 : 0;
+      const vnRejPctUNum = (vnInspU && vnInspU > 0 && vnRejU !== null) ? (vnRejU / vnInspU) * 100 : 0;
+      const washRejPctUNum = (washTotU && washTotU > 0 && washRejU !== null) ? (washRejU / washTotU) * 100 : 0;
+      const rejPctU = (totInspU !== null) ? (inRejPctUNum + vnRejPctUNum + washRejPctUNum).toFixed(2) + '%' : '';
       const finInspU = mSummaries.find(m => m.metric_code === 'FINISHED_INSPECTION_MTRS' || m.metric_code === 'FINISHED_INSPECTED_MTRS' || m.metric_code === 'FINISH_PRODN_MTRS')?.monthlyTotal ?? null;
       const procRejU = mSummaries.find(m => m.metric_code === 'PROCESSING_REJECTION_MTRS')?.monthlyTotal ?? null;
       const procRejPctU = (finInspU && finInspU > 0 && procRejU !== null) ? ((procRejU / finInspU) * 100).toFixed(2) + '%' : '';
@@ -1416,9 +1414,9 @@ export default function DailyReport() {
       const weavRejU = mSummaries.find(m => m.metric_code === 'WEAVING_REJECTION_MTRS')?.monthlyTotal ?? null;
       const weavRejPctU = (finInspU && finInspU > 0 && weavRejU !== null) ? ((weavRejU / finInspU) * 100).toFixed(2) + '%' : '';
       const hasAnyRejFinU = (procRejU !== null || venRejU !== null || weavRejU !== null);
-      // TOTAL = FINISHED INSPECTION MTRS + PROCESSING REJECTION + VENDOR REJECTION + WEAVING REJECTION
+      // TOTAL = FINISHED INSPECTION MTRS - PROCESSING REJECTION - VENDOR REJECTION - WEAVING REJECTION
       const totFinFabU = (finInspU !== null) || hasAnyRejFinU
-        ? ((finInspU || 0) + (procRejU || 0) + (venRejU || 0) + (weavRejU || 0)) : null;
+        ? ((finInspU || 0) - (procRejU || 0) - (venRejU || 0) - (weavRejU || 0)) : null;
       const totRejFinU = hasAnyRejFinU ? ((procRejU || 0) + (venRejU || 0) + (weavRejU || 0)) : null;
       const realPctU = (finInspU && finInspU > 0 && totRejFinU !== null) ? (Math.max(0, 100 - (totRejFinU / finInspU) * 100)).toFixed(2) + '%' : '';
 
@@ -1428,6 +1426,7 @@ export default function DailyReport() {
       const venRewPctU = (finInspU && finInspU > 0 && venRewU !== null) ? ((venRewU / finInspU) * 100).toFixed(2) + '%' : '';
       const hasAnyRewFinU = (procRewU !== null || venRewU !== null);
       const totRewFinU = hasAnyRewFinU ? ((procRewU || 0) + (venRewU || 0)) : null;
+      const totRewFinPctU = (finInspU && finInspU > 0 && totRewFinU !== null) ? ((totRewFinU / finInspU) * 100).toFixed(2) + '%' : (finInspU !== null && totRewFinU === 0 ? '0.00%' : '');
 
       // Cumulative "AS ON DATE" values (Month Start -> Selected Report Date)
       const inInspAsOn = getAsOnNum('INHOUSE_TOTAL_INSPECTED') ?? getAsOnNum('INHOUSE_GREIGE_INSPECTED_MTRS');
@@ -1451,7 +1450,10 @@ export default function DailyReport() {
       const totPassAsOn = hasAnyPassAsOn ? ((inPassAsOn || 0) + (vnPassAsOn || 0) + (washPassAsOn || 0)) : null;
       const hasAnyRejAsOn = (inRejAsOn !== null || vnRejAsOn !== null || washRejAsOn !== null);
       const totRejAsOn = hasAnyRejAsOn ? ((inRejAsOn || 0) + (vnRejAsOn || 0) + (washRejAsOn || 0)) : null;
-      const rejPctAsOn = (totInspAsOn && totInspAsOn > 0 && totRejAsOn !== null) ? ((totRejAsOn / totInspAsOn) * 100).toFixed(2) + '%' : (totInspAsOn !== null && totRejAsOn === 0 ? '0.00%' : '');
+      const inRejPctAsOnNum = (inInspAsOn && inInspAsOn > 0 && inRejAsOn !== null) ? (inRejAsOn / inInspAsOn) * 100 : 0;
+      const vnRejPctAsOnNum = (vnInspAsOn && vnInspAsOn > 0 && vnRejAsOn !== null) ? (vnRejAsOn / vnInspAsOn) * 100 : 0;
+      const washRejPctAsOnNum = (washTotAsOn && washTotAsOn > 0 && washRejAsOn !== null) ? (washRejAsOn / washTotAsOn) * 100 : 0;
+      const rejPctAsOn = (totInspAsOn !== null) ? (inRejPctAsOnNum + vnRejPctAsOnNum + washRejPctAsOnNum).toFixed(2) + '%' : '';
 
       const finInspAsOn = getAsOnNum('FINISHED_INSPECTION_MTRS') ?? getAsOnNum('FINISHED_INSPECTED_MTRS') ?? getAsOnNum('FINISH_PRODN_MTRS');
       const procRejAsOn = getAsOnNum('PROCESSING_REJECTION_MTRS');
@@ -1461,9 +1463,9 @@ export default function DailyReport() {
       const weavRejAsOn = getAsOnNum('WEAVING_REJECTION_MTRS');
       const weavRejPctAsOn = (finInspAsOn && finInspAsOn > 0 && weavRejAsOn !== null) ? ((weavRejAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && weavRejAsOn === 0 ? '0.00%' : '');
       const hasAnyRejFinAsOn = (procRejAsOn !== null || venRejAsOn !== null || weavRejAsOn !== null);
-      // TOTAL = FINISHED INSPECTION MTRS + PROCESSING REJECTION + VENDOR REJECTION + WEAVING REJECTION
+      // TOTAL = FINISHED INSPECTION MTRS - PROCESSING REJECTION - VENDOR REJECTION - WEAVING REJECTION
       const totFinFabAsOn = (finInspAsOn !== null) || hasAnyRejFinAsOn
-        ? ((finInspAsOn || 0) + (procRejAsOn || 0) + (venRejAsOn || 0) + (weavRejAsOn || 0)) : null;
+        ? ((finInspAsOn || 0) - (procRejAsOn || 0) - (venRejAsOn || 0) - (weavRejAsOn || 0)) : null;
       const totRejFinAsOn = hasAnyRejFinAsOn ? ((procRejAsOn || 0) + (venRejAsOn || 0) + (weavRejAsOn || 0)) : null;
       const realPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRejFinAsOn !== null) ? (Math.max(0, 100 - (totRejFinAsOn / finInspAsOn) * 100)).toFixed(2) + '%' : '';
 
@@ -1473,6 +1475,7 @@ export default function DailyReport() {
       const venRewPctAsOn = (finInspAsOn && finInspAsOn > 0 && venRewAsOn !== null) ? ((venRewAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && venRewAsOn === 0 ? '0.00%' : '');
       const hasAnyRewFinAsOn = (procRewAsOn !== null || venRewAsOn !== null);
       const totRewFinAsOn = hasAnyRewFinAsOn ? ((procRewAsOn || 0) + (venRewAsOn || 0)) : null;
+      const totRewFinPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRewFinAsOn !== null) ? ((totRewFinAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && totRewFinAsOn === 0 ? '0.00%' : '');
 
       const salesRetAsOn = getAsOnNum('SALES_RETURN_MTRS') ?? getAsOnNum('SALES_RETURNS_MTRS');
 
@@ -1491,6 +1494,7 @@ export default function DailyReport() {
         { leftLabel: 'WASHING-TOTAL PASSED', leftAsOn: washPassAsOn !== null ? washPassAsOn : '', leftUpto: washPassU !== null ? washPassU : '', rightLabel: 'VENDOR REWASH MTRS', rightAsOn: venRewAsOn !== null ? venRewAsOn : '', rightUpto: venRewU !== null ? venRewU : '' },
         { leftLabel: 'WASHING-TOTAL MTRS REJECTED', leftAsOn: washRejAsOn !== null ? washRejAsOn : '', leftUpto: washRejU !== null ? washRejU : '', rightLabel: 'REWASH%', rightAsOn: venRewPctAsOn, rightUpto: venRewPctU },
         { leftLabel: 'WASHING-REJECTION%', leftAsOn: washRejPctAsOn, leftUpto: washRejPctU, rightLabel: 'TOTAL', rightAsOn: totRewFinAsOn !== null ? totRewFinAsOn : '', rightUpto: totRewFinU !== null ? totRewFinU : '', isRightBold: true },
+        { leftLabel: '', leftAsOn: '', leftUpto: '', rightLabel: 'TOTAL REWASH %', rightAsOn: totRewFinPctAsOn, rightUpto: totRewFinPctU, isRightBold: true },
       ];
 
       const giStart = r1;
@@ -1523,7 +1527,7 @@ export default function DailyReport() {
         merges1.push({ s: { r: curR, c: 10 }, e: { r: curR, c: 11 } });
         applyMergeWithBorders(ws1, curR, 10, curR, 11, r.isRightBold ? styleCellCenterBold : styleCellCenter);
       });
-      r1 += 14;
+      r1 += 15;
 
       // Row 34: SALES RETURNS (rowSpan 2)
       setCell(ws1, r1, 4, '', styleCellLeft);
@@ -1570,14 +1574,14 @@ export default function DailyReport() {
       r1++;
 
       // Greige Inspection Dept Merges (20 rows)
-      merges1.push({ s: { r: giStart, c: 0 }, e: { r: giStart + 19, c: 0 } });
-      applyMergeWithBorders(ws1, giStart, 0, giStart + 19, 0, styleCellCenterBold);
-      merges1.push({ s: { r: giStart, c: 1 }, e: { r: giStart + 19, c: 1 } });
-      applyMergeWithBorders(ws1, giStart, 1, giStart + 19, 1, styleCellCenterBold);
-      merges1.push({ s: { r: giStart, c: 2 }, e: { r: giStart + 19, c: 2 } });
-      applyMergeWithBorders(ws1, giStart, 2, giStart + 19, 2, styleCellCenterBold);
-      merges1.push({ s: { r: giStart, c: 3 }, e: { r: giStart + 19, c: 3 } });
-      applyMergeWithBorders(ws1, giStart, 3, giStart + 19, 3, styleCellCenterBold);
+      merges1.push({ s: { r: giStart, c: 0 }, e: { r: giStart + 20, c: 0 } });
+      applyMergeWithBorders(ws1, giStart, 0, giStart + 20, 0, styleCellCenterBold);
+      merges1.push({ s: { r: giStart, c: 1 }, e: { r: giStart + 20, c: 1 } });
+      applyMergeWithBorders(ws1, giStart, 1, giStart + 20, 1, styleCellCenterBold);
+      merges1.push({ s: { r: giStart, c: 2 }, e: { r: giStart + 20, c: 2 } });
+      applyMergeWithBorders(ws1, giStart, 2, giStart + 20, 2, styleCellCenterBold);
+      merges1.push({ s: { r: giStart, c: 3 }, e: { r: giStart + 20, c: 3 } });
+      applyMergeWithBorders(ws1, giStart, 3, giStart + 20, 3, styleCellCenterBold);
 
       // 5. MENDING (10 rows) & SAMPLING DETAILS
       const wIn_asOn = getAsOnNum('WEAVING_INHOUSE_MTRS');
@@ -1782,10 +1786,11 @@ export default function DailyReport() {
       merges1.push({ s: { r: prStart + 2, c: 10 }, e: { r: prStart + 2, c: 11 } });
       applyMergeWithBorders(ws1, prStart + 2, 10, prStart + 2, 11, styleHdrOrange);
 
-      // Row 54: Greige Yarn / Dyed Yarn Header
+      // Row 54: Yarn Orders Header
       setCell(ws1, prStart + 3, 4, '', styleHdrYellow);
-      setCell(ws1, prStart + 3, 5, 'Greige Yarn', styleHdrYellow);
-      setCell(ws1, prStart + 3, 6, 'Dyed Yarn', styleHdrYellow);
+      merges1.push({ s: { r: prStart + 3, c: 5 }, e: { r: prStart + 3, c: 6 } });
+      applyMergeWithBorders(ws1, prStart + 3, 5, prStart + 3, 6, styleHdrYellow);
+      setCell(ws1, prStart + 3, 5, 'Orders / Status', styleHdrYellow);
       setCell(ws1, prStart + 3, 7, otdItems[0].dept, styleCellLeftBold);
       setCell(ws1, prStart + 3, 8, otdItems[0].d2, styleCellCenter);
       merges1.push({ s: { r: prStart + 3, c: 8 }, e: { r: prStart + 3, c: 9 } });
@@ -1805,37 +1810,32 @@ export default function DailyReport() {
       r1 += 4;
 
       // 7. RAW MATERIAL (6 rows)
-      const gTot = getVal('GREIGE_TOTAL_ORDERS');
-      const gComp = getVal('GREIGE_YARN_COMPLETED');
-      const gNot = getVal('GREIGE_NOT_COMPLETED');
-      const gOn = getVal('GREIGE_ONTIME');
-      const gDel = getVal('GREIGE_DELAY');
-
-      const dTot = getVal('DYED_TOTAL_ORDERS');
-      const dComp = getVal('DYED_YARN_COMPLETED');
-      const dNot = getVal('DYED_NOT_COMPLETED');
-      const dOn = getVal('DYED_ONTIME');
-      const dDel = getVal('DYED_DELAY');
+      const totOrders = getVal('TOTAL_NO_OF_ORDERS');
+      const yarnComp = getVal('YARN_COMPLETED');
+      const yarnNotComp = getVal('YARN_NOT_COMPLETED');
+      const yarnOntime = getVal('YARN_ONTIME');
+      const yarnDelay = getVal('YARN_DELAY');
 
       const rmRows = [
-        { label: 'TOTAL NO OF ORDERS', v1: gTot, v2: dTot },
-        { label: 'YARN COMPLETED', v1: gComp, v2: dComp },
-        { label: 'NOT COMPLETED', v1: gNot, v2: dNot },
-        { label: 'ONTIME', v1: gOn, v2: dOn },
-        { label: 'DELAY', v1: gDel, v2: dDel },
+        { label: 'TOTAL NO OF ORDERS', v: totOrders },
+        { label: 'YARN COMPLETED', v: yarnComp },
+        { label: 'NOT COMPLETED', v: yarnNotComp },
+        { label: 'ONTIME', v: yarnOntime },
+        { label: 'DELAY', v: yarnDelay },
       ];
 
       const rmStart = r1;
       setCell(ws1, rmStart, 0, 7, styleCellCenterBold);
       setCell(ws1, rmStart, 1, 'YARN DEPARTMENT', styleCellCenterBold);
-      setCell(ws1, rmStart, 2, mastersMap['RAW_MATERIAL']?.head || 'VENKAT', styleCellCenterBold);
-      setCell(ws1, rmStart, 3, mastersMap['RAW_MATERIAL']?.mentor || 'MOHANA /CHANDRU', styleCellCenterBold);
+      setCell(ws1, rmStart, 2, mastersMap['YARN_DEPARTMENT']?.head || 'VENKAT', styleCellCenterBold);
+      setCell(ws1, rmStart, 3, mastersMap['YARN_DEPARTMENT']?.mentor || 'MOHANA /CHANDRU', styleCellCenterBold);
 
       for (let i = 0; i < 5; i++) {
         const curR = rmStart + i;
         setCell(ws1, curR, 4, rmRows[i].label, styleCellLeftBold);
-        setCell(ws1, curR, 5, rmRows[i].v1, styleCellCenter);
-        setCell(ws1, curR, 6, rmRows[i].v2, styleCellCenter);
+        merges1.push({ s: { r: curR, c: 5 }, e: { r: curR, c: 6 } });
+        applyMergeWithBorders(ws1, curR, 5, curR, 6, styleCellCenter);
+        setCell(ws1, curR, 5, rmRows[i].v !== null ? rmRows[i].v : '', styleCellCenter);
         setCell(ws1, curR, 7, otdItems[i + 1].dept, styleCellLeftBold);
         setCell(ws1, curR, 8, otdItems[i + 1].d2, styleCellCenter);
         merges1.push({ s: { r: curR, c: 8 }, e: { r: curR, c: 9 } });
@@ -2053,9 +2053,26 @@ export default function DailyReport() {
     dailyMeetingRows.forEach((r, idx) => {
       const curRow = tableStartRow + idx;
       const target = getExcelMetricTarget(r.code, r.defaultTarget);
-      const actual = getNum(r.code);
+      
+      let displayName = r.name;
+      let actual = getNum(r.code);
+      if (r.code === 'REJECTION_MTRS') {
+        const wRej = getNum('WEAVING_REJECTION_MTRS') ?? 0;
+        const pRej = getNum('PROCESSING_REJECTION_MTRS') ?? getNum('PROC_REJECTION_MTRS') ?? 0;
+        const vRej = getNum('VENDOR_REJECTION_MTRS') ?? 0;
+        displayName = `WEAVING - ${wRej}, PROCESSING - ${pRej}, VENDOR - ${vRej}`;
+        actual = wRej + pRej + vRej;
+      } else if (r.code === 'REWASH_MTRS') {
+        const vRew = getNum('VENDOR_REWASH_MTRS') ?? 0;
+        const pRew = getNum('PROCESSING_REWASH_MTRS') ?? getNum('PROC_REWASH_MTRS') ?? 0;
+        displayName = `VENDOR - ${vRew}, PROCESSING - ${pRew}`;
+        actual = vRew + pRew;
+      }
+
       const diff = (actual !== null && target !== null) ? (actual - target) : null;
-      const pct = (actual !== null && target && target > 0) ? `${Math.round((actual / target) * 100)}%` : '';
+      const pctNum = (actual !== null && target !== null && target > 0) ? (actual / target) * 100 : (actual !== null && target === 0 ? 0 : null);
+      const pct = pctNum !== null ? `${Math.round(pctNum)}%` : '';
+      const perfScore = (target !== null && actual !== null) ? computePerformanceMark(target, actual, pctNum || 0) : '';
       const codesToTry = [r.code, ...(METRIC_CODE_ALIASES[r.code] || [])];
       const mItem = mSummaries.find(m => codesToTry.includes(m.metric_code));
       const upto = mItem?.monthlyTotal ?? null;
@@ -2063,7 +2080,8 @@ export default function DailyReport() {
         ? Math.round(mItem.monthlyAverage)
         : (upto !== null && mItem?.daysEntered ? Math.round(upto / mItem.daysEntered) : null);
       const devi = (avg !== null && target !== null) ? (avg - target) : null;
-      const deviPct = (avg !== null && target && target > 0) ? `${Math.round(((avg - target) / target) * 100)}%` : '';
+      const deviPctNum = (avg !== null && target !== null && target > 0) ? ((avg - target) / target) * 100 : (avg !== null && target === 0 ? 0 : null);
+      const deviPct = deviPctNum !== null ? `${Math.round(deviPctNum)}%` : '';
 
       // Determine perf style if department overall perf color exists
       const perfColorHex = r.overallPerfColor ? r.overallPerfColor.replace('#', '').toUpperCase() : 'FFFFFF';
@@ -2083,7 +2101,7 @@ export default function DailyReport() {
       // Col 3: MENTOR
       setCell(ws2, curRow, 3, r.mentor || '', styleCellCenterBold);
       // Col 4: NAME
-      setCell(ws2, curRow, 4, r.name, styleCellCenterBold);
+      setCell(ws2, curRow, 4, displayName, styleCellCenterBold);
       // Col 5: TARGET
       setCell(ws2, curRow, 5, target !== null ? target : '', styleCellCenter);
       // Col 6: ACTUAL
@@ -2094,7 +2112,7 @@ export default function DailyReport() {
       // Col 8: %
       setCell(ws2, curRow, 8, pct, styleCellCenter);
       // Col 9: PERF
-      setCell(ws2, curRow, 9, r.perfScore > 0 ? r.perfScore : '', styleCellCenter);
+      setCell(ws2, curRow, 9, perfScore, styleCellCenter);
       // Col 10: UPTO DATE
       setCell(ws2, curRow, 10, upto !== null ? upto : '', styleCellCenter);
       // Col 11: AVERAGE
@@ -2579,8 +2597,8 @@ const dailyMeetingRows = useMemo(() => [
   // 9. ANCILLARY & LOGISTICS
   { sno: 1, snoRowSpan: 1, dept: 'SALE & RETURN', deptRowSpan: 1, name: 'SALE & RETURN', code: 'SALES_RETURN_MTRS', defaultTarget: 0, perfScore: 0 },
   { sno: 2, snoRowSpan: 1, dept: 'REPRODUCTION', deptRowSpan: 1, name: 'REPRODUCTION', code: 'REPRODUCTION_MTRS', defaultTarget: 0, perfScore: 0 },
-  { sno: 3, snoRowSpan: 1, dept: 'REJECTION', deptRowSpan: 1, name: 'WEAVING- 0, PROCESSING - 0 VENDOR -574', code: 'REJECTION_MTRS', defaultTarget: 0, perfScore: 0 },
-  { sno: 4, snoRowSpan: 1, dept: 'REWASH', deptRowSpan: 1, name: 'VENDOR - 76. PROCESSING -376', code: 'REWASH_MTRS', defaultTarget: 0, perfScore: 0 },
+  { sno: 3, snoRowSpan: 1, dept: 'REJECTION', deptRowSpan: 1, name: 'REJECTION', code: 'REJECTION_MTRS', defaultTarget: 0, perfScore: 0 },
+  { sno: 4, snoRowSpan: 1, dept: 'REWASH', deptRowSpan: 1, name: 'REWASH', code: 'REWASH_MTRS', defaultTarget: 0, perfScore: 0 },
   { sno: 5, snoRowSpan: 1, dept: 'TRANSPORT', deptRowSpan: 1, head: 'MR.SARAVANAN', headRowSpan: 1, name: 'TRANSPORT', code: 'TRANSPORT_TRIPS', defaultTarget: 45, perfScore: 1 }
 ], []);
 
@@ -3251,7 +3269,10 @@ return (
               const totPassU = hasAnyPassU ? ((inPassU || 0) + (vnPassU || 0) + (washPassU || 0)) : null;
               const hasAnyRejU = (inRejU !== null) || (vnRejU !== null) || (washRejU !== null);
               const totRejU = hasAnyRejU ? ((inRejU || 0) + (vnRejU || 0) + (washRejU || 0)) : null;
-              const rejPctU = (totInspU && totInspU > 0 && totRejU !== null) ? ((totRejU / totInspU) * 100).toFixed(2) + '%' : (totInspU !== null && totRejU === 0 ? '0.00%' : '');
+              const inRejPctUNum = (inInspU && inInspU > 0 && inRejU !== null) ? (inRejU / inInspU) * 100 : 0;
+              const vnRejPctUNum = (vnInspU && vnInspU > 0 && vnRejU !== null) ? (vnRejU / vnInspU) * 100 : 0;
+              const washRejPctUNum = (washTotU && washTotU > 0 && washRejU !== null) ? (washRejU / washTotU) * 100 : 0;
+              const rejPctU = (totInspU !== null) ? (inRejPctUNum + vnRejPctUNum + washRejPctUNum).toFixed(2) + '%' : '';
 
               // Finished Fabric Monthly
               const finInspU = effectivePrintMonthly.find(m => m.metric_code === 'FINISHED_INSPECTION_MTRS' || m.metric_code === 'FINISHED_INSPECTED_MTRS' || m.metric_code === 'FINISH_PRODN_MTRS')?.monthlyTotal;
@@ -3262,9 +3283,9 @@ return (
               const weavRejU = effectivePrintMonthly.find(m => m.metric_code === 'WEAVING_REJECTION_MTRS')?.monthlyTotal;
               const weavRejPctU = (finInspU && finInspU > 0 && weavRejU !== undefined && weavRejU !== null) ? ((weavRejU / finInspU) * 100).toFixed(2) + '%' : '';
               const hasAnyFinRejU = (procRejU !== undefined && procRejU !== null) || (venRejU !== undefined && venRejU !== null) || (weavRejU !== undefined && weavRejU !== null);
-              // TOTAL (right TOTAL row) = FINISHED INSPECTION + PROC REJECTION + VENDOR REJECTION + WEAVING REJECTION
+              // TOTAL (right TOTAL row) = FINISHED INSPECTION - PROC REJECTION - VENDOR REJECTION - WEAVING REJECTION
               const totFinFabU = (finInspU !== undefined && finInspU !== null) || hasAnyFinRejU
-                ? ((finInspU || 0) + (procRejU || 0) + (venRejU || 0) + (weavRejU || 0)) : null;
+                ? ((finInspU || 0) - (procRejU || 0) - (venRejU || 0) - (weavRejU || 0)) : null;
               const totRejFinU = hasAnyFinRejU ? ((procRejU || 0) + (venRejU || 0) + (weavRejU || 0)) : null;
               const realPctU = (finInspU && finInspU > 0 && totRejFinU !== null) ? (Math.max(0, 100 - (totRejFinU / finInspU) * 100)).toFixed(2) + '%' : '';
 
@@ -3274,6 +3295,7 @@ return (
               const venRewPctU = (finInspU && finInspU > 0 && venRewU !== undefined && venRewU !== null) ? ((venRewU / finInspU) * 100).toFixed(2) + '%' : '';
               const hasAnyRewFinU = (procRewU !== undefined && procRewU !== null) || (venRewU !== undefined && venRewU !== null);
               const totRewFinU = hasAnyRewFinU ? ((procRewU || 0) + (venRewU || 0)) : null;
+              const totRewFinPctU = (finInspU && finInspU > 0 && totRewFinU !== null) ? ((totRewFinU / finInspU) * 100).toFixed(2) + '%' : (finInspU !== null && totRewFinU === 0 ? '0.00%' : '');
 
               // Cumulative "AS ON DATE" values (Month Start -> Selected Report Date)
               const inInspAsOn = getAsOnMetricNum('INHOUSE_TOTAL_INSPECTED') ?? getAsOnMetricNum('INHOUSE_GREIGE_INSPECTED_MTRS');
@@ -3297,7 +3319,10 @@ return (
               const totPassAsOn = hasAnyPassAsOn ? ((inPassAsOn || 0) + (vnPassAsOn || 0) + (washPassAsOn || 0)) : null;
               const hasAnyRejAsOn = inRejAsOn !== null || vnRejAsOn !== null || washRejAsOn !== null;
               const totRejAsOn = hasAnyRejAsOn ? ((inRejAsOn || 0) + (vnRejAsOn || 0) + (washRejAsOn || 0)) : null;
-              const rejPctAsOn = (totInspAsOn && totInspAsOn > 0 && totRejAsOn !== null) ? ((totRejAsOn / totInspAsOn) * 100).toFixed(2) + '%' : '';
+              const inRejPctAsOnNum = (inInspAsOn && inInspAsOn > 0 && inRejAsOn !== null) ? (inRejAsOn / inInspAsOn) * 100 : 0;
+              const vnRejPctAsOnNum = (vnInspAsOn && vnInspAsOn > 0 && vnRejAsOn !== null) ? (vnRejAsOn / vnInspAsOn) * 100 : 0;
+              const washRejPctAsOnNum = (washTotAsOn && washTotAsOn > 0 && washRejAsOn !== null) ? (washRejAsOn / washTotAsOn) * 100 : 0;
+              const rejPctAsOn = (totInspAsOn !== null) ? (inRejPctAsOnNum + vnRejPctAsOnNum + washRejPctAsOnNum).toFixed(2) + '%' : '';
 
               // Finished Fabric AS ON DATE
               const finInspAsOn = getAsOnMetricNum('FINISHED_INSPECTION_MTRS') ?? getAsOnMetricNum('FINISHED_INSPECTED_MTRS') ?? getAsOnMetricNum('FINISH_PRODN_MTRS');
@@ -3308,9 +3333,9 @@ return (
               const weavRejAsOn = getAsOnMetricNum('WEAVING_REJECTION_MTRS');
               const weavRejPctAsOn = (finInspAsOn && finInspAsOn > 0 && weavRejAsOn !== null) ? ((weavRejAsOn / finInspAsOn) * 100).toFixed(2) + '%' : '';
               const hasAnyFinRejAsOn = procRejAsOn !== null || venRejAsOn !== null || weavRejAsOn !== null;
-              // TOTAL = FINISHED INSPECTION MTRS + PROCESSING REJECTION + VENDOR REJECTION + WEAVING REJECTION
+              // TOTAL = FINISHED INSPECTION MTRS - PROCESSING REJECTION - VENDOR REJECTION - WEAVING REJECTION
               const totFinFabAsOn = (finInspAsOn !== null) || hasAnyFinRejAsOn
-                ? ((finInspAsOn || 0) + (procRejAsOn || 0) + (venRejAsOn || 0) + (weavRejAsOn || 0)) : null;
+                ? ((finInspAsOn || 0) - (procRejAsOn || 0) - (venRejAsOn || 0) - (weavRejAsOn || 0)) : null;
               const totRejFinAsOn = hasAnyFinRejAsOn ? ((procRejAsOn || 0) + (venRejAsOn || 0) + (weavRejAsOn || 0)) : null;
               const realPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRejFinAsOn !== null) ? (Math.max(0, 100 - (totRejFinAsOn / finInspAsOn * 100))).toFixed(2) + '%' : '';
 
@@ -3320,6 +3345,7 @@ return (
               const venRewPctAsOn = (finInspAsOn && finInspAsOn > 0 && venRewAsOn !== null) ? ((venRewAsOn / finInspAsOn) * 100).toFixed(2) + '%' : '';
               const hasAnyRewFinAsOn = procRewAsOn !== null || venRewAsOn !== null;
               const totRewFinAsOn = hasAnyRewFinAsOn ? ((procRewAsOn || 0) + (venRewAsOn || 0)) : null;
+              const totRewFinPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRewFinAsOn !== null) ? ((totRewFinAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && totRewFinAsOn === 0 ? '0.00%' : '');
 
               const salesRetAsOn = getAsOnMetricNum('SALES_RETURN_MTRS') ?? getAsOnMetricNum('SALES_RETURNS_MTRS');
 
@@ -3338,16 +3364,17 @@ return (
                 { leftLabel: 'WASHING-TOTAL PASSED', leftAsOn: renderNumCell(washPassAsOn), leftUpto: renderNumCell(washPassU), rightLabel: 'VENDOR REWASH MTRS', rightAsOn: renderNumCell(venRewAsOn), rightUpto: renderNumCell(venRewU) },
                 { leftLabel: 'WASHING-TOTAL MTRS REJECTED', leftAsOn: renderNumCell(washRejAsOn), leftUpto: renderNumCell(washRejU), rightLabel: 'REWASH%', rightAsOn: venRewPctAsOn, rightUpto: venRewPctU },
                 { leftLabel: 'WASHING-REJECTION%', leftAsOn: washRejPctAsOn, leftUpto: washRejPctU, rightLabel: 'TOTAL', rightAsOn: renderNumCell(totRewFinAsOn), rightUpto: renderNumCell(totRewFinU), isRightBold: true },
+                { leftLabel: '', leftAsOn: '', leftUpto: '', rightLabel: 'TOTAL REWASH %', rightAsOn: totRewFinPctAsOn, rightUpto: totRewFinPctU, isRightBold: true },
               ];
 
               return (
                 <>
                   {/* Header row 19 */}
                   <tr>
-                    <td rowSpan={20} className="p-center p-bold">4</td>
-                    <td rowSpan={20} className="p-merged-center">GREIGE INSPECTION</td>
-                    <td rowSpan={20} className="p-merged-center">{effectivePrintMasters['GREIGE_INSPECTION']?.head || 'GUNASEKARAN'}</td>
-                    <td rowSpan={20} className="p-merged-center">{effectivePrintMasters['GREIGE_INSPECTION']?.mentor || 'M.RAMESH'}</td>
+                    <td rowSpan={21} className="p-center p-bold">4</td>
+                    <td rowSpan={21} className="p-merged-center">GREIGE INSPECTION</td>
+                    <td rowSpan={21} className="p-merged-center">{effectivePrintMasters['GREIGE_INSPECTION']?.head || 'GUNASEKARAN'}</td>
+                    <td rowSpan={21} className="p-merged-center">{effectivePrintMasters['GREIGE_INSPECTION']?.mentor || 'M.RAMESH'}</td>
                     <td style={{ backgroundColor: '#fff2cc', textAlign: 'left', fontWeight: 'bold' }}>GREIGE FABRIC</td>
                     <td style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>AS ON DATE</td>
                     <td style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>UP TO DATE</td>
@@ -3644,24 +3671,18 @@ return (
                 { dept: 'Final Dispatch', d1: getOtdVal('OTD_FINAL_DISPATCH') || getOtdVal('OTT_FINAL_DISPATCH'), d2: getPrevOtdVal('OTD_FINAL_DISPATCH') || getPrevOtdVal('OTT_FINAL_DISPATCH') },
               ];
 
-              const gTot = getAsOnMetricVal('GREIGE_TOTAL_ORDERS');
-              const gComp = getAsOnMetricVal('GREIGE_YARN_COMPLETED');
-              const gNot = getAsOnMetricVal('GREIGE_NOT_COMPLETED');
-              const gOn = getAsOnMetricVal('GREIGE_ONTIME');
-              const gDel = getAsOnMetricVal('GREIGE_DELAY');
-
-              const dTot = getAsOnMetricVal('DYED_TOTAL_ORDERS');
-              const dComp = getAsOnMetricVal('DYED_YARN_COMPLETED');
-              const dNot = getAsOnMetricVal('DYED_NOT_COMPLETED');
-              const dOn = getAsOnMetricVal('DYED_ONTIME');
-              const dDel = getAsOnMetricVal('DYED_DELAY');
+              const totOrders = getAsOnMetricVal('TOTAL_NO_OF_ORDERS');
+              const yarnComp = getAsOnMetricVal('YARN_COMPLETED');
+              const yarnNotComp = getAsOnMetricVal('YARN_NOT_COMPLETED');
+              const yarnOntime = getAsOnMetricVal('YARN_ONTIME');
+              const yarnDelay = getAsOnMetricVal('YARN_DELAY');
 
               const rmRows = [
-                { label: 'TOTAL NO OF ORDERS', v1: gTot, v2: dTot },
-                { label: 'YARN COMPLETED', v1: gComp, v2: dComp },
-                { label: 'NOT COMPLETED', v1: gNot, v2: dNot },
-                { label: 'ONTIME', v1: gOn, v2: dOn },
-                { label: 'DELAY', v1: gDel, v2: dDel },
+                { label: 'TOTAL NO OF ORDERS', v: totOrders },
+                { label: 'YARN COMPLETED', v: yarnComp },
+                { label: 'NOT COMPLETED', v: yarnNotComp },
+                { label: 'ONTIME', v: yarnOntime },
+                { label: 'DELAY', v: yarnDelay },
               ];
 
               return (
@@ -3696,25 +3717,23 @@ return (
                     <td colSpan={2} style={{ backgroundColor: '#fde2d2', color: '#c2410c', fontWeight: 'bold', textAlign: 'center' }}>{curDateColHdr}</td>
                   </tr>
 
-                  {/* Row 54: Greige Yarn / Dyed Yarn Header */}
+                  {/* Row 54: Yarn Orders Header */}
                   <tr>
                     <td style={{ backgroundColor: '#fff2cc' }}></td>
-                    <td style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>Greige Yarn</td>
-                    <td style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>Dyed Yarn</td>
+                    <td colSpan={2} style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>Orders / Status</td>
                     <td className="p-left p-bold">{otdItems[0].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[0].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[0].d1}</td>
                   </tr>
 
-                  {/* Row 55: RAW MATERIAL - TOTAL NO OF ORDERS */}
+                  {/* Row 55: YARN DEPARTMENT - TOTAL NO OF ORDERS */}
                   <tr>
                     <td rowSpan={6} className="p-center p-bold">7</td>
                     <td rowSpan={6} className="p-merged-center">YARN DEPARTMENT</td>
-                    <td rowSpan={6} className="p-merged-center">{effectivePrintMasters['RAW_MATERIAL']?.head || 'VENKAT'}</td>
-                    <td rowSpan={6} className="p-merged-center">{effectivePrintMasters['RAW_MATERIAL']?.mentor || 'MOHANA /CHANDRU'}</td>
+                    <td rowSpan={6} className="p-merged-center">{effectivePrintMasters['YARN_DEPARTMENT']?.head || 'VENKAT'}</td>
+                    <td rowSpan={6} className="p-merged-center">{effectivePrintMasters['YARN_DEPARTMENT']?.mentor || 'MOHANA /CHANDRU'}</td>
                     <td className="p-left p-bold">{rmRows[0].label}</td>
-                    <td className="p-center">{rmRows[0].v1}</td>
-                    <td className="p-center">{rmRows[0].v2}</td>
+                    <td colSpan={2} className="p-center">{rmRows[0].v !== null ? rmRows[0].v : ''}</td>
                     <td className="p-left p-bold">{otdItems[1].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[1].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[1].d1}</td>
@@ -3723,8 +3742,7 @@ return (
                   {/* Row 56: YARN COMPLETED */}
                   <tr>
                     <td className="p-left p-bold">{rmRows[1].label}</td>
-                    <td className="p-center">{rmRows[1].v1}</td>
-                    <td className="p-center">{rmRows[1].v2}</td>
+                    <td colSpan={2} className="p-center">{rmRows[1].v !== null ? rmRows[1].v : ''}</td>
                     <td className="p-left p-bold">{otdItems[2].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[2].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[2].d1}</td>
@@ -3733,8 +3751,7 @@ return (
                   {/* Row 57: NOT COMPLETED */}
                   <tr>
                     <td className="p-left p-bold">{rmRows[2].label}</td>
-                    <td className="p-center">{rmRows[2].v1}</td>
-                    <td className="p-center">{rmRows[2].v2}</td>
+                    <td colSpan={2} className="p-center">{rmRows[2].v !== null ? rmRows[2].v : ''}</td>
                     <td className="p-left p-bold">{otdItems[3].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[3].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[3].d1}</td>
@@ -3743,8 +3760,7 @@ return (
                   {/* Row 58: ONTIME */}
                   <tr>
                     <td className="p-left p-bold">{rmRows[3].label}</td>
-                    <td className="p-center">{rmRows[3].v1}</td>
-                    <td className="p-center">{rmRows[3].v2}</td>
+                    <td colSpan={2} className="p-center">{rmRows[3].v !== null ? rmRows[3].v : ''}</td>
                     <td className="p-left p-bold">{otdItems[4].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[4].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[4].d1}</td>
@@ -3753,8 +3769,7 @@ return (
                   {/* Row 59: DELAY */}
                   <tr>
                     <td className="p-left p-bold">{rmRows[4].label}</td>
-                    <td className="p-center">{rmRows[4].v1}</td>
-                    <td className="p-center">{rmRows[4].v2}</td>
+                    <td colSpan={2} className="p-center">{rmRows[4].v !== null ? rmRows[4].v : ''}</td>
                     <td className="p-left p-bold">{otdItems[5].dept}</td>
                     <td colSpan={2} className="p-center">{otdItems[5].d2}</td>
                     <td colSpan={2} className="p-center">{otdItems[5].d1}</td>
@@ -3899,9 +3914,29 @@ return (
           <tbody>
             {preparedDailyMeetingRows.map((r, i) => {
               const target = getPrintMetricTarget(r.code, r.defaultTarget);
-              const actual = getPrintMetricNum(r.code);
+
+              let displayName = r.name;
+              let actual = getPrintMetricNum(r.code);
+
+              if (r.code === 'REJECTION_MTRS') {
+                const wRej = getPrintMetricNum('WEAVING_REJECTION_MTRS') ?? 0;
+                const pRej = getPrintMetricNum('PROCESSING_REJECTION_MTRS') ?? getPrintMetricNum('PROC_REJECTION_MTRS') ?? 0;
+                const vRej = getPrintMetricNum('VENDOR_REJECTION_MTRS') ?? 0;
+                displayName = `WEAVING - ${wRej}, PROCESSING - ${pRej}, VENDOR - ${vRej}`;
+                actual = wRej + pRej + vRej;
+              } else if (r.code === 'REWASH_MTRS') {
+                const vRew = getPrintMetricNum('VENDOR_REWASH_MTRS') ?? 0;
+                const pRew = getPrintMetricNum('PROCESSING_REWASH_MTRS') ?? getPrintMetricNum('PROC_REWASH_MTRS') ?? 0;
+                displayName = `VENDOR - ${vRew}, PROCESSING - ${pRew}`;
+                actual = vRew + pRew;
+              }
+
               const diff = (actual !== null && target !== null) ? (actual - target) : null;
-              const pct = (actual !== null && target && target > 0) ? Math.round((actual / target) * 100) + '%' : '';
+              const pctNum = (actual !== null && target !== null && target > 0) ? (actual / target) * 100 : (actual !== null && target === 0 ? 0 : null);
+              const pct = pctNum !== null ? Math.round(pctNum) + '%' : '';
+              
+              const perfScore = (target !== null && actual !== null) ? computePerformanceMark(target, actual, pctNum || 0) : '';
+
               const codesToTry = [r.code, ...(METRIC_CODE_ALIASES[r.code] || [])];
               const mItem = effectivePrintMonthly.find(m => codesToTry.includes(m.metric_code));
               const upto = mItem?.monthlyTotal ?? null;
@@ -3909,7 +3944,8 @@ return (
                 ? Math.round(mItem.monthlyAverage)
                 : (upto !== null && mItem?.daysEntered ? Math.round(upto / mItem.daysEntered) : null);
               const devi = (avg !== null && target !== null) ? (avg - target) : null;
-              const deviPct = (avg !== null && target && target > 0) ? Math.round(((avg - target) / target) * 100) + '%' : '';
+              const deviPctNum = (avg !== null && target !== null && target > 0) ? ((avg - target) / target) * 100 : (avg !== null && target === 0 ? 0 : null);
+              const deviPct = deviPctNum !== null ? Math.round(deviPctNum) + '%' : '';
 
               return (
                 <tr key={i}>
@@ -3931,14 +3967,14 @@ return (
                   {r.renderMentor === 'EMPTY' && (
                     <td className="p-center"></td>
                   )}
-                  <td className="p-center p-bold">{r.name}</td>
+                  <td className="p-center p-bold">{displayName}</td>
                   <td className="p-center">{renderNumCell(target)}</td>
                   <td className="p-center">{renderNumCell(actual)}</td>
                   <td className="p-center" style={{ color: diff !== null && diff < 0 ? '#b91c1c' : diff !== null && diff > 0 ? '#047857' : undefined }}>
                     {diff !== null ? ((diff > 0 ? '+' : '') + renderNumCell(diff)) : ''}
                   </td>
                   <td className="p-center">{renderPctCell(pct)}</td>
-                  <td className="p-center">{r.perfScore > 0 ? r.perfScore : ''}</td>
+                  <td className="p-center">{perfScore}</td>
                   <td className="p-center">{renderNumCell(upto)}</td>
                   <td className="p-center">{renderNumCell(avg)}</td>
                   <td className="p-center" style={{ color: devi !== null && devi < 0 ? '#b91c1c' : devi !== null && devi > 0 ? '#047857' : undefined }}>
@@ -4364,80 +4400,66 @@ return (
                 </div>
 
                 {/* Target Edit Toggle */}
-                {currentDept.code === 'WEAVING' ? (
+                <div className="flex items-center gap-1.5">
                   <button
-                    onClick={() => setEditTargetsMode(v => !v)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${editTargetsMode
-                      ? 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950 dark:text-amber-300'
-                      : 'bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 hover:bg-amber-100'
-                      }`}
-                    title="Change Weaving Daily Target for selected date"
+                    onClick={() => setEditMonthlyTargetsMode(v => !v)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                      editMonthlyTargetsMode
+                        ? 'bg-indigo-100 text-indigo-900 border border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300'
+                        : 'bg-indigo-50 text-indigo-800 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 hover:bg-indigo-100'
+                    }`}
+                    title="Edit Monthly Target for selected month"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
-                    <span>{editTargetsMode ? 'Close Target Edit' : 'Edit Daily Target'}</span>
+                    <span>{editMonthlyTargetsMode ? 'Close Target Edit' : 'Edit Monthly Target'}</span>
                   </button>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => setEditMonthlyTargetsMode(v => !v)}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                        editMonthlyTargetsMode
-                          ? 'bg-indigo-100 text-indigo-900 border border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300'
-                          : 'bg-indigo-50 text-indigo-800 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 hover:bg-indigo-100'
-                      }`}
-                      title="Edit Monthly Target for selected month"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>{editMonthlyTargetsMode ? 'Close Target Edit' : 'Edit Monthly Target'}</span>
-                    </button>
-                    {editMonthlyTargetsMode && (
-                      <>
-                        <input
-                          type="month"
-                          value={targetMonth}
-                          onChange={e => setTargetMonth(e.target.value)}
-                          className="px-2 py-0.5 rounded border border-indigo-300 text-xs font-bold text-indigo-800 dark:text-indigo-200 bg-white dark:bg-slate-800 outline-none"
-                          title="Select target month"
-                        />
-                        <button
-                          disabled={savingMonthlyTargets}
-                          onClick={async () => {
-                            setSavingMonthlyTargets(true);
-                            try {
-                              const targets: Record<string, number> = {};
-                              currentDept.rawMetrics.forEach((m: MetricDefinition) => {
-                                if (m.type === 'number' && editedTargets[m.code] !== undefined) {
-                                  targets[m.code] = editedTargets[m.code];
-                                }
-                              });
-                              const res = await fetch(`${API_BASE_URL}/api/daily-report/targets`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                  department_code: currentDept.code,
-                                  month: targetMonth,
-                                  unit: selectedUnit,
-                                  targets
-                                })
-                              });
-                              if (!res.ok) throw new Error('Failed to save monthly targets');
-                              setFeedbackMessage({ type: 'success', text: `Monthly targets saved for ${currentDept.name} — ${targetMonth}` });
-                              setEditMonthlyTargetsMode(false);
-                            } catch (err: any) {
-                              setFeedbackMessage({ type: 'error', text: 'Error saving monthly targets: ' + err.message });
-                            } finally {
-                              setSavingMonthlyTargets(false);
-                            }
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 disabled:opacity-60 transition-all"
-                        >
-                          <Save className="w-3 h-3" />
-                          <span>{savingMonthlyTargets ? 'Saving...' : 'Save Targets'}</span>
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
+                  {editMonthlyTargetsMode && (
+                    <>
+                      <input
+                        type="month"
+                        value={targetMonth}
+                        onChange={e => setTargetMonth(e.target.value)}
+                        className="px-2 py-0.5 rounded border border-indigo-300 text-xs font-bold text-indigo-800 dark:text-indigo-200 bg-white dark:bg-slate-800 outline-none"
+                        title="Select target month"
+                      />
+                      <button
+                        disabled={savingMonthlyTargets}
+                        onClick={async () => {
+                          setSavingMonthlyTargets(true);
+                          try {
+                            const targets: Record<string, number> = {};
+                            currentDept.rawMetrics.forEach((m: MetricDefinition) => {
+                              if (m.type === 'number' && editedTargets[m.code] !== undefined) {
+                                targets[m.code] = editedTargets[m.code];
+                              }
+                            });
+                            const res = await fetch(`${API_BASE_URL}/api/daily-report/targets`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                department_code: currentDept.code,
+                                month: targetMonth,
+                                unit: selectedUnit,
+                                targets
+                              })
+                            });
+                            if (!res.ok) throw new Error('Failed to save monthly targets');
+                            setFeedbackMessage({ type: 'success', text: `Monthly targets saved for ${currentDept.name} — ${targetMonth}` });
+                            setEditMonthlyTargetsMode(false);
+                          } catch (err: any) {
+                            setFeedbackMessage({ type: 'error', text: 'Error saving monthly targets: ' + err.message });
+                          } finally {
+                            setSavingMonthlyTargets(false);
+                          }
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 disabled:opacity-60 transition-all"
+                      >
+                        <Save className="w-3 h-3" />
+                        <span>{savingMonthlyTargets ? 'Saving...' : 'Save Targets'}</span>
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -4779,7 +4801,7 @@ return (
                             </label>
 
                             {/* Target Pill / Input */}
-                            {editMonthlyTargetsMode && !isWeaving && metric.type === 'number' ? (
+                            {editMonthlyTargetsMode && metric.type === 'number' ? (
                               <div className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-300 dark:border-indigo-700">
                                 <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">Target ({targetMonth}):</span>
                                 <input
@@ -4789,30 +4811,6 @@ return (
                                   className="w-24 px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-indigo-400 rounded text-xs font-bold text-indigo-900 dark:text-indigo-100 outline-none"
                                 />
                                 <span className="text-[10px] text-slate-400 font-bold">{metric.unit}</span>
-                              </div>
-                            ) : isWeavingTarget ? (
-                              <div className="flex items-center gap-1.5 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-lg border-2 border-amber-400 shadow-2xs">
-                                <span className="text-[10px] font-black text-amber-700 dark:text-amber-300 uppercase">
-                                  Daily Target ({selectedDate}):
-                                </span>
-                                <input
-                                  type="number"
-                                  value={effectiveTarget || ''}
-                                  onChange={e => handleTargetChange(metric.code, e.target.value)}
-                                  className="w-24 px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/60 border border-amber-400 rounded text-xs font-black text-amber-900 dark:text-amber-100 outline-none"
-                                  title="Weaving Daily Target: Saved for this selected date"
-                                />
-                                <span className="text-[10px] text-slate-400 font-bold">{metric.unit}</span>
-                              </div>
-                            ) : editTargetsMode && isWeaving ? (
-                              <div className="flex items-center gap-1">
-                                <span className="text-[10px] font-bold text-slate-400">Daily Target ({selectedDate}):</span>
-                                <input
-                                  type="number"
-                                  value={effectiveTarget}
-                                  onChange={e => handleTargetChange(metric.code, e.target.value)}
-                                  className="w-24 px-2 py-0.5 bg-white dark:bg-slate-800 border border-amber-400 rounded text-xs font-bold text-amber-700 dark:text-amber-300 outline-none"
-                                />
                               </div>
                             ) : (
                               effectiveTarget > 0 && (

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Package, Search, Plus, Download, Trash2, Save, Printer,
-  Calendar, CheckCircle2, AlertCircle, RefreshCw, Copy, Layers, Filter, CheckCircle, AlertTriangle, Eye, X, Edit2, Upload
+  Calendar, CheckCircle2, AlertCircle, RefreshCw, Copy, Layers, Filter, CheckCircle, AlertTriangle, Eye, X, Edit2, Upload, ArrowRight
 } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { API_BASE_URL } from '../config';
@@ -47,8 +48,10 @@ const BEAM_STATUSES = [
 ];
 
 export default function BeamStock() {
+  const navigate = useNavigate();
   const { orders, designs, looms, beams, rawNextPlans, activeRuns, refreshData } = useAppContext();
 
+  const [activeTab, setActiveTab] = useState<'STOCK' | 'REQUIREMENTS'>('STOCK');
   const [rows, setRows] = useState<BeamRowState[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -1037,8 +1040,34 @@ export default function BeamStock() {
         </div>
       </div>
 
+      {/* SECTION TABS: SWITCH BETWEEN PHYSICAL BEAM STOCK & LOOM PLAN / ALLOCATION */}
+      <div className="flex border-b border-slate-200 gap-2 print:hidden bg-slate-100 p-1.5 rounded-2xl">
+        <button
+          onClick={() => setActiveTab('STOCK')}
+          className={`flex-1 py-3 px-6 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+            activeTab === 'STOCK'
+              ? 'bg-blue-600 text-white shadow-md'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          1. PHYSICAL BEAM STOCK ({filteredRows.length} Beams)
+        </button>
+        <button
+          onClick={() => setActiveTab('REQUIREMENTS')}
+          className={`flex-1 py-3 px-6 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+            activeTab === 'REQUIREMENTS'
+              ? 'bg-indigo-700 text-white shadow-md'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          2. LOOM PLAN / BEAM ALLOCATION ({displayedOrderRequirements.length} Orders)
+        </button>
+      </div>
+
       {/* SECTION 2 — ORDER-WISE BEAM REQUIREMENT & PRODUCTION STATUS PANEL (EXACT 14 COLUMNS) */}
-      <div className="bg-slate-900 text-white rounded-2xl border border-slate-800 p-5 shadow-xl space-y-4">
+      <div className={`bg-slate-900 text-white rounded-2xl border border-slate-800 p-5 shadow-xl space-y-4 ${activeTab === 'STOCK' ? 'hidden print:block' : ''}`}>
         <div className="flex flex-wrap justify-between items-center border-b border-slate-800 pb-3 gap-3">
           <div>
             <h3 className="text-base font-black text-blue-300 uppercase tracking-wide flex items-center">
@@ -1194,7 +1223,7 @@ export default function BeamStock() {
       </div>
 
       {/* SECTION 3 — EXCEL ENTRY GRID CONTROL BAR & EXCEL TABLE */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4 print:p-0 print:border-none flex-1 flex flex-col">
+      <div className={`bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4 print:p-0 print:border-none flex-1 flex flex-col ${activeTab === 'REQUIREMENTS' ? 'hidden print:block' : ''}`}>
 
         {/* Controls Bar */}
         <div className="flex flex-wrap justify-between items-center gap-3 border-b border-slate-200 pb-3 print:hidden">
@@ -1287,6 +1316,7 @@ export default function BeamStock() {
                 <th className="p-2 min-w-[100px]">Location</th>
                 <th className="p-2 min-w-[110px]">Beam Status</th>
                 <th className="p-2 min-w-[130px]">Remarks</th>
+                <th className="p-2 text-center w-28 print:hidden">Action</th>
                 <th className="p-2 text-center w-12 print:hidden">Del</th>
               </tr>
             </thead>
@@ -1454,6 +1484,21 @@ export default function BeamStock() {
                         onPaste={e => handlePaste(e, row.id, 'remarks')}
                         className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"
                       />
+                    </td>
+
+                    <td className="p-1.5 text-center print:hidden">
+                      <button
+                        onClick={() => {
+                          const beamNoEncoded = encodeURIComponent(row.beam_no || '');
+                          const designEncoded = encodeURIComponent(row.design_no || '');
+                          const ibpoEncoded = encodeURIComponent(row.party_beam_no || row.ibpo || row.order_no || '');
+                          navigate(`/plan?beamId=${row.id}&beamNo=${beamNoEncoded}&designNo=${designEncoded}&ibpo=${ibpoEncoded}`);
+                        }}
+                        className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] rounded-lg shadow-sm transition-all flex items-center justify-center mx-auto gap-1"
+                        title={`Allocate Beam #${row.beam_no} to Loom Plan`}
+                      >
+                        ALLOCATE <ArrowRight className="w-3 h-3" />
+                      </button>
                     </td>
 
                     <td className="p-2 text-center print:hidden">

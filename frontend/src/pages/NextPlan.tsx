@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAppContext } from '../context/AppProvider';
 import { calculateOrderLoomPlanningSummary, checkLoomCompatibility, calculateLoomRun } from '../utils/calculations';
 import { format } from 'date-fns';
@@ -136,12 +137,30 @@ export default function NextPlan() {
     });
   }, [orders]);
 
-  // Set default selected order if none selected
+  const [searchParams] = useSearchParams();
+  const urlBeamId = searchParams.get('beamId');
+  const urlBeamNo = searchParams.get('beamNo');
+  const urlDesignNo = searchParams.get('designNo');
+  const urlIbpo = searchParams.get('ibpo');
+
+  // Set selected order if beam/order context is in URL, or default if none selected
   useEffect(() => {
-    if (!selectedOrder && activeOrders.length > 0) {
-      setSelectedOrder(activeOrders[0]);
+    if (activeOrders.length > 0) {
+      if (urlIbpo || urlDesignNo) {
+        const matched = activeOrders.find(o =>
+          (urlIbpo && (o.ibpo_no === urlIbpo || o.order_no === urlIbpo)) ||
+          (urlDesignNo && o.design_no_sp_no === urlDesignNo)
+        );
+        if (matched) {
+          setSelectedOrder(matched);
+          return;
+        }
+      }
+      if (!selectedOrder) {
+        setSelectedOrder(activeOrders[0]);
+      }
     }
-  }, [activeOrders, selectedOrder]);
+  }, [activeOrders, selectedOrder, urlIbpo, urlDesignNo]);
 
   // Reset selected beam when beam modal opens or closes
   useEffect(() => {
@@ -546,6 +565,17 @@ export default function NextPlan() {
             <span className="text-xs font-bold">{statusMsg.text}</span>
           </div>
           <button onClick={() => setStatusMsg(null)} className="text-slate-400 hover:text-slate-600 font-bold text-xs">✕</button>
+        </div>
+      )}
+
+      {urlBeamNo && (
+        <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between text-indigo-900 shadow-sm">
+          <div className="flex items-center space-x-2">
+            <Layers className="w-5 h-5 text-indigo-600 shrink-0" />
+            <span className="text-xs font-bold">
+              Allocating Beam <strong>#{urlBeamNo}</strong> {urlDesignNo ? `(Design: ${urlDesignNo})` : ''}. Assign a loom below or allocate to an existing planned loom.
+            </span>
+          </div>
         </div>
       )}
 

@@ -67,7 +67,8 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'REWINDING_KGS', name: 'Re-Winding Production (KGS)', type: 'number', target: 600, unit: 'Kgs', placeholder: 'Enter Re-winding kgs' },
       { code: 'REMNANTS_KGS', name: 'Remnants Generation (KGS)', type: 'number', target: 0, unit: 'Kgs', placeholder: 'Enter Remnants kgs' },
       { code: 'DYED_YARN_STOCK_KGS', name: 'Dyed Yarn Stock (KGS)', type: 'number', unit: 'Kgs', placeholder: 'Enter Dyed Yarn stock' },
-      { code: 'GREY_YARN_STOCK_KGS', name: 'Grey Yarn Stock (KGS)', type: 'number', unit: 'Kgs', placeholder: 'Enter Grey Yarn stock' }
+      { code: 'GREY_YARN_STOCK_KGS', name: 'Grey Yarn Stock (KGS)', type: 'number', unit: 'Kgs', placeholder: 'Enter Grey Yarn stock' },
+      { code: 'NO_OF_DAYS', name: 'NO OF DAYS', type: 'number', unit: 'Days', placeholder: 'Enter days' }
     ],
     calculatedMetrics: [
       { code: 'SIZING_DIFF', name: 'Sizing Diff (vs 40k)', type: 'number', unit: 'Mtrs', isCalculated: true },
@@ -166,6 +167,7 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       { code: 'VENDOR_TOTAL_REJECTED', name: 'Vendor - Total Rejected', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'VENDOR_REJECTION_PCT', name: 'Vendor - Rejection %', type: 'number', unit: '%', isCalculated: true },
       { code: 'WASHING_TOTAL_REJECTED', name: 'Washing - Total Rejected', type: 'number', unit: 'Mtrs', isCalculated: true },
+      { code: 'WASHING_REJECTION_PCT', name: 'Washing - Rejection %', type: 'number', unit: '%', isCalculated: true },
       { code: 'TOTAL_MTRS_INSPECTED', name: 'Combined Total Inspected', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'TOTAL_MTRS_PASSED', name: 'Combined Total Passed', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'TOTAL_MTRS_REJECTED', name: 'Combined Total Rejected', type: 'number', unit: 'Mtrs', isCalculated: true },
@@ -183,20 +185,21 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       const inInsp = hasInInsp ? Number(raw.INHOUSE_TOTAL_INSPECTED) : null;
       const inPass = hasInPass ? Number(raw.INHOUSE_TOTAL_PASSED) : null;
       const inRej = (inInsp !== null && inPass !== null) ? Math.max(0, Number((inInsp - inPass).toFixed(1))) : '';
-      const inRejPct = (inInsp !== null && inInsp > 0 && typeof inRej === 'number') ? Number(((inRej / inInsp) * 100).toFixed(2)) : '';
+      const inRejPct = (inInsp !== null && inInsp > 0 && typeof inRej === 'number') ? Number(((inRej / inInsp) * 100).toFixed(2)) : (inInsp !== null && inRej === 0 ? 0 : '');
 
       const hasVenInsp = isEntered(raw.VENDOR_TOTAL_INSPECTED);
       const hasVenPass = isEntered(raw.VENDOR_TOTAL_PASSED);
       const venInsp = hasVenInsp ? Number(raw.VENDOR_TOTAL_INSPECTED) : null;
       const venPass = hasVenPass ? Number(raw.VENDOR_TOTAL_PASSED) : null;
       const venRej = (venInsp !== null && venPass !== null) ? Math.max(0, Number((venInsp - venPass).toFixed(1))) : '';
-      const venRejPct = (venInsp !== null && venInsp > 0 && typeof venRej === 'number') ? Number(((venRej / venInsp) * 100).toFixed(2)) : '';
+      const venRejPct = (venInsp !== null && venInsp > 0 && typeof venRej === 'number') ? Number(((venRej / venInsp) * 100).toFixed(2)) : (venInsp !== null && venRej === 0 ? 0 : '');
 
       const hasWashInsp = isEntered(raw.WASHING_TOTAL_MTRS);
       const hasWashPass = isEntered(raw.WASHING_TOTAL_PASSED);
       const washInsp = hasWashInsp ? Number(raw.WASHING_TOTAL_MTRS) : null;
       const washPass = hasWashPass ? Number(raw.WASHING_TOTAL_PASSED) : null;
       const washRej = (washInsp !== null && washPass !== null) ? Math.max(0, Number((washInsp - washPass).toFixed(1))) : '';
+      const washRejPct = (washInsp !== null && washInsp > 0 && typeof washRej === 'number') ? Number(((washRej / washInsp) * 100).toFixed(2)) : (washInsp !== null && washRej === 0 ? 0 : '');
 
       const hasAnyInsp = inInsp !== null || venInsp !== null || washInsp !== null;
       const totInsp = hasAnyInsp ? Number(((inInsp || 0) + (venInsp || 0) + (washInsp || 0)).toFixed(1)) : '';
@@ -204,7 +207,10 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       const totPass = hasAnyPass ? Number(((inPass || 0) + (venPass || 0) + (washPass || 0)).toFixed(1)) : '';
       const hasAnyRej = (typeof inRej === 'number') || (typeof venRej === 'number') || (typeof washRej === 'number');
       const totRej = hasAnyRej ? Number(((typeof inRej === 'number' ? inRej : 0) + (typeof venRej === 'number' ? venRej : 0) + (typeof washRej === 'number' ? washRej : 0)).toFixed(1)) : '';
-      const totRejPct = (typeof totInsp === 'number' && totInsp > 0 && typeof totRej === 'number') ? Number(((totRej / totInsp) * 100).toFixed(2)) : '';
+      // REJECTION % = INHOUSE REJECTION % + VENDOR REJECTION % + WASHING REJECTION %
+      const totRejPct = hasAnyInsp
+        ? Number(((typeof inRejPct === 'number' ? inRejPct : 0) + (typeof venRejPct === 'number' ? venRejPct : 0) + (typeof washRejPct === 'number' ? washRejPct : 0)).toFixed(2))
+        : '';
 
       // Greige Warehouse Calculations
       const isGrg = isEntered(raw.TOTAL_PRODN_GREIGE);
@@ -218,6 +224,7 @@ export const DEPARTMENTS: DepartmentConfig[] = [
         VENDOR_TOTAL_REJECTED: venRej,
         VENDOR_REJECTION_PCT: venRejPct,
         WASHING_TOTAL_REJECTED: washRej,
+        WASHING_REJECTION_PCT: washRejPct,
         TOTAL_MTRS_INSPECTED: totInsp,
         TOTAL_MTRS_PASSED: totPass,
         TOTAL_MTRS_REJECTED: totRej,
@@ -255,6 +262,7 @@ export const DEPARTMENTS: DepartmentConfig[] = [
     calculatedMetrics: [
       { code: 'FINISHED_DIFF', name: 'Inspection Diff (vs 77.9k)', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'FINISHED_ACHIEVEMENT_PCT', name: 'Inspection Achievement %', type: 'number', unit: '%', isCalculated: true },
+      { code: 'TOTAL_FINISHED_FABRIC_MTRS', name: 'Total Finished Fabric (Mtrs)', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'TOTAL_REJECTION_MTRS', name: 'Total Finished Rejections', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'TOTAL_REJECTION_PCT', name: 'Total Rejection %', type: 'number', unit: '%', isCalculated: true },
       { code: 'TOTAL_REWASH_MTRS', name: 'Total Rewash Mtrs', type: 'number', unit: 'Mtrs', isCalculated: true },
@@ -268,15 +276,26 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       const hasProcRej = isEntered(raw.PROCESSING_REJECTION_MTRS);
       const hasVenRej = isEntered(raw.VENDOR_REJECTION_MTRS);
       const hasWeavRej = isEntered(raw.WEAVING_REJECTION_MTRS);
+      const procRej = hasProcRej ? Number(raw.PROCESSING_REJECTION_MTRS) : 0;
+      const venRej = hasVenRej ? Number(raw.VENDOR_REJECTION_MTRS) : 0;
+      const weavRej = hasWeavRej ? Number(raw.WEAVING_REJECTION_MTRS) : 0;
       const hasAnyRej = hasProcRej || hasVenRej || hasWeavRej;
-      const totRej = hasAnyRej ? Number(((Number(raw.PROCESSING_REJECTION_MTRS) || 0) + (Number(raw.VENDOR_REJECTION_MTRS) || 0) + (Number(raw.WEAVING_REJECTION_MTRS) || 0)).toFixed(1)) : '';
-      const totRejPct = (finished !== null && finished > 0 && typeof totRej === 'number') ? Number(((totRej / finished) * 100).toFixed(2)) : '';
+      const totRej = hasAnyRej ? Number((procRej + venRej + weavRej).toFixed(1)) : '';
+      const totRejPct = (finished !== null && finished > 0 && typeof totRej === 'number') ? Number(((totRej / finished) * 100).toFixed(2)) : (finished !== null && totRej === 0 ? 0 : '');
+
+      // TOTAL = FINISHED INSPECTION MTRS - PROCESSING REJECTION - VENDOR REJECTION - WEAVING REJECTION
+      const totFinFab = finished !== null || hasAnyRej
+        ? Number(((finished || 0) - procRej - venRej - weavRej).toFixed(1))
+        : '';
 
       const hasProcRew = isEntered(raw.PROCESSING_REWASH_MTRS);
       const hasVenRew = isEntered(raw.VENDOR_REWASH_MTRS);
+      const procRew = hasProcRew ? Number(raw.PROCESSING_REWASH_MTRS) : 0;
+      const venRew = hasVenRew ? Number(raw.VENDOR_REWASH_MTRS) : 0;
       const hasAnyRew = hasProcRew || hasVenRew;
-      const totRew = hasAnyRew ? Number(((Number(raw.PROCESSING_REWASH_MTRS) || 0) + (Number(raw.VENDOR_REWASH_MTRS) || 0)).toFixed(1)) : '';
-      const totRewPct = (finished !== null && finished > 0 && typeof totRew === 'number') ? Number(((totRew / finished) * 100).toFixed(2)) : '';
+      // SECOND TOTAL = PROCESSING REWASH MTRS + VENDOR REWASH MTRS
+      const totRew = hasAnyRew ? Number((procRew + venRew).toFixed(1)) : '';
+      const totRewPct = (finished !== null && finished > 0 && typeof totRew === 'number') ? Number(((totRew / finished) * 100).toFixed(2)) : (finished !== null && totRew === 0 ? 0 : '');
 
       const isPurchase = isEntered(raw.FABRIC_PURCHASE_MTRS);
       const purchase = isPurchase ? Number(raw.FABRIC_PURCHASE_MTRS) : null;
@@ -284,6 +303,7 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       return {
         FINISHED_DIFF: finished !== null ? Math.round(finished - 77950) : '',
         FINISHED_ACHIEVEMENT_PCT: finished !== null ? Number(((finished / 77950) * 100).toFixed(1)) : '',
+        TOTAL_FINISHED_FABRIC_MTRS: totFinFab,
         TOTAL_REJECTION_MTRS: totRej,
         TOTAL_REJECTION_PCT: totRejPct,
         TOTAL_REWASH_MTRS: totRew,
@@ -426,49 +446,37 @@ export const DEPARTMENTS: DepartmentConfig[] = [
     }
   },
 
-  // 8. RAW MATERIAL
+  // 8. RAW MATERIAL (YARN DEPARTMENT)
   {
-    code: 'RAW_MATERIAL',
-    name: 'RAW MATERIAL',
+    code: 'YARN_DEPARTMENT',
+    name: 'YARN DEPARTMENT',
     head: 'VENKAT',
     mentor: 'MOHANA / CHANDRU',
-    description: 'Greige yarn and Dyed yarn order completion, on-time and delays',
+    description: 'Greige yarn and Dyed yarn order completion, on-time, delays and pending orders',
     rawMetrics: [
-      { code: 'GREIGE_TOTAL_ORDERS', name: 'Greige Yarn - Total Orders', type: 'number', unit: 'Orders', placeholder: 'Count' },
-      { code: 'GREIGE_YARN_COMPLETED', name: 'Greige Yarn - Completed', type: 'number', unit: 'Orders', placeholder: 'Count' },
-      { code: 'GREIGE_ONTIME', name: 'Greige Yarn - Ontime', type: 'number', unit: 'Orders', placeholder: 'Count' },
-      { code: 'DYED_TOTAL_ORDERS', name: 'Dyed Yarn - Total Orders', type: 'number', unit: 'Orders', placeholder: 'Count' },
-      { code: 'DYED_YARN_COMPLETED', name: 'Dyed Yarn - Completed', type: 'number', unit: 'Orders', placeholder: 'Count' },
-      { code: 'DYED_ONTIME', name: 'Dyed Yarn - Ontime', type: 'number', unit: 'Orders', placeholder: 'Count' }
+      { code: 'TOTAL_NO_OF_ORDERS', name: 'Total No of Orders', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'YARN_COMPLETED', name: 'Yarn Completed', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'YARN_NOT_COMPLETED', name: 'Yarn Not Completed', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'YARN_ONTIME', name: 'Yarn Ontime', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'YARN_DELAY', name: 'Yarn Delay', type: 'number', unit: 'Orders', placeholder: 'Count' },
+      { code: 'DAILY_REMARKS', name: 'Daily Remarks / Observations', type: 'text', placeholder: 'Enter observations' }
     ],
-    calculatedMetrics: [
-      { code: 'GREIGE_NOT_COMPLETED', name: 'Greige Yarn - Not Completed', type: 'number', unit: 'Orders', isCalculated: true },
-      { code: 'GREIGE_DELAY', name: 'Greige Yarn - Delay', type: 'number', unit: 'Orders', isCalculated: true },
-      { code: 'DYED_NOT_COMPLETED', name: 'Dyed Yarn - Not Completed', type: 'number', unit: 'Orders', isCalculated: true },
-      { code: 'DYED_DELAY', name: 'Dyed Yarn - Delay', type: 'number', unit: 'Orders', isCalculated: true }
-    ],
+    calculatedMetrics: [],
     calculate: (raw) => {
-      const isGTot = isEntered(raw.GREIGE_TOTAL_ORDERS);
-      const isGComp = isEntered(raw.GREIGE_YARN_COMPLETED);
-      const isGOn = isEntered(raw.GREIGE_ONTIME);
+      const isTot = isEntered(raw.TOTAL_NO_OF_ORDERS);
+      const isComp = isEntered(raw.YARN_COMPLETED);
 
-      const isDTot = isEntered(raw.DYED_TOTAL_ORDERS);
-      const isDComp = isEntered(raw.DYED_YARN_COMPLETED);
-      const isDOn = isEntered(raw.DYED_ONTIME);
+      const tot = isTot ? Number(raw.TOTAL_NO_OF_ORDERS) : null;
+      const comp = isComp ? Number(raw.YARN_COMPLETED) : null;
 
-      const gTot = isGTot ? Number(raw.GREIGE_TOTAL_ORDERS) : null;
-      const gComp = isGComp ? Number(raw.GREIGE_YARN_COMPLETED) : null;
-      const gOn = isGOn ? Number(raw.GREIGE_ONTIME) : null;
-
-      const dTot = isDTot ? Number(raw.DYED_TOTAL_ORDERS) : null;
-      const dComp = isDComp ? Number(raw.DYED_YARN_COMPLETED) : null;
-      const dOn = isDOn ? Number(raw.DYED_ONTIME) : null;
+      // If user hasn't explicitly entered YARN_NOT_COMPLETED, calculate it
+      let notCompleted = raw.YARN_NOT_COMPLETED;
+      if (!isEntered(notCompleted) && tot !== null && comp !== null) {
+         notCompleted = Math.max(0, tot - comp);
+      }
 
       return {
-        GREIGE_NOT_COMPLETED: (gTot !== null && gComp !== null) ? Math.max(0, gTot - gComp) : '',
-        GREIGE_DELAY: (gComp !== null && gOn !== null) ? Math.max(0, gComp - gOn) : '',
-        DYED_NOT_COMPLETED: (dTot !== null && dComp !== null) ? Math.max(0, dTot - dComp) : '',
-        DYED_DELAY: (dComp !== null && dOn !== null) ? Math.max(0, dComp - dOn) : ''
+        YARN_NOT_COMPLETED: notCompleted !== undefined ? notCompleted : ''
       };
     }
   },
@@ -631,7 +639,8 @@ export function getDepartment(code: string): DepartmentConfig | undefined {
 export const getDepartmentByCode = getDepartment;
 
 export function computePerformanceMark(target?: number, actual?: number, pct?: number): string {
-  if (target === undefined || target === null || target <= 0) return 'N/A';
+  if (target === 0 && actual === 0) return '0';
+  if (target === undefined || target === null || target < 0) return 'N/A';
   if (actual === undefined || actual === null) return 'NOT ENTERED';
   if (actual === 0 && target > 0) return 'CRITICAL';
   const achievement = pct !== undefined && pct !== null ? pct : (target > 0 ? (actual / target) * 100 : 0);
