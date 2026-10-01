@@ -2439,16 +2439,45 @@ app.get('/api/daily-report', async (req, res) => {
       }
     });
 
-    // Apply saved monthly target to entries for NON-WEAVING departments (Requirement 31: WEAVING is daily date-based)
+    // Check for exact-date daily target for WEAVING
+    const weavingDailyMaster = masters.find(m => 
+      m.department_code === `DAILY_TARGET__WEAVING__${dateArg}` ||
+      m.department_code === `DAILY_TARGET__WEAVING__ALL__${dateArg}` ||
+      (m.department_code.startsWith(`DAILY_TARGET__WEAVING__`) && m.department_code.endsWith(`__${dateArg}`))
+    );
+    let weavingDailyTargets = null;
+    if (weavingDailyMaster && weavingDailyMaster.department_name) {
+      try {
+        weavingDailyTargets = JSON.parse(weavingDailyMaster.department_name);
+      } catch (e) {}
+    }
+
+    // Apply target priority:
+    // For WEAVING: Exact date daily target if present, else monthly target fallback
+    // For other departments: Monthly target
     finalEntries.forEach(e => {
-      if (e.department_code !== 'WEAVING') {
+      if (e.department_code === 'WEAVING') {
+        if (weavingDailyTargets && weavingDailyTargets[e.metric_code] !== undefined) {
+          e.target_value = weavingDailyTargets[e.metric_code];
+        } else if (monthlyTargetsMap['WEAVING'] && monthlyTargetsMap['WEAVING'][e.metric_code] !== undefined) {
+          if (e.target_value === null || e.target_value === undefined) {
+            e.target_value = monthlyTargetsMap['WEAVING'][e.metric_code];
+          }
+        }
+      } else {
         if (monthlyTargetsMap[e.department_code] && monthlyTargetsMap[e.department_code][e.metric_code] !== undefined) {
           e.target_value = monthlyTargetsMap[e.department_code][e.metric_code];
         }
       }
     });
 
-    res.json({ entries: finalEntries, count: finalEntries.length, departmentMasters: masters, monthlyTargets: monthlyTargetsMap });
+    res.json({ 
+      entries: finalEntries, 
+      count: finalEntries.length, 
+      departmentMasters: masters, 
+      monthlyTargets: monthlyTargetsMap,
+      weavingDailyTargets: weavingDailyTargets || null
+    });
   } catch (error) {
     console.error('Error fetching daily report:', error);
     res.status(500).json({ error: error.message });
@@ -2478,8 +2507,8 @@ app.post('/api/daily-report', async (req, res) => {
             const p = JSON.parse(dbUser.permissions);
             const reportPerms = p['Daily & Periodic Operational Reports'];
             if (reportPerms) {
-              const deptPerm = reportPerms[deptCode];
-              if (!deptPerm || !deptPerm.approved || (!deptPerm.entry && !deptPerm.edit)) {
+              const isApproved = deptPerm && deptPerm.approved !== false;
+              if (!deptPerm || !isApproved || (!deptPerm.entry && !deptPerm.edit)) {
                 return res.status(403).json({ error: `Access Denied: You do not have approved Entry/Edit permission for department "${deptCode}" in Daily & Periodic Operational Reports.` });
               }
             }
@@ -2714,8 +2743,8 @@ app.delete('/api/daily-report', async (req, res) => {
             const p = JSON.parse(dbUser.permissions);
             const reportPerms = p['Daily & Periodic Operational Reports'];
             if (reportPerms) {
-              const deptPerm = reportPerms[deptCode];
-              if (!deptPerm || !deptPerm.approved || !deptPerm.delete) {
+              const isApproved = deptPerm && deptPerm.approved !== false;
+              if (!deptPerm || !isApproved || !deptPerm.delete) {
                 return res.status(403).json({ error: `Access Denied: You do not have approved Delete permission for department "${deptCode}" in Daily & Periodic Operational Reports.` });
               }
             }
@@ -2781,59 +2810,125 @@ app.get('/api/daily-report/department-masters', async (req, res) => {
   }
 });
 
-// GET /api/daily-report/targets — Fetch saved monthly targets by department, month, and unit
+// GET /api/daily-report/targets — Fetch saved targets by department, month/date, and unit
 app.get('/api/daily-report/targets', async (req, res) => {
   try {
-    const { month, department, department_code, unit } = req.query;
-    const monthStr = String(month || new Date().toISOString().substring(0, 7)).trim();
+    const { month, date, department, department_code, unit } = req.query;
+    const dateStr = String(date || '').trim();
+    const monthStr = String(month || (dateStr ? dateStr.substring(0, 7) : new Date().toISOString().substring(0, 7))).trim();
     const deptStr = String(department_code || department || 'WEAVING').trim().toUpperCase();
     const unitStr = String(unit || 'ALL').trim();
 
-    const targetKeys = [
-      `TARGET__${deptStr}__${unitStr}__${monthStr}`,
-      `TARGET__${deptStr}__ALL__${monthStr}`,
-      `TARGET__${deptStr}__${monthStr}`
-    ];
-
-    const records = await prisma.departmentMasterInfo.findMany({
-      where: { department_code: { in: targetKeys } }
-    });
-
     let targets = {};
-    for (const key of targetKeys) {
-      const rec = records.find(r => r.department_code === key);
-      if (rec && rec.department_name) {
-        try {
-          targets = JSON.parse(rec.department_name);
-          break;
-        } catch (e) {
-          if (rec.department_head && !isNaN(Number(rec.department_head))) {
-            targets = { INHOUSE_MTRS: Number(rec.department_head) };
+    let isDailyOverride = false;
+
+    // Check for exact-date daily target (special requirement for WEAVING)
+    if (dateStr && deptStr === 'WEAVING') {
+      const dailyKeys = [
+        `DAILY_TARGET__${deptStr}__${unitStr}__${dateStr}`,
+        `DAILY_TARGET__${deptStr}__ALL__${dateStr}`,
+        `DAILY_TARGET__${deptStr}__${dateStr}`
+      ];
+      const dailyRecords = await prisma.departmentMasterInfo.findMany({
+        where: { department_code: { in: dailyKeys } }
+      });
+      for (const key of dailyKeys) {
+        const rec = dailyRecords.find(r => r.department_code === key);
+        if (rec && rec.department_name) {
+          try {
+            targets = JSON.parse(rec.department_name);
+            isDailyOverride = true;
             break;
+          } catch (e) {}
+        }
+      }
+    }
+
+    // If no daily override found, fetch monthly target
+    if (!isDailyOverride) {
+      const targetKeys = [
+        `TARGET__${deptStr}__${unitStr}__${monthStr}`,
+        `TARGET__${deptStr}__ALL__${monthStr}`,
+        `TARGET__${deptStr}__${monthStr}`
+      ];
+
+      const records = await prisma.departmentMasterInfo.findMany({
+        where: { department_code: { in: targetKeys } }
+      });
+
+      for (const key of targetKeys) {
+        const rec = records.find(r => r.department_code === key);
+        if (rec && rec.department_name) {
+          try {
+            targets = JSON.parse(rec.department_name);
+            break;
+          } catch (e) {
+            if (rec.department_head && !isNaN(Number(rec.department_head))) {
+              targets = { INHOUSE_MTRS: Number(rec.department_head) };
+              break;
+            }
           }
         }
       }
     }
 
-    res.json({ department: deptStr, month: monthStr, unit: unitStr, targets });
+    res.json({ department: deptStr, month: monthStr, date: dateStr || null, unit: unitStr, targets, isDailyOverride });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// POST /api/daily-report/targets — Permanently save monthly targets to database
+// POST /api/daily-report/targets — Permanently save monthly or daily targets to database
 app.post('/api/daily-report/targets', async (req, res) => {
   try {
-    const { department_code, month, unit, targets } = req.body;
-    if (!department_code || !month || !targets) {
-      return res.status(400).json({ error: 'department_code, month (YYYY-MM), and targets object are required' });
+    const { department_code, month, date, target_type, unit, targets } = req.body;
+    if (!department_code || !targets || typeof targets !== 'object') {
+      return res.status(400).json({ error: 'department_code and targets object are required' });
     }
     const deptStr = String(department_code).trim().toUpperCase();
-    const monthStr = String(month).trim();
+    const dateStr = String(date || '').trim();
+    const monthStr = String(month || (dateStr ? dateStr.substring(0, 7) : new Date().toISOString().substring(0, 7))).trim();
     const unitStr = String(unit || 'ALL').trim();
     const targetJson = JSON.stringify(targets);
     const primaryTarget = targets.INHOUSE_MTRS || Object.values(targets)[0] || 0;
 
+    // Handle Daily Target override (specifically for Weaving exact date)
+    if (target_type === 'DAILY' && dateStr && deptStr === 'WEAVING') {
+      const dailyKey = `DAILY_TARGET__${deptStr}__${unitStr}__${dateStr}`;
+      const dailyAllKey = `DAILY_TARGET__${deptStr}__ALL__${dateStr}`;
+
+      await Promise.all([
+        prisma.departmentMasterInfo.upsert({
+          where: { department_code: dailyKey },
+          update: { department_name: targetJson, department_head: String(primaryTarget) },
+          create: { department_code: dailyKey, department_name: targetJson, department_head: String(primaryTarget), mentor: 'SYSTEM' }
+        }),
+        prisma.departmentMasterInfo.upsert({
+          where: { department_code: dailyAllKey },
+          update: { department_name: targetJson, department_head: String(primaryTarget) },
+          create: { department_code: dailyAllKey, department_name: targetJson, department_head: String(primaryTarget), mentor: 'SYSTEM' }
+        })
+      ]);
+
+      // Update daily report entries for this specific date
+      for (const [mCode, tVal] of Object.entries(targets)) {
+        const numVal = tVal !== '' && tVal !== null && !isNaN(Number(tVal)) ? Number(tVal) : null;
+        await prisma.dailyReportEntry.updateMany({
+          where: {
+            report_date: dateStr,
+            department_code: deptStr,
+            metric_code: mCode
+          },
+          data: {
+            target_value: numVal
+          }
+        });
+      }
+
+      return res.json({ success: true, message: `Daily target for ${deptStr} on ${dateStr} saved permanently to database`, targets, isDailyOverride: true });
+    }
+
+    // Default: Monthly Target for the Department
     const key = `TARGET__${deptStr}__${unitStr}__${monthStr}`;
     const allKey = `TARGET__${deptStr}__ALL__${monthStr}`;
 
@@ -2850,11 +2945,11 @@ app.post('/api/daily-report/targets', async (req, res) => {
       })
     ]);
 
-    // Permanently update all existing daily report entries for this month & ensure first day of month record exists (Requirement 30)
+    // Permanently update all existing daily report entries for this month & ensure first day of month record exists
     const monthFirstDate = `${monthStr}-01`;
     for (const [mCode, tVal] of Object.entries(targets)) {
-      const numVal = Number(tVal);
-      if (!isNaN(numVal) && isFinite(numVal)) {
+      const numVal = tVal !== '' && tVal !== null && !isNaN(Number(tVal)) ? Number(tVal) : null;
+      if (numVal !== null) {
         await prisma.dailyReportEntry.updateMany({
           where: {
             report_date: { startsWith: monthStr },

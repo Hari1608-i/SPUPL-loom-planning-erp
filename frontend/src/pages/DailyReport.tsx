@@ -405,11 +405,12 @@ export default function DailyReport() {
   // Explicit edit mode for saved record (Rule 7, 11)
   const [isEditingSaved, setIsEditingSaved] = useState<boolean>(false);
 
-  // Monthly target editor: month selection
+  // Target editor: month / daily selection
   const [targetMonth, setTargetMonth] = useState<string>(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [targetType, setTargetType] = useState<'MONTHLY' | 'DAILY'>('MONTHLY');
   const [editMonthlyTargetsMode, setEditMonthlyTargetsMode] = useState<boolean>(false);
   const [savingMonthlyTargets, setSavingMonthlyTargets] = useState<boolean>(false);
 
@@ -459,7 +460,9 @@ export default function DailyReport() {
     }
     const filtered = DEPARTMENTS.filter(d => {
       const dp = userReportPerms[d.code];
-      return dp && dp.view && dp.approved;
+      if (!dp) return false;
+      const isApproved = dp.approved !== false;
+      return (dp.view || dp.entry || dp.edit) && isApproved;
     });
     return filtered.length > 0 ? filtered : DEPARTMENTS;
   }, [isAdminOrManager, userReportPerms]);
@@ -470,48 +473,73 @@ export default function DailyReport() {
       return { view: true, entry: true, edit: true, delete: true, print: true, excel: true, approved: true };
     }
     const dp = userReportPerms[selectedDeptCode] || {};
+    const isApproved = dp.approved !== false;
     return {
-      view: !!(dp.view && dp.approved),
-      entry: !!(dp.entry && dp.approved),
-      edit: !!(dp.edit && dp.approved),
-      delete: !!(dp.delete && dp.approved),
-      print: !!(dp.print && dp.approved),
-      excel: !!(dp.excel && dp.approved),
-      approved: !!dp.approved
+      view: !!(dp.view && isApproved),
+      entry: !!(dp.entry && isApproved),
+      edit: !!(dp.edit && isApproved),
+      delete: !!(dp.delete && isApproved),
+      print: !!(dp.print && isApproved),
+      excel: !!(dp.excel && isApproved),
+      approved: isApproved
     };
   }, [isAdminOrManager, userReportPerms, selectedDeptCode]);
 
-  // Restrict or pre-select department based on logged-in user and permissions
+  // Restrict or pre-select department on initial load or if selected department is not accessible
+  const hasInitializedDept = React.useRef(false);
   useEffect(() => {
-    if (!isAdminOrManager) {
-      if (accessibleDepartments.length > 0 && !accessibleDepartments.some(d => d.code === selectedDeptCode)) {
+    if (!isAdminOrManager && accessibleDepartments.length > 0) {
+      if (!hasInitializedDept.current) {
+        hasInitializedDept.current = true;
+        // On initial mount only: try to match user's master department, else first accessible department
+        if (userDept) {
+          const match = accessibleDepartments.find(
+            d => d.code.toUpperCase() === userDept || userDept.includes(d.code.toUpperCase())
+          );
+          if (match) {
+            setSelectedDeptCode(match.code);
+            return;
+          }
+        }
         setSelectedDeptCode(accessibleDepartments[0].code);
-      } else if (userDept) {
-        const match = accessibleDepartments.find(
-          d => d.code.toUpperCase() === userDept || userDept.includes(d.code.toUpperCase())
-        );
-        if (match) {
-          setSelectedDeptCode(match.code);
+      } else {
+        // If current department is no longer accessible, switch to first accessible
+        if (!accessibleDepartments.some(d => d.code === selectedDeptCode)) {
+          setSelectedDeptCode(accessibleDepartments[0].code);
         }
       }
     }
   }, [userDept, isAdminOrManager, accessibleDepartments, selectedDeptCode]);
-  // Fetch monthly targets when targetMonth or editMonthlyTargetsMode changes (for non-Weaving departments)
+  // Fetch targets when targetMonth, targetType, or editMonthlyTargetsMode changes
+  const effectiveTargetType = selectedDeptCode === 'WEAVING' ? targetType : 'MONTHLY';
   useEffect(() => {
-    if (editMonthlyTargetsMode && selectedDeptCode !== 'WEAVING' && targetMonth) {
-      fetch(`${API_BASE_URL}/api/daily-report/targets?department_code=${selectedDeptCode}&month=${targetMonth}&unit=${encodeURIComponent(selectedUnit)}`)
+    if (editMonthlyTargetsMode && selectedDeptCode) {
+      const q = new URLSearchParams({
+        department_code: selectedDeptCode,
+        month: targetMonth,
+        unit: selectedUnit
+      });
+      if (selectedDeptCode === 'WEAVING' && targetType === 'DAILY') {
+        q.append('date', selectedDate);
+      }
+      fetch(`${API_BASE_URL}/api/daily-report/targets?${q.toString()}`)
         .then(r => r.ok ? r.json() : null)
         .then(d => {
           if (d?.targets && typeof d.targets === 'object') {
-            setEditedTargets(prev => ({
-              ...prev,
-              ...d.targets
-            }));
+            const newTargets: Record<string, number> = {};
+            Object.entries(d.targets).forEach(([k, v]) => {
+              if (v !== undefined && v !== null && v !== '' && !isNaN(Number(v))) {
+                newTargets[k] = Number(v);
+              }
+            });
+            setEditedTargets(newTargets);
+          } else {
+            setEditedTargets({});
           }
         })
         .catch(() => {});
     }
-  }, [editMonthlyTargetsMode, targetMonth, selectedDeptCode, selectedUnit]);
+  }, [editMonthlyTargetsMode, targetMonth, targetType, selectedDeptCode, selectedDate, selectedUnit]);
 
   // Active department configuration
   const currentDept = useMemo(() => {
@@ -614,16 +642,26 @@ export default function DailyReport() {
         }
       });
 
-      // Apply saved monthly target to departments
+      // Apply target priority:
+      // Base: Monthly target for department
       if (data.monthlyTargets) {
         const deptTargets = data.monthlyTargets[selectedDeptCode] || data.monthlyTargets.targets;
         if (deptTargets && typeof deptTargets === 'object') {
           Object.entries(deptTargets).forEach(([mCode, tVal]) => {
-            if (tVal !== undefined && tVal !== null && targetsMap[mCode] === undefined) {
+            if (tVal !== undefined && tVal !== null && tVal !== '') {
               targetsMap[mCode] = Number(tVal);
             }
           });
         }
+      }
+
+      // For WEAVING: exact date daily target override takes priority over monthly target
+      if (selectedDeptCode === 'WEAVING' && data.weavingDailyTargets && typeof data.weavingDailyTargets === 'object') {
+        Object.entries(data.weavingDailyTargets).forEach(([mCode, tVal]) => {
+          if (tVal !== undefined && tVal !== null && tVal !== '') {
+            targetsMap[mCode] = Number(tVal);
+          }
+        });
       }
 
       setDailyEntries(entriesMap);
@@ -788,8 +826,16 @@ export default function DailyReport() {
     setFormInputs(prev => ({ ...prev, [metricCode]: val }));
   };
 
-  // Target change handler
+  // Target change handler (allows blank/optional target without forcing 0)
   const handleTargetChange = (metricCode: string, val: string) => {
+    if (val === '' || val === null || val === undefined) {
+      setEditedTargets(prev => {
+        const next = { ...prev };
+        delete next[metricCode];
+        return next;
+      });
+      return;
+    }
     const num = parseFloat(val);
     setEditedTargets(prev => ({ ...prev, [metricCode]: isNaN(num) ? 0 : num }));
   };
@@ -4466,56 +4512,83 @@ return (
                   </p>
                 </div>
 
-                {/* Target Edit Toggle (Only Weaving department's Daily/Monthly Target is editable) */}
-                {currentDept.code === 'WEAVING' && (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => setEditMonthlyTargetsMode(v => !v)}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                        editMonthlyTargetsMode
-                          ? 'bg-indigo-100 text-indigo-900 border border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300'
-                          : 'bg-indigo-50 text-indigo-800 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 hover:bg-indigo-100'
-                      }`}
-                      title="Edit Monthly Target for selected month (Weaving)"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>{editMonthlyTargetsMode ? 'Close Target Edit' : 'Edit Monthly Target'}</span>
-                    </button>
+                {/* Target Edit Toggle (All departments support Monthly Target; Weaving additionally supports Daily Target override) */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    onClick={() => setEditMonthlyTargetsMode(v => !v)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                      editMonthlyTargetsMode
+                        ? 'bg-indigo-100 text-indigo-900 border border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300'
+                        : 'bg-indigo-50 text-indigo-800 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 hover:bg-indigo-100'
+                    }`}
+                    title="Edit target configuration"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>{editMonthlyTargetsMode ? 'Close Target Edit' : (currentDept.code === 'WEAVING' ? 'Set Targets (Daily/Monthly)' : 'Set Monthly Target')}</span>
+                  </button>
                   {editMonthlyTargetsMode && (
                     <>
-                      <input
-                        type="month"
-                        value={targetMonth}
-                        onChange={e => setTargetMonth(e.target.value)}
-                        className="px-2 py-0.5 rounded border border-indigo-300 text-xs font-bold text-indigo-800 dark:text-indigo-200 bg-white dark:bg-slate-800 outline-none"
-                        title="Select target month"
-                      />
+                      {currentDept.code === 'WEAVING' && (
+                        <div className="flex items-center bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 rounded p-0.5 text-xs font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setTargetType('MONTHLY')}
+                            className={`px-2 py-0.5 rounded transition-colors ${targetType === 'MONTHLY' ? 'bg-indigo-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:text-indigo-600'}`}
+                          >
+                            Monthly
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTargetType('DAILY')}
+                            className={`px-2 py-0.5 rounded transition-colors ${targetType === 'DAILY' ? 'bg-amber-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:text-amber-600'}`}
+                          >
+                            Daily Override ({selectedDate})
+                          </button>
+                        </div>
+                      )}
+                      {targetType === 'MONTHLY' && (
+                        <input
+                          type="month"
+                          value={targetMonth}
+                          onChange={e => setTargetMonth(e.target.value)}
+                          className="px-2 py-0.5 rounded border border-indigo-300 text-xs font-bold text-indigo-800 dark:text-indigo-200 bg-white dark:bg-slate-800 outline-none"
+                          title="Select target month"
+                        />
+                      )}
                       <button
                         disabled={savingMonthlyTargets}
                         onClick={async () => {
                           setSavingMonthlyTargets(true);
                           try {
-                            const targets: Record<string, number> = {};
+                            const targets: Record<string, any> = {};
                             currentDept.rawMetrics.forEach((m: MetricDefinition) => {
-                              if (m.type === 'number' && editedTargets[m.code] !== undefined) {
-                                targets[m.code] = editedTargets[m.code];
+                              const tVal = editedTargets[m.code];
+                              if (tVal !== undefined && tVal !== null && !isNaN(Number(tVal))) {
+                                targets[m.code] = Number(tVal);
                               }
                             });
+                            const isDailyWeaving = currentDept.code === 'WEAVING' && targetType === 'DAILY';
                             const res = await fetch(`${API_BASE_URL}/api/daily-report/targets`, {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({
                                 department_code: currentDept.code,
+                                target_type: isDailyWeaving ? 'DAILY' : 'MONTHLY',
+                                date: isDailyWeaving ? selectedDate : undefined,
                                 month: targetMonth,
                                 unit: selectedUnit,
                                 targets
                               })
                             });
-                            if (!res.ok) throw new Error('Failed to save monthly targets');
-                            setFeedbackMessage({ type: 'success', text: `Monthly targets saved for ${currentDept.name} — ${targetMonth}` });
+                            if (!res.ok) throw new Error('Failed to save targets');
+                            const msg = isDailyWeaving 
+                              ? `Daily targets saved for ${currentDept.name} on ${selectedDate}`
+                              : `Monthly targets saved for ${currentDept.name} — ${targetMonth}`;
+                            setFeedbackMessage({ type: 'success', text: msg });
                             setEditMonthlyTargetsMode(false);
+                            fetchDailyData(selectedDate);
                           } catch (err: any) {
-                            setFeedbackMessage({ type: 'error', text: 'Error saving monthly targets: ' + err.message });
+                            setFeedbackMessage({ type: 'error', text: 'Error saving targets: ' + err.message });
                           } finally {
                             setSavingMonthlyTargets(false);
                           }
@@ -4523,12 +4596,11 @@ return (
                         className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 disabled:opacity-60 transition-all"
                       >
                         <Save className="w-3 h-3" />
-                        <span>{savingMonthlyTargets ? 'Saving...' : 'Save Targets'}</span>
+                        <span>{savingMonthlyTargets ? 'Saving...' : (currentDept.code === 'WEAVING' && targetType === 'DAILY' ? 'Save Daily Target' : 'Save Monthly Target')}</span>
                       </button>
                     </>
                   )}
                 </div>
-                )}
               </div>
 
               <div className="space-y-4">
@@ -4586,11 +4658,30 @@ return (
                       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pt-1">
                         {PLANNING_OTT_METRICS.map(ott => {
                           const val = formInputs[ott.code] !== undefined ? formInputs[ott.code] : '';
+                          const ottTarget = editedTargets[ott.code];
                           return (
                             <div key={ott.code} className="bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-amber-200/80 dark:border-slate-700 shadow-xs">
-                              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-200 block truncate" title={ott.name}>
-                                {ott.name}
-                              </label>
+                              <div className="flex items-center justify-between gap-1 mb-1">
+                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-200 block truncate" title={ott.name}>
+                                  {ott.name}
+                                </label>
+                                {editMonthlyTargetsMode ? (
+                                  <input
+                                    type="number"
+                                    value={ottTarget !== undefined && ottTarget !== null ? ottTarget : ''}
+                                    onChange={e => handleTargetChange(ott.code, e.target.value)}
+                                    placeholder="Target"
+                                    className="w-16 px-1 py-0.5 bg-amber-50 dark:bg-slate-700 border border-amber-400 rounded text-[10px] font-bold text-amber-900 dark:text-amber-100 outline-none"
+                                    title={`Target for ${ott.name}`}
+                                  />
+                                ) : (
+                                  ottTarget !== undefined && ottTarget > 0 && (
+                                    <span className="text-[9px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-1 py-0.2 rounded border border-amber-200">
+                                      T: {ottTarget}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                               <div className="mt-1 relative">
                                 <input
                                   type="number"
@@ -4686,9 +4777,29 @@ return (
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                   <div>
-                                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                                      {g.inspName} <span className="text-[10px] text-slate-500 font-semibold">(Mtrs)</span>
-                                    </label>
+                                    <div className="flex items-center justify-between mb-1">
+                                      <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                        {g.inspName} <span className="text-[10px] text-slate-500 font-semibold">(Mtrs)</span>
+                                      </label>
+                                      {editMonthlyTargetsMode ? (
+                                        <div className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-300">
+                                          <span className="text-[9px] font-bold text-indigo-700 dark:text-indigo-300">Target:</span>
+                                          <input
+                                            type="number"
+                                            value={editedTargets[g.inspCode] !== undefined && editedTargets[g.inspCode] !== null ? editedTargets[g.inspCode] : ''}
+                                            onChange={e => handleTargetChange(g.inspCode, e.target.value)}
+                                            placeholder="Target"
+                                            className="w-20 px-1 py-0.5 bg-white dark:bg-slate-800 border border-indigo-400 rounded text-[11px] font-bold text-indigo-900 dark:text-indigo-100 outline-none"
+                                          />
+                                        </div>
+                                      ) : (
+                                        editedTargets[g.inspCode] !== undefined && editedTargets[g.inspCode] > 0 && (
+                                          <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                                            Target: {Number(editedTargets[g.inspCode]).toLocaleString()}
+                                          </span>
+                                        )
+                                      )}
+                                    </div>
                                     <input
                                       type="number"
                                       step="any"
@@ -4699,9 +4810,29 @@ return (
                                     />
                                   </div>
                                   <div>
-                                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                                      {g.passName} <span className="text-[10px] text-slate-500 font-semibold">(Mtrs)</span>
-                                    </label>
+                                    <div className="flex items-center justify-between mb-1">
+                                      <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                        {g.passName} <span className="text-[10px] text-slate-500 font-semibold">(Mtrs)</span>
+                                      </label>
+                                      {editMonthlyTargetsMode ? (
+                                        <div className="flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-300">
+                                          <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-300">Target:</span>
+                                          <input
+                                            type="number"
+                                            value={editedTargets[g.passCode] !== undefined && editedTargets[g.passCode] !== null ? editedTargets[g.passCode] : ''}
+                                            onChange={e => handleTargetChange(g.passCode, e.target.value)}
+                                            placeholder="Target"
+                                            className="w-20 px-1 py-0.5 bg-white dark:bg-slate-800 border border-emerald-400 rounded text-[11px] font-bold text-emerald-900 dark:text-emerald-100 outline-none"
+                                          />
+                                        </div>
+                                      ) : (
+                                        editedTargets[g.passCode] !== undefined && editedTargets[g.passCode] > 0 && (
+                                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                                            Target: {Number(editedTargets[g.passCode]).toLocaleString()}
+                                          </span>
+                                        )
+                                      )}
+                                    </div>
                                     <input
                                       type="number"
                                       step="any"
@@ -4915,13 +5046,16 @@ return (
                             </label>
 
                             {/* Target Pill / Input */}
-                            {editMonthlyTargetsMode && metric.type === 'number' && currentDept.code === 'WEAVING' ? (
+                            {editMonthlyTargetsMode && metric.type === 'number' ? (
                               <div className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-300 dark:border-indigo-700">
-                                <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">Target ({targetMonth}):</span>
+                                <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
+                                  Target ({currentDept.code === 'WEAVING' && targetType === 'DAILY' ? selectedDate : targetMonth}):
+                                </span>
                                 <input
                                   type="number"
-                                  value={effectiveTarget !== undefined ? effectiveTarget : ''}
+                                  value={effectiveTarget !== undefined && effectiveTarget !== null ? effectiveTarget : ''}
                                   onChange={e => handleTargetChange(metric.code, e.target.value)}
+                                  placeholder="Target"
                                   className="w-24 px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-indigo-400 rounded text-xs font-bold text-indigo-900 dark:text-indigo-100 outline-none"
                                 />
                                 <span className="text-[10px] text-slate-400 font-bold">{metric.unit}</span>

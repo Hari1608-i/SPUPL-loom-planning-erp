@@ -105,6 +105,46 @@ const getDefaultRolePermissions = (role: string) => {
   return perms;
 };
 
+const normalizeUserPermissions = (permsInput: any, role: string) => {
+  let parsed: any = {};
+  if (typeof permsInput === 'string') {
+    try {
+      parsed = JSON.parse(permsInput);
+    } catch (e) {}
+  } else if (typeof permsInput === 'object' && permsInput !== null) {
+    parsed = { ...permsInput };
+  }
+
+  const defaults = getDefaultRolePermissions(role);
+  // Ensure all screens exist
+  screens.forEach(s => {
+    if (!parsed[s]) {
+      parsed[s] = defaults[s] || { view: false, create: false, edit: false, delete: false, approve: false, export: false, print: false, excel: false };
+    }
+  });
+
+  // Ensure Daily & Periodic Operational Reports matrix exists for all departments
+  if (!parsed['Daily & Periodic Operational Reports'] || typeof parsed['Daily & Periodic Operational Reports'] !== 'object') {
+    parsed['Daily & Periodic Operational Reports'] = defaults['Daily & Periodic Operational Reports'];
+  } else {
+    REPORT_DEPARTMENTS.forEach(dept => {
+      if (!parsed['Daily & Periodic Operational Reports'][dept.code]) {
+        parsed['Daily & Periodic Operational Reports'][dept.code] = {
+          view: false,
+          entry: false,
+          edit: false,
+          delete: false,
+          print: false,
+          excel: false,
+          approved: false
+        };
+      }
+    });
+  }
+
+  return parsed;
+};
+
 export default function UserManagement() {
   const { token, user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
@@ -441,16 +481,7 @@ export default function UserManagement() {
                   <td className="py-3 px-6 text-right space-x-1">
                     <button 
                       onClick={() => {
-                        let parsedPerms = {};
-                        if (u.permissions) {
-                          try {
-                            parsedPerms = JSON.parse(u.permissions);
-                          } catch (e) {}
-                        }
-                        // If no specific perms exist, pre-fill with defaults for user's role
-                        if (Object.keys(parsedPerms).length === 0) {
-                          parsedPerms = getDefaultRolePermissions(u.role);
-                        }
+                        const parsedPerms = normalizeUserPermissions(u.permissions, u.role);
                         setFormData({ ...u, permissions: parsedPerms });
                         setWizardStep(4);
                         setIsWizardOpen(true);
@@ -461,15 +492,7 @@ export default function UserManagement() {
                     </button>
                     <button 
                       onClick={() => {
-                        let parsedPerms = {};
-                        if (u.permissions) {
-                          try {
-                            parsedPerms = JSON.parse(u.permissions);
-                          } catch (e) {}
-                        }
-                        if (Object.keys(parsedPerms).length === 0) {
-                          parsedPerms = getDefaultRolePermissions(u.role);
-                        }
+                        const parsedPerms = normalizeUserPermissions(u.permissions, u.role);
                         setFormData({ ...u, permissions: parsedPerms, password: '' });
                         setWizardStep(1);
                         setIsWizardOpen(true);
