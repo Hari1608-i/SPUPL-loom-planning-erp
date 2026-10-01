@@ -29,6 +29,7 @@ import ErpAlertCenter from './pages/ErpAlertCenter';
 import DesignWiseRunningReport from './pages/DesignWiseRunningReport';
 import OrderTrackingAnalytics from './pages/OrderTrackingAnalytics';
 import DailyReport from './pages/DailyReport';
+import DailyEntryAlert from './pages/DailyEntryAlert';
 
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -72,6 +73,7 @@ function AppRoutes() {
               <Route path="/orders" element={<ProtectedRoute menuName="Order Management"><OrderManagement /></ProtectedRoute>} />
               <Route path="/order-tracking" element={<ProtectedRoute menuName="Order Tracking & Planning Analytics"><OrderTrackingAnalytics /></ProtectedRoute>} />
               <Route path="/daily-report" element={<ProtectedRoute menuName="Daily & Monthly Reports"><DailyReport /></ProtectedRoute>} />
+              <Route path="/daily-entry-alert" element={<ProtectedRoute menuName="Daily Entry Alert"><DailyEntryAlert /></ProtectedRoute>} />
               
               <Route path="/users" element={<ProtectedRoute menuName="User Management"><UserManagement /></ProtectedRoute>} />
               <Route path="/system-health" element={<ProtectedRoute menuName="System Health"><SystemHealth /></ProtectedRoute>} />

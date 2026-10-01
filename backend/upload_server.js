@@ -66,6 +66,17 @@ app.get('/api', (req, res) => {
 
 app.use('/api/analytics', require('./routes/analytics'));
 
+// Daily Entry Alert Module Routes
+app.use('/api/daily-entry-alert', require('./routes/dailyEntryAlertRoutes'));
+
+// Daily Entry Alert Background Scheduler (checks every minute)
+const { startScheduler } = require('./services/dailyEntryAlertScheduler');
+try {
+  startScheduler();
+} catch (e) {
+  console.error('Failed to initialize Daily Entry Alert Scheduler:', e.message);
+}
+
 // In-memory Rate Limiting Middleware for Authentication API
 const rateLimitMap = new Map();
 app.use('/api/auth/login', (req, res, next) => {

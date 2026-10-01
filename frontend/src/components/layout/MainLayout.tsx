@@ -6,7 +6,7 @@ import {
   Calendar, History as HistoryIcon, PieChart, AlertCircle, ListTodo, Activity,
   ListOrdered, Cpu, Package, Palette, Users, LogOut, Search, Bell, Moon, Sun,
   User as UserIcon, ClipboardList, ChevronDown, Layers, CheckCircle,
-  ShieldAlert, AlertTriangle, X, ArrowUpRight, RefreshCw, FileSpreadsheet
+  ShieldAlert, AlertTriangle, X, ArrowUpRight, RefreshCw, FileSpreadsheet, BellRing
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../../config';
@@ -563,6 +563,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             <SidebarItem to="/orders"         icon={ClipboardList}    label="Order Management"           menuName="Order Management"                   isCollapsed={isCollapsed} />
             <SidebarItem to="/order-tracking" icon={Activity}         label="Order Tracking & Analytics" menuName="Order Tracking & Planning Analytics" isCollapsed={isCollapsed} />
             <SidebarItem to="/daily-report"   icon={FileSpreadsheet}  label="Daily & Monthly Reports"    menuName="Daily & Monthly Reports"             isCollapsed={isCollapsed} />
+            <SidebarItem to="/daily-entry-alert" icon={BellRing}      label="Daily Entry Alert"          menuName="Daily Entry Alert"                   isCollapsed={isCollapsed} />
             <SidebarItem to="/plan"           icon={HistoryIcon}      label="Loom Planning Setup"         menuName="Loom Planning Setup"                isCollapsed={isCollapsed} />
             <SidebarItem to="/erp-alerts"     icon={AlertCircle}      label="Alert Center"                menuName="Alert Center"                       isCollapsed={isCollapsed} badgeCount={openAlertCount} />
             <SidebarItem to="/runout-monitor" icon={Activity}         label="Runout Monitor"              menuName="Runout Monitor"                     isCollapsed={isCollapsed} />
