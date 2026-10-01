@@ -1,24 +1,24 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = global.prisma || global.globalPrisma || new PrismaClient();
-const { sendNotification, buildReminderMessage } = require('./notificationService');
+const { sendNotification, buildReminderMessage, normalizePhoneE164 } = require('./notificationService');
 
 /**
- * Standard scheduled reminder times
+ * Standard default scheduled reminder times
  */
 const DEFAULT_SCHEDULE = [
-  '08:00',
-  '08:30',
-  '09:00',
-  '09:30',
-  '10:00',
-  '10:15',
-  '10:30',
-  '10:35',
-  '10:40',
-  '10:45',
-  '10:50',
-  '10:55',
-  '11:00'
+  { time: '08:00', type: 'NORMAL' },
+  { time: '08:30', type: 'NORMAL' },
+  { time: '09:00', type: 'NORMAL' },
+  { time: '09:30', type: 'NORMAL' },
+  { time: '10:00', type: 'NORMAL' },
+  { time: '10:15', type: 'NORMAL' },
+  { time: '10:30', type: 'RAPID' },
+  { time: '10:35', type: 'RAPID' },
+  { time: '10:40', type: 'RAPID' },
+  { time: '10:45', type: 'RAPID' },
+  { time: '10:50', type: 'RAPID' },
+  { time: '10:55', type: 'RAPID' },
+  { time: '11:00', type: 'FINAL' }
 ];
 
 /**
@@ -40,7 +40,9 @@ function getISTDateTime(overrideDate = null, overrideTime = null) {
   const minutes = String(istDate.getMinutes()).padStart(2, '0');
   const timeStr = overrideTime || `${hours}:${minutes}`;
 
-  const dayOfWeek = istDate.getDay(); // 0 = Sunday
+  const dayOfWeek = overrideDate 
+    ? new Date(`${overrideDate}T12:00:00+05:30`).getDay() 
+    : istDate.getDay(); // 0 = Sunday
 
   return {
     dateStr,
@@ -64,46 +66,30 @@ function format12Hour(timeStr) {
 }
 
 /**
- * Generate full schedule array for a department config
+ * Load schedule slots for a department config from DB
  */
-function getDepartmentSchedule(config) {
-  const start = config.start_time || '08:00';
-  const rapidStart = config.rapid_start_time || '10:30';
-  const rapidInterval = config.rapid_interval_minutes || 5;
-  const end = config.end_time || '11:00';
+async function getDepartmentScheduleSlots(configId) {
+  try {
+    const slots = await prisma.dailyEntryAlertSchedule.findMany({
+      where: {
+        alert_config_id: Number(configId),
+        is_enabled: true
+      },
+      orderBy: { slot_time: 'asc' }
+    });
 
-  // If standard defaults match, return DEFAULT_SCHEDULE
-  if (start === '08:00' && rapidStart === '10:30' && rapidInterval === 5 && end === '11:00') {
-    return DEFAULT_SCHEDULE;
+    if (slots && slots.length > 0) {
+      return slots.map(s => ({
+        time: s.slot_time,
+        type: s.slot_type || 'NORMAL',
+        id: s.id
+      }));
+    }
+  } catch (err) {
+    console.error('Failed to load slots from DailyEntryAlertSchedule:', err.message);
   }
 
-  // Otherwise calculate dynamically
-  const times = [];
-  // Standard fixed milestones before rapid start
-  const baseTimes = ['08:00', '08:30', '09:00', '09:30', '10:00', '10:15', '10:30'];
-  baseTimes.forEach(t => {
-    if (t >= start && t <= rapidStart && !times.includes(t)) {
-      times.push(t);
-    }
-  });
-
-  // Rapid interval times
-  const [rapidH, rapidM] = rapidStart.split(':').map(Number);
-  const [endH, endM] = end.split(':').map(Number);
-  let curMins = rapidH * 60 + rapidM + rapidInterval;
-  const endMins = endH * 60 + endM;
-
-  while (curMins <= endMins) {
-    const hh = String(Math.floor(curMins / 60)).padStart(2, '0');
-    const mm = String(curMins % 60).padStart(2, '0');
-    const timeStr = `${hh}:${mm}`;
-    if (!times.includes(timeStr)) {
-      times.push(timeStr);
-    }
-    curMins += rapidInterval;
-  }
-
-  return times.sort();
+  return DEFAULT_SCHEDULE;
 }
 
 /**
@@ -112,7 +98,6 @@ function getDepartmentSchedule(config) {
 async function checkDepartmentCompleted(deptCode, dateStr) {
   const code = String(deptCode).trim().toUpperCase();
 
-  // Handle department codes & potential aliases
   let deptCodesToCheck = [code];
   if (code === 'HRD') {
     deptCodesToCheck.push('HRD_TRANSPORT');
@@ -142,7 +127,6 @@ async function checkDepartmentCompleted(deptCode, dateStr) {
   });
 
   if (code === 'TRANSPORT') {
-    // Check if specifically transport trips metric exists
     const hasTransport = entries.some(e => e.metric_code === 'TRANSPORT_TRIPS' || e.department_code === 'TRANSPORT');
     return {
       completed: hasTransport,
@@ -186,7 +170,7 @@ async function runAlertCycle({ forceDate = null, forceTime = null, forceSlot = n
       continue;
     }
 
-    // 2. Sunday check
+    // 2. Sunday check (Sunday disabled)
     if (isSunday && !config.sunday_enabled) {
       results.push({
         department_code: deptCode,
@@ -207,268 +191,295 @@ async function runAlertCycle({ forceDate = null, forceTime = null, forceSlot = n
       continue;
     }
 
-    // 4. Schedule match check
-    const schedule = getDepartmentSchedule(config);
-    const isMatchingSlot = schedule.includes(currentSlot);
+    // 4. Load configured dynamic schedule slots
+    const scheduleSlots = await getDepartmentScheduleSlots(config.id);
+    const times = scheduleSlots.map(s => s.time);
+    const isMatchingSlot = times.includes(currentSlot);
 
     if (!isMatchingSlot && !forceSlot) {
       results.push({
         department_code: deptCode,
         status: 'SKIPPED_TIME',
-        reason: `Current time ${currentSlot} is not a scheduled slot`
+        reason: `Current time ${currentSlot} is not an active scheduled slot`
       });
       continue;
     }
 
     const scheduledTime = forceSlot || currentSlot;
+    const currentSlotObj = scheduleSlots.find(s => s.time === scheduledTime);
+    const isFinalSlot = currentSlotObj ? (currentSlotObj.type === 'FINAL' || scheduleSlots[scheduleSlots.length - 1].time === scheduledTime) : false;
 
-    // 5. Duplicate protection check (Mandatory Section 18)
-    const existingLog = await prisma.dailyEntryAlertLog.findUnique({
-      where: {
-        department_code_alert_date_scheduled_time: {
-          department_code: deptCode,
-          alert_date: dateStr,
-          scheduled_time: scheduledTime
-        }
-      }
-    });
-
-    if (existingLog) {
+    // 5. Check if reminders already sent after final slot
+    const finalSlotTime = scheduleSlots[scheduleSlots.length - 1]?.time || '11:00';
+    if (scheduledTime > finalSlotTime) {
       results.push({
         department_code: deptCode,
-        status: 'SKIPPED_DUPLICATE',
-        reason: `Reminder for ${scheduledTime} on ${dateStr} has already been recorded`
+        status: 'STOPPED_FINAL_REACHED',
+        reason: `Final configured slot (${finalSlotTime}) has already passed`
       });
       continue;
     }
 
-    // 6. Number verification (Mandatory Section 9: NO NUMBER = NO MESSAGE)
-    const hasSender = Boolean(config.sender_number && String(config.sender_number).trim());
-    const hasReceiver = Boolean(config.receiver_number && String(config.receiver_number).trim());
+    // 6. Gather Receiver Numbers (Receiver 1 & Receiver 2)
+    const rec1 = config.receiver_number_1 || config.receiver_number;
+    const rec2 = config.receiver_number_2;
 
-    if (!hasSender || !hasReceiver) {
-      // Record disabled log
-      await prisma.dailyEntryAlertLog.create({
+    const receiversToSend = [];
+    if (rec1 && String(rec1).trim()) receiversToSend.push(normalizePhoneE164(rec1));
+    if (rec2 && String(rec2).trim() && normalizePhoneE164(rec2) !== normalizePhoneE164(rec1)) {
+      receiversToSend.push(normalizePhoneE164(rec2));
+    }
+
+    // Sender check
+    const hasSender = Boolean(config.sender_number && String(config.sender_number).trim());
+    const isSenderVerified = config.sender_verification_status === 'VERIFIED';
+
+    if (!hasSender) {
+      // Missing sender
+      results.push({
+        department_code: deptCode,
+        status: 'DISABLED - SENDER MISSING',
+        reason: 'Sender number not configured'
+      });
+      continue;
+    }
+
+    if (receiversToSend.length === 0) {
+      // Missing both receivers
+      results.push({
+        department_code: deptCode,
+        status: 'DISABLED - RECEIVER MISSING',
+        reason: 'Neither Receiver 1 nor Receiver 2 configured'
+      });
+      continue;
+    }
+
+    if (!isSenderVerified) {
+      // Sender exists but unverified
+      results.push({
+        department_code: deptCode,
+        status: 'DISABLED - SENDER NOT VERIFIED',
+        reason: 'Sender number is not yet verified'
+      });
+      continue;
+    }
+
+    // 7. Calculate Next Reminder Time
+    const nextSlot = times.find(t => t > scheduledTime);
+    const nextReminderDisplay = nextSlot ? format12Hour(nextSlot) : 'Schedule Ended';
+
+    // 8. Build message body
+    const messageBody = buildReminderMessage({
+      template: isFinalSlot ? (config.final_message_template || config.message_template) : config.message_template,
+      departmentName: deptName,
+      dateStr,
+      scheduledTime: format12Hour(scheduledTime),
+      nextReminderTime: nextReminderDisplay,
+      isFinal: isFinalSlot
+    });
+
+    // 9. Send to each receiver with duplicate protection per receiver
+    const deptDispatches = [];
+    for (const receiver of receiversToSend) {
+      // Check existing log for this department + date + scheduled_time + receiver
+      const existingLog = await prisma.dailyEntryAlertLog.findFirst({
+        where: {
+          department_code: deptCode,
+          alert_date: dateStr,
+          scheduled_time: scheduledTime,
+          receiver_number: receiver,
+          is_test: false
+        }
+      });
+
+      if (existingLog) {
+        deptDispatches.push({
+          receiver,
+          status: 'DUPLICATE_BLOCKED',
+          reason: `Reminder already recorded for ${receiver} at ${scheduledTime}`
+        });
+        continue;
+      }
+
+      // Re-verify department not completed right before dispatch (race condition safeguard)
+      const recheck = await checkDepartmentCompleted(deptCode, dateStr);
+      if (recheck.completed) {
+        deptDispatches.push({
+          receiver,
+          status: 'STOPPED_COMPLETED',
+          reason: 'Daily Report was completed immediately prior to dispatch'
+        });
+        break;
+      }
+
+      // Dispatch notification
+      const dispatchResult = await sendNotification({
+        channel: config.channel || 'WhatsApp',
+        senderNumber: config.sender_number,
+        receiverNumber: receiver,
+        message: messageBody,
+        departmentCode: deptCode,
+        isTest: false
+      });
+
+      // Record log in database
+      const savedLog = await prisma.dailyEntryAlertLog.create({
         data: {
           alert_config_id: config.id,
           department_code: deptCode,
           alert_date: dateStr,
           scheduled_time: scheduledTime,
           channel: config.channel || 'WhatsApp',
-          sender_number: config.sender_number || null,
-          receiver_number: config.receiver_number || null,
-          status: 'DISABLED',
-          message: null,
-          error_message: 'Messaging Disabled - Number not configured'
+          sender_number: config.sender_number,
+          receiver_number: receiver,
+          status: dispatchResult.status,
+          message: messageBody,
+          provider_message_id: dispatchResult.messageId || null,
+          provider_status: dispatchResult.providerStatus || null,
+          error_message: dispatchResult.error || null,
+          is_test: false
         }
       });
 
-      results.push({
-        department_code: deptCode,
-        status: 'DISABLED',
-        reason: 'Messaging Disabled - Number not configured'
+      deptDispatches.push({
+        receiver,
+        status: dispatchResult.status,
+        logId: savedLog.id,
+        providerMessageId: dispatchResult.messageId
       });
-      continue;
     }
-
-    // 7. Calculate next reminder time for template
-    const currentIndex = schedule.indexOf(scheduledTime);
-    const nextSlot = currentIndex >= 0 && currentIndex < schedule.length - 1 ? schedule[currentIndex + 1] : null;
-    const nextReminderDisplay = nextSlot ? format12Hour(nextSlot) : 'None (Final Reminder)';
-    const isFinal = scheduledTime === config.end_time || scheduledTime === '11:00';
-
-    // 8. Build message
-    const formattedDate = new Date(`${dateStr}T12:00:00Z`).toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric'
-    });
-
-    const messageText = buildReminderMessage({
-      template: config.message_template,
-      departmentName: deptName,
-      dateStr: formattedDate,
-      scheduledTime,
-      nextReminderTime: nextReminderDisplay,
-      isFinal
-    });
-
-    // 9. Send Notification via Isolated Service
-    const sendResult = await sendNotification({
-      channel: config.channel,
-      senderNumber: config.sender_number,
-      receiverNumber: config.receiver_number,
-      message: messageText,
-      departmentCode: deptCode,
-      isTest: false
-    });
-
-    // 10. Persist Log
-    await prisma.dailyEntryAlertLog.create({
-      data: {
-        alert_config_id: config.id,
-        department_code: deptCode,
-        alert_date: dateStr,
-        scheduled_time: scheduledTime,
-        channel: config.channel || 'WhatsApp',
-        sender_number: config.sender_number,
-        receiver_number: config.receiver_number,
-        status: sendResult.status || (sendResult.success ? 'SENT' : 'FAILED'),
-        message: messageText,
-        error_message: sendResult.error || null
-      }
-    });
 
     results.push({
       department_code: deptCode,
-      status: sendResult.status,
+      status: isFinalSlot ? 'FINAL_SENT' : 'ACTIVE_DISPATCHED',
       scheduled_time: scheduledTime,
-      success: sendResult.success,
-      channel: config.channel
+      dispatches: deptDispatches
     });
   }
 
   return {
-    evaluated_at: new Date().toISOString(),
-    dateStr,
-    currentSlot,
+    cycle_time: currentSlot,
+    cycle_date: dateStr,
+    is_sunday: isSunday,
+    processed_count: results.length,
     results
   };
 }
 
 /**
- * Get comprehensive live status for all departments on dateStr
+ * Get live overview status of all departments
  */
 async function getLiveStatus(queryDate = null) {
   const { dateStr, timeStr, isSunday } = getISTDateTime(queryDate);
 
   const configs = await prisma.dailyEntryAlertConfig.findMany({
+    include: {
+      schedules: {
+        orderBy: { slot_time: 'asc' }
+      }
+    },
     orderBy: { id: 'asc' }
-  });
-
-  // Fetch today's logs for all departments
-  const logs = await prisma.dailyEntryAlertLog.findMany({
-    where: { alert_date: dateStr },
-    orderBy: { sent_at: 'desc' }
   });
 
   const departmentStatuses = [];
 
   for (const config of configs) {
     const deptCode = config.department_code;
-    const { completed, lastUpdatedAt } = await checkDepartmentCompleted(deptCode, dateStr);
+    const { completed, entryCount, lastUpdatedAt } = await checkDepartmentCompleted(deptCode, dateStr);
 
-    // Find logs for this department
-    const deptLogs = logs.filter(l => l.department_code === deptCode);
-    const sentLogs = deptLogs.filter(l => l.status === 'SENT' || l.status === 'TEST_SENT');
-    const lastReminderLog = sentLogs[0] || deptLogs[0] || null;
+    // Dynamic slots
+    const slots = (config.schedules && config.schedules.length > 0)
+      ? config.schedules.filter(s => s.is_enabled).map(s => s.slot_time)
+      : DEFAULT_SCHEDULE.map(s => s.time);
 
-    // Determine reminder status
-    let reminderStatus = 'ACTIVE';
+    // Latest log today
+    const latestLog = await prisma.dailyEntryAlertLog.findFirst({
+      where: {
+        department_code: deptCode,
+        alert_date: dateStr
+      },
+      orderBy: { id: 'desc' }
+    });
+
+    // Calculate Reminder Status
+    let reminderStatus = 'WAITING';
     if (!config.is_active) {
       reminderStatus = 'DISABLED';
     } else if (isSunday && !config.sunday_enabled) {
       reminderStatus = 'SUNDAY_OFF';
     } else if (completed) {
       reminderStatus = 'STOPPED';
-    } else if (timeStr > (config.end_time || '11:00')) {
-      reminderStatus = 'COMPLETED_FOR_DAY';
-    }
-
-    // Determine next scheduled reminder
-    const schedule = getDepartmentSchedule(config);
-    let nextReminder = null;
-
-    if (reminderStatus === 'ACTIVE') {
-      const remainingSlots = schedule.filter(slot => slot >= timeStr);
-      if (remainingSlots.length > 0) {
-        nextReminder = format12Hour(remainingSlots[0]);
-      } else {
-        nextReminder = 'Past Final Reminder (11:00 AM)';
-      }
-    } else if (reminderStatus === 'STOPPED') {
-      nextReminder = 'None (Entry Completed)';
-    } else if (reminderStatus === 'DISABLED') {
-      nextReminder = 'None (Department Inactive)';
-    } else if (reminderStatus === 'SUNDAY_OFF') {
-      nextReminder = 'None (Sunday)';
     } else {
-      nextReminder = 'None (Schedule Ended)';
+      const finalSlot = slots[slots.length - 1] || '11:00';
+      if (timeStr > finalSlot) {
+        reminderStatus = 'FINAL_SENT';
+      } else {
+        reminderStatus = 'ACTIVE';
+      }
     }
 
-    const hasSender = Boolean(config.sender_number && String(config.sender_number).trim());
-    const hasReceiver = Boolean(config.receiver_number && String(config.receiver_number).trim());
+    // Determine Next Reminder Slot
+    let nextReminder = 'None (Completed)';
+    if (!completed && config.is_active && (!isSunday || config.sunday_enabled)) {
+      const nextTime = slots.find(t => t > timeStr);
+      if (nextTime) {
+        nextReminder = format12Hour(nextTime);
+      } else {
+        nextReminder = 'None (Schedule Ended)';
+      }
+    }
+
+    // Determine Last Reminder Display
+    let lastReminderDisplay = 'None';
+    if (latestLog) {
+      lastReminderDisplay = `${format12Hour(latestLog.scheduled_time)} (${latestLog.status})`;
+    }
 
     departmentStatuses.push({
-      id: config.id,
       department_code: deptCode,
       department_name: config.department_name,
       is_active: config.is_active,
-      channel: config.channel,
-      sender_number: config.sender_number,
-      receiver_number: config.receiver_number,
-      messaging_ready: hasSender && hasReceiver,
-      messaging_status: (hasSender && hasReceiver) ? 'Ready' : 'Messaging Disabled - Number not configured',
       today_entry: completed ? 'COMPLETED' : 'PENDING',
+      entry_count: entryCount,
+      last_entry_time: lastUpdatedAt,
       reminder_status: reminderStatus,
-      last_reminder: lastReminderLog ? `${format12Hour(lastReminderLog.scheduled_time)} (${lastReminderLog.status})` : 'None',
-      last_reminder_time: lastReminderLog ? lastReminderLog.sent_at : null,
+      last_reminder: lastReminderDisplay,
       next_reminder: nextReminder,
-      completed_at: completed ? lastUpdatedAt : null,
-      config: {
-        start_time: config.start_time,
-        rapid_start_time: config.rapid_start_time,
-        rapid_interval_minutes: config.rapid_interval_minutes,
-        end_time: config.end_time,
-        sunday_enabled: config.sunday_enabled,
-        message_template: config.message_template
-      }
+      sender_number: config.sender_number || '',
+      sender_verification_status: config.sender_verification_status || 'NOT_VERIFIED',
+      receiver_number_1: config.receiver_number_1 || config.receiver_number || '',
+      receiver_number_2: config.receiver_number_2 || '',
+      channel: config.channel || 'WhatsApp',
+      schedules: config.schedules || []
     });
   }
 
+  // Summary counts
+  const total = departmentStatuses.length;
+  const completedCount = departmentStatuses.filter(d => d.today_entry === 'COMPLETED').length;
+  const pendingCount = total - completedCount;
+  const activeReminders = departmentStatuses.filter(d => d.reminder_status === 'ACTIVE').length;
+
   return {
-    date: dateStr,
-    current_time: timeStr,
+    current_date: dateStr,
+    current_time: format12Hour(timeStr),
+    raw_time: timeStr,
     is_sunday: isSunday,
+    summary: {
+      total,
+      completed: completedCount,
+      pending: pendingCount,
+      reminders_active: activeReminders
+    },
     departments: departmentStatuses
   };
-}
-
-/**
- * Background Scheduler Runner (Checks once every minute)
- */
-let schedulerInterval = null;
-
-function startScheduler() {
-  if (schedulerInterval) return;
-
-  console.log('[DAILY_ENTRY_ALERT] Scheduler started. Checking every 60 seconds.');
-
-  // Run initial check after 5 seconds to catch up
-  setTimeout(() => {
-    runAlertCycle().catch(err => console.error('[DAILY_ENTRY_ALERT_RUN_ERROR]:', err.message));
-  }, 5000);
-
-  schedulerInterval = setInterval(() => {
-    runAlertCycle().catch(err => console.error('[DAILY_ENTRY_ALERT_RUN_ERROR]:', err.message));
-  }, 60000);
-}
-
-function stopScheduler() {
-  if (schedulerInterval) {
-    clearInterval(schedulerInterval);
-    schedulerInterval = null;
-    console.log('[DAILY_ENTRY_ALERT] Scheduler stopped.');
-  }
 }
 
 module.exports = {
   getISTDateTime,
   format12Hour,
-  getDepartmentSchedule,
+  getDepartmentScheduleSlots,
   checkDepartmentCompleted,
   runAlertCycle,
-  getLiveStatus,
-  startScheduler,
-  stopScheduler
+  getLiveStatus
 };

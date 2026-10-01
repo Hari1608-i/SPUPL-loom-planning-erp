@@ -804,45 +804,70 @@ model WarpPreparationProcess {
 }
 
 model DailyEntryAlertConfig {
-  id                     Int                  @id @default(autoincrement())
-  department_code        String               @unique
-  department_name        String
-  is_active              Boolean              @default(true)
-  sender_number          String?
-  receiver_number        String?
-  channel                String               @default("WhatsApp")
-  start_time             String               @default("08:00")
-  rapid_start_time       String               @default("10:30")
-  rapid_interval_minutes Int                  @default(5)
-  end_time               String               @default("11:00")
-  sunday_enabled         Boolean              @default(false)
-  message_template       String?
-  created_at             DateTime             @default(now())
-  updated_at             DateTime             @updatedAt
+  id                         Int                      @id @default(autoincrement())
+  department_code            String                   @unique
+  department_name            String
+  is_active                  Boolean                  @default(true)
+  sender_number              String?
+  sender_provider_id         String?
+  sender_verification_status String                   @default("NOT_VERIFIED")
+  sender_verified_at         DateTime?
+  receiver_number            String?
+  receiver_number_1          String?
+  receiver_number_2          String?
+  channel                    String                   @default("WhatsApp")
+  start_time                 String                   @default("08:00")
+  rapid_start_time           String                   @default("10:30")
+  rapid_interval_minutes     Int                      @default(5)
+  end_time                   String                   @default("11:00")
+  sunday_enabled             Boolean                  @default(false)
+  message_template           String?
+  final_message_template     String?
+  created_at                 DateTime                 @default(now())
+  updated_at                 DateTime                 @updatedAt
 
-  logs                   DailyEntryAlertLog[]
+  logs                       DailyEntryAlertLog[]
+  schedules                  DailyEntryAlertSchedule[]
 
   @@index([department_code])
   @@index([is_active])
 }
 
+model DailyEntryAlertSchedule {
+  id              Int                   @id @default(autoincrement())
+  alert_config_id Int
+  slot_time       String
+  slot_type       String                @default("NORMAL")
+  is_enabled      Boolean               @default(true)
+  display_order   Int                   @default(0)
+  created_at      DateTime              @default(now())
+  updated_at      DateTime              @updatedAt
+
+  config          DailyEntryAlertConfig @relation(fields: [alert_config_id], references: [id], onDelete: Cascade)
+
+  @@unique([alert_config_id, slot_time])
+  @@index([alert_config_id])
+}
+
 model DailyEntryAlertLog {
-  id              Int                    @id @default(autoincrement())
-  alert_config_id Int?
-  department_code String
-  alert_date      String
-  scheduled_time  String
-  sent_at         DateTime               @default(now())
-  channel         String                 @default("WhatsApp")
-  sender_number   String?
-  receiver_number String?
-  status          String
-  message         String?
-  error_message   String?
+  id                  Int                    @id @default(autoincrement())
+  alert_config_id     Int?
+  department_code     String
+  alert_date          String
+  scheduled_time      String
+  sent_at             DateTime               @default(now())
+  channel             String                 @default("WhatsApp")
+  sender_number       String?
+  receiver_number     String?
+  status              String
+  message             String?
+  provider_message_id String?
+  provider_status     String?
+  error_message       String?
+  is_test             Boolean                @default(false)
 
-  config          DailyEntryAlertConfig? @relation(fields: [alert_config_id], references: [id])
+  config              DailyEntryAlertConfig? @relation(fields: [alert_config_id], references: [id])
 
-  @@unique([department_code, alert_date, scheduled_time])
   @@index([alert_date])
   @@index([department_code, alert_date])
   @@index([status])

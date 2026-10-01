@@ -3,10 +3,20 @@ import {
   Bell, BellRing, CheckCircle2, Clock, AlertTriangle, AlertCircle, 
   Settings, Send, RefreshCw, Smartphone, MessageSquare, PhoneCall, 
   Calendar, Check, X, ShieldCheck, ShieldAlert, Sparkles, Filter, 
-  ChevronRight, Edit3, Save, Info, Radio, Zap, ArrowRight, UserCheck
+  ChevronRight, Edit3, Save, Info, Radio, Zap, ArrowRight, UserCheck,
+  Plus, Trash2, Key, CheckCheck, Loader2
 } from 'lucide-react';
 import { API_BASE_URL } from '../config';
 import { useAuth } from '../context/AuthContext';
+
+interface ScheduleSlot {
+  id?: number;
+  alert_config_id?: number;
+  slot_time: string;
+  slot_type: 'NORMAL' | 'RAPID' | 'FINAL';
+  is_enabled: boolean;
+  display_order?: number;
+}
 
 interface AlertConfig {
   id: number;
@@ -14,7 +24,11 @@ interface AlertConfig {
   department_name: string;
   is_active: boolean;
   sender_number: string | null;
+  sender_verification_status?: string;
+  sender_verified_at?: string | null;
   receiver_number: string | null;
+  receiver_number_1?: string | null;
+  receiver_number_2?: string | null;
   channel: 'WhatsApp' | 'SMS' | string;
   start_time: string;
   rapid_start_time: string;
@@ -22,6 +36,8 @@ interface AlertConfig {
   end_time: string;
   sunday_enabled: boolean;
   message_template: string | null;
+  final_message_template?: string | null;
+  schedules?: ScheduleSlot[];
   created_at: string;
   updated_at: string;
 }
@@ -33,23 +49,17 @@ interface DepartmentStatus {
   is_active: boolean;
   channel: string;
   sender_number: string | null;
+  sender_verification_status?: string;
   receiver_number: string | null;
+  receiver_number_1?: string | null;
+  receiver_number_2?: string | null;
   messaging_ready: boolean;
   messaging_status: string;
   today_entry: 'COMPLETED' | 'PENDING';
-  reminder_status: 'ACTIVE' | 'STOPPED' | 'DISABLED' | 'COMPLETED_FOR_DAY' | 'SUNDAY_OFF';
+  reminder_status: 'ACTIVE' | 'STOPPED' | 'DISABLED' | 'FINAL_SENT' | 'WAITING' | 'SUNDAY_OFF';
   last_reminder: string;
-  last_reminder_time: string | null;
   next_reminder: string;
-  completed_at: string | null;
-  config: {
-    start_time: string;
-    rapid_start_time: string;
-    rapid_interval_minutes: number;
-    end_time: string;
-    sunday_enabled: boolean;
-    message_template: string | null;
-  };
+  schedules?: ScheduleSlot[];
 }
 
 interface AlertLog {
@@ -64,7 +74,10 @@ interface AlertLog {
   receiver_number: string | null;
   status: string;
   message: string | null;
+  provider_message_id?: string | null;
+  provider_status?: string | null;
   error_message: string | null;
+  is_test?: boolean;
 }
 
 export default function DailyEntryAlert() {
@@ -83,6 +96,17 @@ export default function DailyEntryAlert() {
   const [editingConfig, setEditingConfig] = useState<AlertConfig | null>(null);
   const [savingConfig, setSavingConfig] = useState<boolean>(false);
 
+  // Time Slot Management inside Edit Config
+  const [newSlotTime, setNewSlotTime] = useState<string>('10:15');
+  const [newSlotType, setNewSlotType] = useState<'NORMAL' | 'RAPID' | 'FINAL'>('NORMAL');
+  const [addingSlot, setAddingSlot] = useState<boolean>(false);
+
+  // Sender OTP Verification State
+  const [verifyingSender, setVerifyingSender] = useState<boolean>(false);
+  const [otpInput, setOtpInput] = useState<string>('');
+  const [confirmingOtp, setConfirmingOtp] = useState<boolean>(false);
+  const [verificationMessage, setVerificationMessage] = useState<{ text: string; isError: boolean } | null>(null);
+
   // History logs state
   const [logs, setLogs] = useState<AlertLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState<boolean>(false);
@@ -93,11 +117,12 @@ export default function DailyEntryAlert() {
   const [testModalOpen, setTestModalOpen] = useState<boolean>(false);
   const [testDept, setTestDept] = useState<DepartmentStatus | null>(null);
   const [testSender, setTestSender] = useState<string>('');
-  const [testReceiver, setTestReceiver] = useState<string>('');
+  const [testReceiver1, setTestReceiver1] = useState<string>('');
+  const [testReceiver2, setTestReceiver2] = useState<string>('');
   const [testChannel, setTestChannel] = useState<'WhatsApp' | 'SMS'>('WhatsApp');
   const [testCustomMessage, setTestCustomMessage] = useState<string>('');
   const [sendingTest, setSendingTest] = useState<boolean>(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string; error?: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; results?: any[]; error?: string } | null>(null);
 
   // General toast feedback
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -125,7 +150,7 @@ export default function DailyEntryAlert() {
     }
   }, [statusDate]);
 
-  // Fetch Configurations
+  // Fetch Configurations with child schedules
   const fetchConfigs = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/config`);
@@ -158,14 +183,9 @@ export default function DailyEntryAlert() {
     }
   }, [logFilterDept, logFilterStatus]);
 
-  // Initial and periodic polling (every 30 seconds for live status)
   useEffect(() => {
-    fetchStatus();
+    fetchStatus(true);
     fetchConfigs();
-    const interval = setInterval(() => {
-      fetchStatus(false);
-    }, 30000);
-    return () => clearInterval(interval);
   }, [fetchStatus, fetchConfigs]);
 
   useEffect(() => {
@@ -174,10 +194,11 @@ export default function DailyEntryAlert() {
     }
   }, [activeTab, fetchLogs]);
 
-  // Save Config Changes
+  // Save Configuration (Department Level)
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingConfig) return;
+
     setSavingConfig(true);
     try {
       const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/config/${editingConfig.id}`, {
@@ -186,17 +207,202 @@ export default function DailyEntryAlert() {
         body: JSON.stringify(editingConfig)
       });
       const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to save configuration');
+      if (data.success) {
+        showToast(`Configuration updated for ${editingConfig.department_name}`, 'success');
+        setEditingConfig(null);
+        fetchConfigs();
+        fetchStatus(false);
+      } else {
+        showToast(`Error: ${data.error || 'Failed to save config'}`, 'error');
       }
-      showToast(`Configuration updated for ${editingConfig.department_name}`, 'success');
-      setEditingConfig(null);
-      fetchConfigs();
-      fetchStatus(false);
     } catch (err: any) {
-      showToast(err.message, 'error');
+      showToast(`Network error: ${err.message}`, 'error');
     } finally {
       setSavingConfig(false);
+    }
+  };
+
+  // Add Time Slot to Department
+  const handleAddSlot = async () => {
+    if (!editingConfig || !newSlotTime) return;
+    
+    // Validate HH:mm
+    const regex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    if (!regex.test(newSlotTime)) {
+      showToast('Invalid time format. Please use 24-hr HH:mm (e.g. 08:30)', 'error');
+      return;
+    }
+
+    // Check existing
+    const existing = (editingConfig.schedules || []).some(s => s.slot_time === newSlotTime);
+    if (existing) {
+      showToast('Reminder time already configured.', 'error');
+      return;
+    }
+
+    setAddingSlot(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/schedules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          alert_config_id: editingConfig.id,
+          slot_time: newSlotTime,
+          slot_type: newSlotType,
+          is_enabled: true
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Slot ${newSlotTime} (${newSlotType}) added`, 'success');
+        const updatedSchedules = [...(editingConfig.schedules || []), data.schedule].sort((a, b) => a.slot_time.localeCompare(b.slot_time));
+        setEditingConfig({ ...editingConfig, schedules: updatedSchedules });
+        fetchConfigs();
+        fetchStatus(false);
+      } else {
+        showToast(data.error || 'Failed to add slot', 'error');
+      }
+    } catch (err: any) {
+      showToast(`Failed to add slot: ${err.message}`, 'error');
+    } finally {
+      setAddingSlot(false);
+    }
+  };
+
+  // Toggle Time Slot Enabled/Disabled
+  const handleToggleSlot = async (slotId: number | undefined, currentEnabled: boolean) => {
+    if (!slotId || !editingConfig) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/schedules/${slotId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_enabled: !currentEnabled })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const updated = (editingConfig.schedules || []).map(s => s.id === slotId ? { ...s, is_enabled: !currentEnabled } : s);
+        setEditingConfig({ ...editingConfig, schedules: updated });
+        fetchConfigs();
+        fetchStatus(false);
+      }
+    } catch (err: any) {
+      showToast('Failed to update slot status', 'error');
+    }
+  };
+
+  // Change Slot Type
+  const handleChangeSlotType = async (slotId: number | undefined, newType: 'NORMAL' | 'RAPID' | 'FINAL') => {
+    if (!slotId || !editingConfig) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/schedules/${slotId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot_type: newType })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const updated = (editingConfig.schedules || []).map(s => s.id === slotId ? { ...s, slot_type: newType } : s);
+        setEditingConfig({ ...editingConfig, schedules: updated });
+        fetchConfigs();
+      }
+    } catch (err: any) {
+      showToast('Failed to change slot type', 'error');
+    }
+  };
+
+  // Delete Time Slot
+  const handleDeleteSlot = async (slotId: number | undefined) => {
+    if (!slotId || !editingConfig) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/schedules/${slotId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        const updated = (editingConfig.schedules || []).filter(s => s.id !== slotId);
+        setEditingConfig({ ...editingConfig, schedules: updated });
+        fetchConfigs();
+        fetchStatus(false);
+        showToast('Time slot deleted', 'info');
+      }
+    } catch (err: any) {
+      showToast('Failed to delete slot', 'error');
+    }
+  };
+
+  // Start Sender Verification
+  const handleStartSenderVerification = async () => {
+    if (!editingConfig || !editingConfig.sender_number) {
+      showToast('Please enter a sender number first', 'error');
+      return;
+    }
+
+    setVerifyingSender(true);
+    setVerificationMessage(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/sender/verify/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone_number: editingConfig.sender_number,
+          config_id: editingConfig.id
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingConfig({ ...editingConfig, sender_verification_status: 'OTP_SENT' });
+        setVerificationMessage({ text: data.message || 'OTP sent to sender number. Enter OTP below to complete verification.', isError: false });
+        showToast('OTP sent successfully', 'success');
+      } else {
+        setVerificationMessage({ text: data.error || 'Failed to send OTP', isError: true });
+        showToast(data.error || 'Failed to send OTP', 'error');
+      }
+    } catch (err: any) {
+      setVerificationMessage({ text: err.message, isError: true });
+    } finally {
+      setVerifyingSender(false);
+    }
+  };
+
+  // Confirm Sender OTP
+  const handleConfirmSenderOtp = async () => {
+    if (!editingConfig || !editingConfig.sender_number || !otpInput.trim()) {
+      showToast('Enter the OTP code received', 'error');
+      return;
+    }
+
+    setConfirmingOtp(true);
+    setVerificationMessage(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/sender/verify/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone_number: editingConfig.sender_number,
+          otp_code: otpInput.trim(),
+          config_id: editingConfig.id
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingConfig({ 
+          ...editingConfig, 
+          sender_verification_status: 'VERIFIED',
+          sender_verified_at: data.verifiedAt 
+        });
+        setOtpInput('');
+        setVerificationMessage({ text: 'Sender verified successfully with provider!', isError: false });
+        showToast('Sender verified successfully!', 'success');
+        fetchConfigs();
+        fetchStatus(false);
+      } else {
+        setVerificationMessage({ text: data.error || 'OTP verification failed', isError: true });
+        showToast(data.error || 'Verification failed', 'error');
+      }
+    } catch (err: any) {
+      setVerificationMessage({ text: err.message, isError: true });
+    } finally {
+      setConfirmingOtp(false);
     }
   };
 
@@ -204,7 +410,8 @@ export default function DailyEntryAlert() {
   const handleOpenTestModal = (dept: DepartmentStatus) => {
     setTestDept(dept);
     setTestSender(dept.sender_number || '');
-    setTestReceiver(dept.receiver_number || '');
+    setTestReceiver1(dept.receiver_number_1 || dept.receiver_number || '');
+    setTestReceiver2(dept.receiver_number_2 || '');
     setTestChannel((dept.channel as any) || 'WhatsApp');
     setTestCustomMessage('');
     setTestResult(null);
@@ -214,11 +421,19 @@ export default function DailyEntryAlert() {
   // Execute Test Notification
   const handleSendTestMessage = async () => {
     if (!testDept) return;
-    if (!testSender.trim() || !testReceiver.trim()) {
+    if (!testSender.trim()) {
       setTestResult({
         success: false,
-        message: 'Messaging Disabled - Number not configured',
-        error: 'Both Sender Number and Receiver Number are strictly required.'
+        message: 'Messaging Disabled - Sender number not configured',
+        error: 'Sender number is strictly required.'
+      });
+      return;
+    }
+    if (!testReceiver1.trim() && !testReceiver2.trim()) {
+      setTestResult({
+        success: false,
+        message: 'Messaging Disabled - Receiver number not configured',
+        error: 'At least one Receiver Number (Receiver 1 or Receiver 2) is required.'
       });
       return;
     }
@@ -233,7 +448,8 @@ export default function DailyEntryAlert() {
           department_code: testDept.department_code,
           channel: testChannel,
           sender_number: testSender,
-          receiver_number: testReceiver,
+          receiver_number_1: testReceiver1,
+          receiver_number_2: testReceiver2,
           message: testCustomMessage || undefined
         })
       });
@@ -247,9 +463,10 @@ export default function DailyEntryAlert() {
       } else {
         setTestResult({
           success: true,
-          message: data.message || `Test ${testChannel} sent successfully!`
+          message: data.message || `Test ${testChannel} sent successfully!`,
+          results: data.results
         });
-        showToast(`Test ${testChannel} dispatched to ${testReceiver}`, 'success');
+        showToast(`Test ${testChannel} dispatched`, 'success');
         fetchStatus(false);
       }
     } catch (err: any) {
@@ -267,7 +484,7 @@ export default function DailyEntryAlert() {
   const handleTriggerCycleCheck = async () => {
     try {
       showToast('Evaluating scheduled reminder cycle...', 'info');
-      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/trigger-check`, {
+      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
@@ -464,75 +681,81 @@ export default function DailyEntryAlert() {
       </div>
 
       {/* ══════════════════════════════════════════════════════════════
-          TAB 1: LIVE ALERT STATUS SCREEN
+          TAB 1: LIVE STATUS SCREEN
          ══════════════════════════════════════════════════════════════ */}
       {activeTab === 'STATUS' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-          <div className="p-5 border-b border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <span>Department-Wise Live Reminder Monitoring</span>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-                  Date: {statusDate}
-                </span>
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Automatically detects when a department submits today's report in SQL and stops all subsequent reminder dispatches.
-              </p>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-slate-300">
+              <span className="font-bold">Department-Wise Live Reminder Monitoring</span>
+              <span className="text-xs px-2.5 py-0.5 rounded-md bg-slate-800 font-mono text-slate-400">
+                Date: {statusDate}
+              </span>
             </div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/40 text-emerald-300 border border-emerald-800/40 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="flex items-center gap-4 text-xs font-semibold">
+              <span className="flex items-center gap-1.5 text-emerald-400">
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
                 Completed: Reminders Stopped
               </span>
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-950/40 text-amber-300 border border-amber-800/40 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                Pending: Rapid Reminders Active
+              <span className="flex items-center gap-1.5 text-amber-400">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                Pending: Active Reminders
               </span>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-950/80 text-slate-400 uppercase text-[11px] font-black border-b border-slate-800 tracking-wider">
-                  <th className="py-3 px-4">Department</th>
-                  <th className="py-3 px-4 text-center">Today's Entry</th>
-                  <th className="py-3 px-4 text-center">Reminder Status</th>
-                  <th className="py-3 px-4">Last Reminder</th>
-                  <th className="py-3 px-4">Next Reminder</th>
-                  <th className="py-3 px-4">Channel & Numbers</th>
-                  <th className="py-3 px-4 text-center">Config Status</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+                <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-black uppercase tracking-wider text-[11px]">
+                  <th className="py-3.5 px-4">Department</th>
+                  <th className="py-3.5 px-4 text-center">Today's Entry</th>
+                  <th className="py-3.5 px-4 text-center">Reminder Status</th>
+                  <th className="py-3.5 px-4">Last Reminder</th>
+                  <th className="py-3.5 px-4">Next Reminder</th>
+                  <th className="py-3.5 px-4">Sender Number</th>
+                  <th className="py-3.5 px-4">Receiver 1</th>
+                  <th className="py-3.5 px-4">Receiver 2</th>
+                  <th className="py-3.5 px-4">Channel</th>
+                  <th className="py-3.5 px-4 text-center">Config Status</th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-medium">
-                {departments.length === 0 ? (
+                {loadingStatus ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-500">
-                      {loadingStatus ? 'Loading department alert statuses...' : 'No department configurations found.'}
+                    <td colSpan={11} className="py-12 text-center text-slate-400">
+                      <div className="flex items-center justify-center gap-2">
+                        <RefreshCw className="w-5 h-5 animate-spin text-amber-500" />
+                        <span>Loading live department status...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : departments.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="py-8 text-center text-slate-400">
+                      No department reminder configurations found.
                     </td>
                   </tr>
                 ) : (
                   departments.map((dept) => {
                     const isCompleted = dept.today_entry === 'COMPLETED';
-                    const isStopped = dept.reminder_status === 'STOPPED';
-                    const isDisabled = dept.reminder_status === 'DISABLED';
-                    const isSundayOff = dept.reminder_status === 'SUNDAY_OFF';
+                    const hasSender = Boolean(dept.sender_number);
+                    const isVerified = dept.sender_verification_status === 'VERIFIED';
+                    const r1 = dept.receiver_number_1 || dept.receiver_number;
+                    const r2 = dept.receiver_number_2;
 
                     return (
                       <tr 
                         key={dept.department_code}
-                        className={`hover:bg-slate-800/40 transition-colors ${
-                          isCompleted ? 'bg-emerald-950/5' : 'bg-transparent'
-                        }`}
+                        className="hover:bg-slate-800/40 transition-colors"
                       >
-                        {/* Department */}
+                        {/* Department Name */}
                         <td className="py-3 px-4">
                           <div className="font-bold text-white text-sm">
                             {dept.department_name}
                           </div>
-                          <div className="text-[10px] text-slate-400 font-mono">
+                          <div className="text-[10px] text-slate-500 font-mono">
                             {dept.department_code}
                           </div>
                         </td>
@@ -540,91 +763,89 @@ export default function DailyEntryAlert() {
                         {/* Today's Entry */}
                         <td className="py-3 px-4 text-center">
                           {isCompleted ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                              <Check className="w-3.5 h-3.5 stroke-[3]" />
-                              COMPLETED
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-black bg-emerald-950/80 text-emerald-400 border border-emerald-700/50">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>COMPLETED</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                              <Clock className="w-3.5 h-3.5 animate-pulse" />
-                              PENDING
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-black bg-amber-950/80 text-amber-400 border border-amber-700/50 animate-pulse">
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>PENDING</span>
                             </span>
                           )}
                         </td>
 
                         {/* Reminder Status */}
                         <td className="py-3 px-4 text-center">
-                          {isStopped ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                              STOPPED
-                            </span>
-                          ) : isDisabled ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold bg-slate-800/60 text-slate-500 border border-slate-800">
-                              DISABLED
-                            </span>
-                          ) : isSundayOff ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold bg-amber-950/40 text-amber-400 border border-amber-800/50">
-                              SUNDAY OFF
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-red-500/10 text-red-400 border border-red-500/30">
-                              <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                              ACTIVE
-                            </span>
-                          )}
+                          <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                            dept.reminder_status === 'ACTIVE'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              : dept.reminder_status === 'STOPPED'
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              : dept.reminder_status === 'FINAL_SENT'
+                              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                              : 'bg-slate-800 text-slate-400 border border-slate-700'
+                          }`}>
+                            {dept.reminder_status}
+                          </span>
                         </td>
 
                         {/* Last Reminder */}
-                        <td className="py-3 px-4">
-                          <div className="font-semibold text-slate-200">
-                            {dept.last_reminder}
-                          </div>
-                          {dept.last_reminder_time && (
-                            <div className="text-[10px] text-slate-500">
-                              {new Date(dept.last_reminder_time).toLocaleTimeString()}
-                            </div>
-                          )}
+                        <td className="py-3 px-4 font-mono text-[11px] text-slate-300">
+                          {dept.last_reminder}
                         </td>
 
                         {/* Next Reminder */}
-                        <td className="py-3 px-4">
-                          <div className="font-semibold text-slate-200 flex items-center gap-1.5">
-                            {dept.reminder_status === 'ACTIVE' && (
-                              <Clock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-                            )}
-                            <span>{dept.next_reminder}</span>
-                          </div>
+                        <td className="py-3 px-4 font-mono text-[11px] text-amber-400 font-bold">
+                          {dept.next_reminder}
                         </td>
 
-                        {/* Channel & Numbers */}
+                        {/* Sender Number */}
                         <td className="py-3 px-4">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
-                              dept.channel === 'WhatsApp' 
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' 
-                                : 'bg-sky-500/10 text-sky-400 border border-sky-500/30'
-                            }`}>
-                              {dept.channel}
-                            </span>
-                            {dept.messaging_ready ? (
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                To: {dept.receiver_number}
+                          {hasSender ? (
+                            <div>
+                              <span className="font-mono text-[11px] text-slate-200 block">
+                                {dept.sender_number}
                               </span>
-                            ) : (
-                              <span className="text-[10px] text-red-400 font-semibold flex items-center gap-1">
-                                <AlertTriangle className="w-3 h-3" />
-                                No Number Configured
-                              </span>
-                            )}
-                          </div>
-                          {dept.sender_number && (
-                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                              From: {dept.sender_number}
+                              {isVerified ? (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-800/40">
+                                  <ShieldCheck className="w-2.5 h-2.5" />
+                                  <span>VERIFIED</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-amber-400 bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-800/40">
+                                  <ShieldAlert className="w-2.5 h-2.5" />
+                                  <span>NOT VERIFIED</span>
+                                </span>
+                              )}
                             </div>
+                          ) : (
+                            <span className="text-[10px] text-slate-500 italic">Not Configured</span>
                           )}
                         </td>
 
-                        {/* Config Active/Inactive */}
+                        {/* Receiver 1 */}
+                        <td className="py-3 px-4 font-mono text-[11px] text-slate-300">
+                          {r1 || <span className="text-slate-500 italic">None</span>}
+                        </td>
+
+                        {/* Receiver 2 */}
+                        <td className="py-3 px-4 font-mono text-[11px] text-slate-300">
+                          {r2 || <span className="text-slate-500 italic">None</span>}
+                        </td>
+
+                        {/* Channel */}
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                            dept.channel === 'WhatsApp' 
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' 
+                              : 'bg-sky-500/10 text-sky-400 border border-sky-500/30'
+                          }`}>
+                            {dept.channel}
+                          </span>
+                        </td>
+
+                        {/* Config Status */}
                         <td className="py-3 px-4 text-center">
                           {dept.is_active ? (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
@@ -684,7 +905,7 @@ export default function DailyEntryAlert() {
                 <div>
                   <h3 className="text-xl font-bold text-white flex items-center gap-2">
                     <Settings className="w-5 h-5 text-amber-400" />
-                    <span>Edit Configuration — {editingConfig.department_name}</span>
+                    <span>Department Configuration — {editingConfig.department_name}</span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
                     Updates will be permanently stored in PostgreSQL and used for all automated reminders.
@@ -745,34 +966,115 @@ export default function DailyEntryAlert() {
                     </select>
                   </div>
 
-                  {/* Sender Number */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                      Sender Number
-                    </label>
+                  {/* Sender Number & OTP Verification UI */}
+                  <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
+                        Sender Number (One per dept)
+                      </label>
+                      {editingConfig.sender_verification_status === 'VERIFIED' ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
+                          <CheckCheck className="w-3 h-3" />
+                          <span>VERIFIED</span>
+                        </span>
+                      ) : editingConfig.sender_verification_status === 'OTP_SENT' ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-sky-400 bg-sky-950/60 px-2 py-0.5 rounded border border-sky-800/40">
+                          <Clock className="w-3 h-3" />
+                          <span>OTP SENT</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/40">
+                          <AlertTriangle className="w-3 h-3" />
+                          <span>NOT VERIFIED</span>
+                        </span>
+                      )}
+                    </div>
                     <input 
                       type="text"
-                      placeholder="e.g. 919876543210"
+                      placeholder="e.g. +919876543210"
                       value={editingConfig.sender_number || ''}
-                      onChange={(e) => setEditingConfig({ ...editingConfig, sender_number: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
+                      onChange={(e) => setEditingConfig({ 
+                        ...editingConfig, 
+                        sender_number: e.target.value,
+                        sender_verification_status: 'NOT_VERIFIED'
+                      })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
                     />
-                    <p className="text-[10px] text-slate-500 mt-1">If blank, messaging will be strictly disabled.</p>
+
+                    {/* Sender Verification Flow */}
+                    <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
+                      {editingConfig.sender_verification_status !== 'VERIFIED' && (
+                        <button
+                          type="button"
+                          onClick={handleStartSenderVerification}
+                          disabled={verifyingSender || !editingConfig.sender_number}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition disabled:opacity-50"
+                        >
+                          {verifyingSender ? <Loader2 className="w-3 h-3 animate-spin" /> : <Key className="w-3 h-3" />}
+                          <span>Verify Sender</span>
+                        </button>
+                      )}
+
+                      {editingConfig.sender_verification_status === 'OTP_SENT' && (
+                        <div className="flex items-center gap-2 mt-2 w-full">
+                          <input 
+                            type="text"
+                            placeholder="Enter OTP"
+                            value={otpInput}
+                            onChange={(e) => setOtpInput(e.target.value)}
+                            className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono w-28"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleConfirmSenderOtp}
+                            disabled={confirmingOtp || !otpInput.trim()}
+                            className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition disabled:opacity-50"
+                          >
+                            {confirmingOtp ? 'Verifying...' : 'Confirm OTP'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {verificationMessage && (
+                      <p className={`text-[11px] font-semibold mt-1 ${verificationMessage.isError ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {verificationMessage.text}
+                      </p>
+                    )}
                   </div>
 
-                  {/* Receiver Number */}
+                  {/* Receiver Number 1 */}
                   <div>
                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                      Receiver Number (Department Head / Incharge)
+                      Receiver Number 1 (Primary Incharge)
                     </label>
                     <input 
                       type="text"
-                      placeholder="e.g. 919876543210"
-                      value={editingConfig.receiver_number || ''}
-                      onChange={(e) => setEditingConfig({ ...editingConfig, receiver_number: e.target.value })}
+                      placeholder="e.g. +919111111111"
+                      value={editingConfig.receiver_number_1 || editingConfig.receiver_number || ''}
+                      onChange={(e) => setEditingConfig({ 
+                        ...editingConfig, 
+                        receiver_number_1: e.target.value,
+                        receiver_number: e.target.value 
+                      })}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
                     />
-                    <p className="text-[10px] text-slate-500 mt-1">Target phone receiving automated reminders.</p>
+                    <p className="text-[10px] text-slate-500 mt-1">Primary phone receiving reminders.</p>
+                  </div>
+
+                  {/* Receiver Number 2 */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                      Receiver Number 2 (Secondary / Backup)
+                    </label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. +919222222222"
+                      value={editingConfig.receiver_number_2 || ''}
+                      onChange={(e) => setEditingConfig({ ...editingConfig, receiver_number_2: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Optional second phone also notified in real time.</p>
                   </div>
 
                   {/* Sunday Enabled Toggle */}
@@ -789,219 +1091,251 @@ export default function DailyEntryAlert() {
                       <option value="TRUE">Enabled (Send reminders on Sunday)</option>
                     </select>
                   </div>
+                </div>
 
-                  {/* Start Time */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                      Start Time (Normal Reminders)
-                    </label>
-                    <input 
-                      type="text"
-                      value={editingConfig.start_time}
-                      onChange={(e) => setEditingConfig({ ...editingConfig, start_time: e.target.value })}
-                      placeholder="08:00"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-1">Default 08:00 AM</p>
+                {/* ── Custom Reminder Time Slots Manager ── */}
+                <div className="p-5 bg-slate-950/90 rounded-2xl border border-slate-800 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                    <div>
+                      <h4 className="text-sm font-black text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                        <Clock className="w-4 h-4" />
+                        <span>Reminder Time Slots (Customizable Department Schedule)</span>
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Configure exact reminder times. The engine sorts slots chronologically and dispatches only to enabled slots.
+                      </p>
+                    </div>
+
+                    {/* Inline Add Slot Control */}
+                    <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-700">
+                      <span className="text-xs text-slate-400 font-semibold">Time:</span>
+                      <input 
+                        type="time" 
+                        value={newSlotTime} 
+                        onChange={(e) => setNewSlotTime(e.target.value)}
+                        className="bg-slate-950 text-white font-mono text-xs px-2 py-1 rounded border border-slate-700 focus:border-amber-500 focus:outline-none"
+                      />
+                      <select
+                        value={newSlotType}
+                        onChange={(e) => setNewSlotType(e.target.value as any)}
+                        className="bg-slate-950 text-white text-xs px-2 py-1 rounded border border-slate-700 focus:border-amber-500 focus:outline-none"
+                      >
+                        <option value="NORMAL">NORMAL</option>
+                        <option value="RAPID">RAPID</option>
+                        <option value="FINAL">FINAL</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleAddSlot}
+                        disabled={addingSlot}
+                        className="flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition disabled:opacity-50"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Slot</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Rapid Reminder Start */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                      Rapid Reminder Start
-                    </label>
-                    <input 
-                      type="text"
-                      value={editingConfig.rapid_start_time}
-                      onChange={(e) => setEditingConfig({ ...editingConfig, rapid_start_time: e.target.value })}
-                      placeholder="10:30"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-1">Default 10:30 AM</p>
-                  </div>
+                  {/* Slots Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {(editingConfig.schedules && editingConfig.schedules.length > 0) ? (
+                      editingConfig.schedules.map((slot) => {
+                        const [h, m] = slot.slot_time.split(':').map(Number);
+                        const ampm = h >= 12 ? 'PM' : 'AM';
+                        const displayH = h % 12 === 0 ? 12 : h % 12;
+                        const displayTime = `${String(displayH).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
 
-                  {/* Rapid Interval & Final Time */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                        Interval (Mins)
-                      </label>
-                      <input 
-                        type="number"
-                        min="1"
-                        max="60"
-                        value={editingConfig.rapid_interval_minutes}
-                        onChange={(e) => setEditingConfig({ ...editingConfig, rapid_interval_minutes: parseInt(e.target.value, 10) || 5 })}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                        Final Time
-                      </label>
-                      <input 
-                        type="text"
-                        value={editingConfig.end_time}
-                        onChange={(e) => setEditingConfig({ ...editingConfig, end_time: e.target.value })}
-                        placeholder="11:00"
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
-                      />
-                    </div>
+                        return (
+                          <div 
+                            key={slot.slot_time}
+                            className={`p-3 rounded-xl border transition-all ${
+                              slot.is_enabled
+                                ? slot.slot_type === 'FINAL'
+                                  ? 'bg-purple-950/40 border-purple-700/60 text-purple-200'
+                                  : slot.slot_type === 'RAPID'
+                                  ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
+                                  : 'bg-slate-900 border-slate-700 text-slate-200'
+                                : 'bg-slate-900/40 border-slate-800 text-slate-500 line-through opacity-60'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input 
+                                  type="checkbox"
+                                  checked={slot.is_enabled}
+                                  onChange={() => handleToggleSlot(slot.id, slot.is_enabled)}
+                                  className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 bg-slate-950 border-slate-700"
+                                />
+                                <span className="font-mono font-bold text-xs">{displayTime}</span>
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSlot(slot.id)}
+                                title="Delete slot"
+                                className="text-slate-500 hover:text-rose-400 p-0.5 rounded transition"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span className="font-mono text-slate-400">({slot.slot_time})</span>
+                              <select
+                                value={slot.slot_type}
+                                onChange={(e) => handleChangeSlotType(slot.id, e.target.value as any)}
+                                className="bg-slate-950 text-[10px] font-bold uppercase rounded px-1.5 py-0.5 border border-slate-700 text-slate-300"
+                              >
+                                <option value="NORMAL">NORMAL</option>
+                                <option value="RAPID">RAPID</option>
+                                <option value="FINAL">FINAL</option>
+                              </select>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="col-span-full py-4 text-center text-xs text-slate-400 italic">
+                        No custom time slots configured. Default schedule will be used until slots are saved.
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Message Template */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
-                      Message Template
+                {/* Message Templates */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                      Standard Reminder Message Template
                     </label>
-                    <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                      <span>Variables:</span>
-                      <button 
-                        type="button"
-                        onClick={() => setEditingConfig({ 
-                          ...editingConfig, 
-                          message_template: (editingConfig.message_template || '') + ' {DEPARTMENT}' 
-                        })}
-                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-mono text-[10px]"
-                      >
-                        {'{DEPARTMENT}'}
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => setEditingConfig({ 
-                          ...editingConfig, 
-                          message_template: (editingConfig.message_template || '') + ' {DATE}' 
-                        })}
-                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-mono text-[10px]"
-                      >
-                        {'{DATE}'}
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => setEditingConfig({ 
-                          ...editingConfig, 
-                          message_template: (editingConfig.message_template || '') + ' {NEXT_REMINDER_TIME}' 
-                        })}
-                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-mono text-[10px]"
-                      >
-                        {'{NEXT_REMINDER_TIME}'}
-                      </button>
-                    </div>
+                    <textarea 
+                      rows={4}
+                      value={editingConfig.message_template || ''}
+                      onChange={(e) => setEditingConfig({ ...editingConfig, message_template: e.target.value })}
+                      placeholder="Use {DEPARTMENT}, {DATE}, {NEXT_REMINDER_TIME}"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-slate-200 font-mono focus:border-amber-500 focus:outline-none"
+                    />
                   </div>
-                  <textarea
-                    rows={6}
-                    value={editingConfig.message_template || ''}
-                    onChange={(e) => setEditingConfig({ ...editingConfig, message_template: e.target.value })}
-                    placeholder="Enter template with {DEPARTMENT}, {DATE}, and {NEXT_REMINDER_TIME} placeholders..."
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white focus:border-amber-500 focus:outline-none font-mono leading-relaxed"
-                  />
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                      Final Reminder Message Template
+                    </label>
+                    <textarea 
+                      rows={4}
+                      value={editingConfig.final_message_template || ''}
+                      onChange={(e) => setEditingConfig({ ...editingConfig, final_message_template: e.target.value })}
+                      placeholder="Template used for the FINAL scheduled slot"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-slate-200 font-mono focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                {/* Actions */}
+                <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
                   <button
                     type="button"
                     onClick={() => setEditingConfig(null)}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={savingConfig}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 transition shadow-lg shadow-amber-500/20 disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-6 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-orange-500/20 transition disabled:opacity-50"
                   >
                     <Save className="w-4 h-4" />
-                    <span>{savingConfig ? 'Saving...' : 'Save Configuration'}</span>
+                    <span>{savingConfig ? 'Saving to Database...' : 'Save Configuration'}</span>
                   </button>
                 </div>
               </form>
             </div>
           )}
 
-          {/* Configs Table */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-            <div className="p-5 border-b border-slate-800 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-white">Department Configurations List</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Click any department row or Edit button to modify phone numbers, schedule, or template.</p>
-              </div>
-            </div>
+          {/* Department Configuration Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {configs.map((config) => {
+              const r1 = config.receiver_number_1 || config.receiver_number;
+              const r2 = config.receiver_number_2;
+              const isVerified = config.sender_verification_status === 'VERIFIED';
+              const enabledSlotsCount = (config.schedules || []).filter(s => s.is_enabled).length;
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-950/80 text-slate-400 uppercase text-[11px] font-black border-b border-slate-800 tracking-wider">
-                    <th className="py-3 px-4">Department</th>
-                    <th className="py-3 px-4 text-center">Status</th>
-                    <th className="py-3 px-4">Channel</th>
-                    <th className="py-3 px-4">Sender Phone</th>
-                    <th className="py-3 px-4">Receiver Phone</th>
-                    <th className="py-3 px-4">Schedule (Normal / Rapid)</th>
-                    <th className="py-3 px-4 text-center">Sunday</th>
-                    <th className="py-3 px-4 text-right">Edit</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800 font-medium">
-                  {configs.map((c) => (
-                    <tr 
-                      key={c.id}
-                      className="hover:bg-slate-800/40 transition cursor-pointer"
-                      onClick={() => setEditingConfig({ ...c })}
+              return (
+                <div 
+                  key={config.department_code}
+                  className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4 hover:border-slate-700 transition"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                    <div>
+                      <h4 className="font-bold text-white text-base">{config.department_name}</h4>
+                      <span className="text-[10px] text-slate-500 font-mono">{config.department_code}</span>
+                    </div>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                      config.is_active 
+                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/60' 
+                        : 'bg-slate-800 text-slate-500'
+                    }`}>
+                      {config.is_active ? 'ACTIVE' : 'DISABLED'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Channel:</span>
+                      <span className="font-semibold text-slate-200">{config.channel}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Sender Number:</span>
+                      <div className="text-right">
+                        <span className="font-mono text-slate-200">{config.sender_number || '—'}</span>
+                        {config.sender_number && (
+                          <span className={`block text-[9px] font-black uppercase ${isVerified ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {isVerified ? '✓ Verified' : '⚠ Verification Required'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Receiver 1:</span>
+                      <span className="font-mono text-slate-200">{r1 || '—'}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Receiver 2:</span>
+                      <span className="font-mono text-slate-200">{r2 || '—'}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Configured Slots:</span>
+                      <span className="font-bold text-amber-400">{enabledSlotsCount} Active Slots</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+                    <button
+                      onClick={() => {
+                        const targetDept = departments.find(d => d.department_code === config.department_code);
+                        if (targetDept) handleOpenTestModal(targetDept);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition flex items-center gap-1.5"
                     >
-                      <td className="py-3 px-4">
-                        <div className="font-bold text-white text-sm">{c.department_name}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{c.department_code}</div>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        {c.is_active ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
-                            ACTIVE
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-slate-800 text-slate-500 border border-slate-700">
-                            DISABLED
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 font-semibold text-slate-200">
-                        {c.channel}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-slate-300">
-                        {c.sender_number || <span className="text-slate-600 italic">Not set</span>}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-slate-300">
-                        {c.receiver_number || <span className="text-slate-600 italic">Not set</span>}
-                      </td>
-                      <td className="py-3 px-4 text-slate-300">
-                        <span>{c.start_time} - {c.rapid_start_time}</span>
-                        <span className="text-slate-500 text-[10px] block">Rapid: every {c.rapid_interval_minutes}m to {c.end_time}</span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        {c.sunday_enabled ? (
-                          <span className="text-amber-400 font-bold">Enabled</span>
-                        ) : (
-                          <span className="text-slate-500">Excluded</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingConfig({ ...c });
-                          }}
-                          className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
-                        >
-                          Configure
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      <Send className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Test</span>
+                    </button>
+
+                    <button
+                      onClick={() => setEditingConfig({ ...config })}
+                      className="px-4 py-1.5 rounded-xl bg-amber-600/10 hover:bg-amber-600/20 text-amber-400 border border-amber-600/30 text-xs font-bold transition flex items-center gap-1.5"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit Config & Slots</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1010,24 +1344,16 @@ export default function DailyEntryAlert() {
           TAB 3: ALERT LOGS & HISTORY
          ══════════════════════════════════════════════════════════════ */}
       {activeTab === 'LOGS' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden space-y-4">
-          <div className="p-5 border-b border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-amber-400" />
-                <span>Alert Execution History & Audit Logs</span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Full delivery audit trail with duplicate protection verification and human-readable delivery outcomes.
-              </p>
-            </div>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+            <div className="flex items-center gap-3">
+              <Filter className="w-4 h-4 text-amber-400" />
+              <span className="text-xs font-bold text-slate-300 uppercase">Filters:</span>
 
-            {/* Filter controls */}
-            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <select
                 value={logFilterDept}
                 onChange={(e) => setLogFilterDept(e.target.value)}
-                className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                className="bg-slate-950 border border-slate-700 text-xs rounded-lg px-2.5 py-1.5 text-slate-200"
               >
                 <option value="ALL">All Departments</option>
                 {configs.map(c => (
@@ -1038,87 +1364,95 @@ export default function DailyEntryAlert() {
               <select
                 value={logFilterStatus}
                 onChange={(e) => setLogFilterStatus(e.target.value)}
-                className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                className="bg-slate-950 border border-slate-700 text-xs rounded-lg px-2.5 py-1.5 text-slate-200"
               >
-                <option value="ALL">All Statuses</option>
+                <option value="ALL">All Delivery Statuses</option>
                 <option value="SENT">SENT</option>
-                <option value="TEST_SENT">TEST_SENT</option>
-                <option value="DISABLED">DISABLED (Missing Number)</option>
                 <option value="FAILED">FAILED</option>
+                <option value="DISABLED">DISABLED</option>
+                <option value="TEST_SENT">TEST SENT</option>
+                <option value="DUPLICATE_BLOCKED">DUPLICATE BLOCKED</option>
               </select>
-
-              <button
-                onClick={fetchLogs}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold flex items-center gap-1"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingLogs ? 'animate-spin' : ''}`} />
-                <span>Filter</span>
-              </button>
             </div>
+
+            <button
+              onClick={fetchLogs}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingLogs ? 'animate-spin' : ''}`} />
+              <span>Refresh Logs</span>
+            </button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-950/80 text-slate-400 uppercase text-[11px] font-black border-b border-slate-800 tracking-wider">
-                  <th className="py-3 px-4">Date & Time</th>
+                <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-black uppercase tracking-wider text-[11px]">
+                  <th className="py-3 px-4">Timestamp</th>
                   <th className="py-3 px-4">Department</th>
-                  <th className="py-3 px-4">Slot</th>
-                  <th className="py-3 px-4 text-center">Status</th>
+                  <th className="py-3 px-4">Scheduled Slot</th>
                   <th className="py-3 px-4">Channel</th>
-                  <th className="py-3 px-4">Receiver</th>
-                  <th className="py-3 px-4">Message / Error Details</th>
+                  <th className="py-3 px-4">Sender Number</th>
+                  <th className="py-3 px-4">Receiver Number</th>
+                  <th className="py-3 px-4">Provider Message ID</th>
+                  <th className="py-3 px-4 text-center">Status</th>
+                  <th className="py-3 px-4">Details / Error</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800 font-medium">
-                {logs.length === 0 ? (
+              <tbody className="divide-y divide-slate-800/60 font-medium">
+                {loadingLogs ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-500">
-                      {loadingLogs ? 'Loading alert history...' : 'No alert logs recorded yet for selected filter.'}
+                    <td colSpan={9} className="py-10 text-center text-slate-400">
+                      Loading delivery logs...
+                    </td>
+                  </tr>
+                ) : logs.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                      No reminder logs recorded for the selected criteria.
                     </td>
                   </tr>
                 ) : (
                   logs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-800/40 transition">
-                      <td className="py-3 px-4">
-                        <div className="font-semibold text-slate-200">
-                          {log.alert_date}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {new Date(log.sent_at).toLocaleTimeString()}
-                        </div>
+                    <tr key={log.id} className="hover:bg-slate-800/40">
+                      <td className="py-2.5 px-4 font-mono text-[11px] text-slate-400">
+                        {new Date(log.sent_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                       </td>
-                      <td className="py-3 px-4 font-bold text-white">
+                      <td className="py-2.5 px-4 font-bold text-white">
                         {log.department_code}
                       </td>
-                      <td className="py-3 px-4 font-mono text-amber-300">
+                      <td className="py-2.5 px-4 font-mono text-amber-400">
                         {log.scheduled_time}
                       </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                          log.status === 'SENT'
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                            : log.status === 'TEST_SENT'
-                            ? 'bg-sky-500/10 text-sky-400 border border-sky-500/30'
-                            : log.status === 'DISABLED'
-                            ? 'bg-slate-800 text-slate-400 border border-slate-700'
-                            : 'bg-red-500/10 text-red-400 border border-red-500/30'
+                      <td className="py-2.5 px-4">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          log.channel === 'WhatsApp' ? 'text-emerald-400 bg-emerald-950/60' : 'text-sky-400 bg-sky-950/60'
+                        }`}>
+                          {log.channel}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 font-mono text-[11px] text-slate-300">
+                        {log.sender_number || '—'}
+                      </td>
+                      <td className="py-2.5 px-4 font-mono text-[11px] text-slate-300">
+                        {log.receiver_number || '—'}
+                      </td>
+                      <td className="py-2.5 px-4 font-mono text-[10px] text-slate-400">
+                        {log.provider_message_id || '—'}
+                      </td>
+                      <td className="py-2.5 px-4 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                          log.status === 'SENT' || log.status === 'TEST_SENT'
+                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/40'
+                            : log.status === 'FAILED'
+                            ? 'bg-rose-950 text-rose-400 border border-rose-800/40'
+                            : 'bg-slate-800 text-slate-400'
                         }`}>
                           {log.status}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-slate-300 font-semibold">
-                        {log.channel}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-slate-300">
-                        {log.receiver_number || <span className="text-slate-600">None</span>}
-                      </td>
-                      <td className="py-3 px-4 max-w-xs truncate text-slate-400" title={log.message || log.error_message || ''}>
-                        {log.error_message ? (
-                          <span className="text-red-400 font-semibold">{log.error_message}</span>
-                        ) : (
-                          log.message || '—'
-                        )}
+                      <td className="py-2.5 px-4 text-slate-400 max-w-xs truncate">
+                        {log.error_message || (log.is_test ? 'Manual Test Message' : 'Automated Reminder')}
                       </td>
                     </tr>
                   ))
@@ -1129,92 +1463,96 @@ export default function DailyEntryAlert() {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════════════════
-          TEST MESSAGE MODAL (Section 20)
-         ══════════════════════════════════════════════════════════════ */}
+      {/* ── Test Message Modal ── */}
       {testModalOpen && testDept && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl animate-in fade-in duration-150">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Send className="w-4 h-4 text-amber-400" />
-                  <span>Send Test Notification</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Sends isolated test message. Does NOT modify Daily Report data.
-                </p>
-              </div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Send className="w-4 h-4 text-amber-400" />
+                <span>Dispatch Test Message — {testDept.department_name}</span>
+              </h3>
               <button 
                 onClick={() => setTestModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 text-xs">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Target Department</label>
-                <div className="text-sm font-bold text-white px-3 py-2 bg-slate-950 rounded-xl border border-slate-800">
-                  {testDept.department_name} ({testDept.department_code})
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Channel</label>
-                  <select
-                    value={testChannel}
-                    onChange={(e) => setTestChannel(e.target.value as any)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                  >
-                    <option value="WhatsApp">WhatsApp</option>
-                    <option value="SMS">SMS Gateway</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Sender Phone</label>
-                  <input
-                    type="text"
-                    value={testSender}
-                    onChange={(e) => setTestSender(e.target.value)}
-                    placeholder="919876543210"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Receiver Phone</label>
-                <input
+                <label className="block text-slate-400 mb-1 font-semibold">Sender Number</label>
+                <input 
                   type="text"
-                  value={testReceiver}
-                  onChange={(e) => setTestReceiver(e.target.value)}
-                  placeholder="919876543210"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none"
+                  value={testSender}
+                  onChange={(e) => setTestSender(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-mono"
+                  placeholder="+91XXXXXXXXXX"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Custom Message Preview (Optional)</label>
-                <textarea
-                  rows={4}
-                  value={testCustomMessage}
-                  onChange={(e) => setTestCustomMessage(e.target.value)}
-                  placeholder="Leave empty to use department's standard template..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white font-mono focus:outline-none"
+                <label className="block text-slate-400 mb-1 font-semibold">Receiver Number 1 (Primary)</label>
+                <input 
+                  type="text"
+                  value={testReceiver1}
+                  onChange={(e) => setTestReceiver1(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-mono"
+                  placeholder="+91XXXXXXXXXX"
                 />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Receiver Number 2 (Secondary)</label>
+                <input 
+                  type="text"
+                  value={testReceiver2}
+                  onChange={(e) => setTestReceiver2(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-mono"
+                  placeholder="Optional +91XXXXXXXXXX"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Channel</label>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-200">
+                    <input 
+                      type="radio" 
+                      name="test_channel" 
+                      value="WhatsApp" 
+                      checked={testChannel === 'WhatsApp'}
+                      onChange={() => setTestChannel('WhatsApp')}
+                      className="text-amber-500"
+                    />
+                    <span>WhatsApp</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-200">
+                    <input 
+                      type="radio" 
+                      name="test_channel" 
+                      value="SMS" 
+                      checked={testChannel === 'SMS'}
+                      onChange={() => setTestChannel('SMS')}
+                      className="text-amber-500"
+                    />
+                    <span>SMS Gateway</span>
+                  </label>
+                </div>
               </div>
 
               {testResult && (
-                <div className={`p-3 rounded-xl border text-xs font-semibold ${
-                  testResult.success 
-                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300' 
-                    : 'bg-red-950/60 border-red-800 text-red-300'
+                <div className={`p-3 rounded-xl border ${
+                  testResult.success ? 'bg-emerald-950/70 border-emerald-700 text-emerald-200' : 'bg-rose-950/70 border-rose-700 text-rose-200'
                 }`}>
-                  <div className="font-bold">{testResult.message}</div>
-                  {testResult.error && <div className="text-[11px] opacity-80 mt-0.5">{testResult.error}</div>}
+                  <div className="font-bold flex items-center gap-2">
+                    {testResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-rose-400" />}
+                    <span>{testResult.message}</span>
+                  </div>
+                  {testResult.error && (
+                    <p className="text-[11px] mt-1 opacity-90">{testResult.error}</p>
+                  )}
                 </div>
               )}
             </div>
@@ -1223,18 +1561,18 @@ export default function DailyEntryAlert() {
               <button
                 type="button"
                 onClick={() => setTestModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300"
               >
                 Close
               </button>
               <button
                 type="button"
-                disabled={sendingTest}
                 onClick={handleSendTestMessage}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 transition shadow-lg shadow-amber-500/20 disabled:opacity-50"
+                disabled={sendingTest}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-2 transition disabled:opacity-50"
               >
-                <Send className="w-4 h-4" />
-                <span>{sendingTest ? 'Dispatching...' : 'Send Test Notification'}</span>
+                <Send className="w-3.5 h-3.5" />
+                <span>{sendingTest ? 'Sending Test...' : 'Send Test Notification'}</span>
               </button>
             </div>
           </div>
