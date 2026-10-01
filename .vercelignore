@@ -4,6 +4,5 @@ backend/backups
 scratch
 *.db
 *.log
-*.png
 *.xlsx
 .user_uploaded

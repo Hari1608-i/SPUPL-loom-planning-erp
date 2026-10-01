@@ -313,19 +313,44 @@ export default function PlannedLooms() {
     }
   };
 
-  // STEP 3: Confirm Loom (Allowed ONLY AFTER Both Reed & Beam Confirmations)
+  // STEP 3: Confirm Loom (Auto-resolves beam and reed from stock if not already allocated)
   const handleConfirmLoom = async (plan: PlannedAssignment) => {
-    const isReedConfirmed = plan.reserved_reed_id !== null || plan.reserved_reed_no || plan.reed_status === 'REED ALLOCATED';
-    const isBeamConfirmed = plan.status === 'CONFIRMED' || plan.beam_status === 'BEAM ALLOCATED' || plan.reserved_beam_id !== null;
+    // If beam is not yet reserved, check if matching beam stock is available
+    let targetBeamId = plan.reserved_beam_id;
+    if (!targetBeamId) {
+      const cleanDesign = (plan.next_design || '').trim().toLowerCase();
+      const cleanOrder = (plan.order_no || '').trim().toLowerCase();
+      const mBeam = beams.find(b => {
+        const bDesign = (b.design_no || (b as any).designNo || '').trim().toLowerCase();
+        const bParty = (b.party_beam_no || b.ibpo || b.order_no || '').trim().toLowerCase();
+        const isMatch = (bDesign && cleanDesign && (bDesign === cleanDesign || bDesign.includes(cleanDesign) || cleanDesign.includes(bDesign))) ||
+                        (bParty && cleanOrder && (bParty === cleanOrder || bParty.includes(cleanOrder) || cleanOrder.includes(bParty)));
+        const st = (b.status || '').trim().toUpperCase();
+        return isMatch && (st === 'AVAILABLE' || st === 'READY' || st === 'CUT BEAM' || st === '') && Number(b.available_meter || 0) > 0;
+      });
+      if (mBeam) {
+        targetBeamId = mBeam.id;
+      }
+    }
 
-    if (!isReedConfirmed) {
-      setErrorMsg('❌ LOOM CONFIRMATION BLOCKED: Reed confirmation is required first. Please click [ ALLOCATE REED ] and select a physical Reed from stock.');
+    if (!targetBeamId && !plan.reserved_beam_no && plan.beam_status !== 'BEAM ALLOCATED') {
+      setErrorMsg(`❌ LOOM CONFIRMATION BLOCKED: A compatible Beam must be allocated to Loom ${plan.loom_no} first. Please click [ ALLOCATE BEAM ].`);
       return;
     }
 
-    if (!isBeamConfirmed) {
-      setErrorMsg('❌ LOOM CONFIRMATION BLOCKED: Beam confirmation is required first. Please click [ ALLOCATE BEAM ] and select a physical Beam from stock.');
-      return;
+    // Auto-resolve reed if not already allocated
+    let targetReedId = plan.reserved_reed_id;
+    if (!targetReedId) {
+      const cleanDesign = (plan.next_design || '').trim().toLowerCase();
+      const designMaster = designs.find(d => (d.design_no_sp_no || d.designNo || '').trim().toLowerCase() === cleanDesign);
+      const reqCount = (designMaster?.reedCount || designMaster?.reed_count || '').trim().toLowerCase();
+      const mReed = reeds.find(r => {
+        const rCount = (r.reed_count || r.reedCount || '').trim().toLowerCase();
+        return (!reqCount || reqCount === '—' || rCount === reqCount || rCount.includes(reqCount)) && (r.available_qty > 0 || r.status === 'Available');
+      });
+      if (mReed) {
+        targetReedId = mReed.id;
+      }
     }
 
     const selectedProcessType = sortChangeSelections[plan.id] || 
@@ -363,8 +388,8 @@ export default function PlannedLooms() {
           loomNo: plan.loom_no,
           nextDesign: plan.next_design,
           orderNo: plan.order_no,
-          reedId: plan.reserved_reed_id,
-          beamId: plan.reserved_beam_id,
+          reedId: targetReedId,
+          beamId: targetBeamId,
           startDate: plan.planned_start_date,
           processType: selectedProcessType,
           remarks: `Loom Confirmed with ${selectedProcessType} & Ready for Main Entry`,
@@ -881,11 +906,11 @@ export default function PlannedLooms() {
                             <button
                               onClick={() => handleConfirmLoom(row)}
                               className={`px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm flex items-center transition-all ${
-                                isReedConfirmed && isBeamConfirmed
-                                  ? 'bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-400/50'
+                                (isBeamConfirmed || hasBeamStock)
+                                  ? 'bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-400/50 cursor-pointer'
                                   : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                               }`}
-                              title={!isReedConfirmed ? 'Reed allocation required first' : (!isBeamConfirmed ? 'Beam allocation required first' : 'Confirm Loom Plan')}
+                              title={!(isBeamConfirmed || hasBeamStock) ? 'Beam allocation required first' : 'Confirm Loom Plan & Transfer to Main Entry'}
                             >
                               <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> CONFIRM LOOM
                             </button>

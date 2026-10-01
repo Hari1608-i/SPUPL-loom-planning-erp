@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { Eye, EyeOff, Lock, User, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config';
+import { COMPANY_LOGO_DATA_URL } from '../assets/logoDataUrl';
 
 const QUOTES = [
   {
@@ -114,7 +115,12 @@ export default function Login() {
         <div className="relative z-10 p-12 pt-14">
           <div className="mb-10">
             <div className="bg-white p-3 rounded-2xl shadow-2xl inline-block max-w-full">
-              <img src="/logo.png" alt="Santhi Processing Unit Logo" className="h-12 w-auto object-contain" />
+              <img
+                src={COMPANY_LOGO_DATA_URL}
+                alt="Santhi Processing Unit Logo"
+                className="h-12 w-auto object-contain"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).src = COMPANY_LOGO_DATA_URL; }}
+              />
             </div>
           </div>
 
@@ -214,7 +220,12 @@ export default function Login() {
         {/* Mobile logo (shown only on small screens) */}
         <div className="lg:hidden flex items-center justify-center mb-8">
           <div className="bg-white p-2 rounded-2xl shadow-md">
-            <img src="/logo.png" alt="Santhi Processing Unit Logo" className="h-10 w-auto object-contain" />
+            <img
+              src={COMPANY_LOGO_DATA_URL}
+              alt="Santhi Processing Unit Logo"
+              className="h-10 w-auto object-contain"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).src = COMPANY_LOGO_DATA_URL; }}
+            />
           </div>
         </div>
 

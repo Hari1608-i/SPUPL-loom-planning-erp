@@ -5812,17 +5812,32 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
 
     let activeBeamId = beamId ? Number(beamId) : (existingPlan ? existingPlan.reserved_beam_id : null);
 
-    if (!activeBeamId && nextDesign) {
-      const autoBeam = await prisma.beamStockMaster.findFirst({
+    if (!activeBeamId && existingPlan?.reserved_beam_no) {
+      const bByNo = await prisma.beamStockMaster.findFirst({
+        where: { beam_no: existingPlan.reserved_beam_no }
+      });
+      if (bByNo) activeBeamId = bByNo.id;
+    }
+
+    if (!activeBeamId && (nextDesign || orderNo)) {
+      const norm = (s) => (s || '').replace(/sp026\//gi, 'sp26/').replace(/sp026/gi, 'sp26').trim().toLowerCase();
+      const allAvailBeams = await prisma.beamStockMaster.findMany({
         where: {
-          design_no: nextDesign,
-          status: { in: ['Available', 'READY', 'CUT BEAM'] },
+          status: { in: ['Available', 'READY', 'CUT BEAM', ''] },
           loom_no_assigned: null,
           available_meter: { gt: 0 }
         }
       });
-      if (autoBeam) {
-        activeBeamId = autoBeam.id;
+      const matched = allAvailBeams.find(b => {
+        const bDesign = norm(b.design_no);
+        const tDesign = norm(nextDesign);
+        const bOrder = norm(b.order_no || b.party_beam_no || b.ibpo);
+        const tOrder = norm(orderNo);
+        return (tDesign && bDesign && (bDesign === tDesign || bDesign.includes(tDesign) || tDesign.includes(bDesign))) ||
+               (tOrder && bOrder && (bOrder === tOrder || bOrder.includes(tOrder) || tOrder.includes(bOrder)));
+      });
+      if (matched) {
+        activeBeamId = matched.id;
       }
     }
 
@@ -5970,17 +5985,10 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
     const dailyProdRate = orderObj ? (orderObj.avg_production_per_loom || 300) : 300;
     const customerName = orderObj ? orderObj.customer_name : 'STANDARD';
 
+    const effectiveProcessType = processType || req.body.sortChangeType || existingPlan?.sort_change_type || 'GAITING';
+
     if (!isLoomRunning) {
       // CASE A: EMPTY / FREE LOOM -> Confirmation transfers the plan directly into Main Entry as CURRENT RUNNING DESIGN!
-      // Check Warp Preparation Prerequisite before loading/starting loom (bypassed if processType is being assigned in planning):
-      if (!processType && !req.body.fromPlanning) {
-        const prepCheck = await warpPreparationService.checkWarpLoadingPrerequisite(loomNum, existingPlan?.id);
-        if (!prepCheck.allowed) {
-          return res.status(400).json({
-            error: `WARP PREPARATION PREREQUISITE: ${prepCheck.message}`
-          });
-        }
-      }
 
       if (activeBeamId) {
         await prisma.beamStockMaster.update({

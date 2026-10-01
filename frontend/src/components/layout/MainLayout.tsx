@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../../config';
-import { COMPANY_LOGO_DATA_URL } from '../../assets/logoDataUrl';
+import { COMPANY_LOGO_DATA_URL, COMPANY_LOGO_ICON_DATA_URL } from '../../assets/logoDataUrl';
 import { useAppContext } from '../../context/AppProvider';
 
 /* ─── Sidebar helpers ─────────────────────────────────────────────── */
@@ -536,9 +536,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         <div className={`h-16 flex items-center border-b border-slate-800/50 ${isCollapsed ? 'justify-center px-2' : 'px-4'}`}>
           <div className="bg-white p-1.5 rounded-xl shadow-lg flex items-center justify-center max-w-full overflow-hidden">
             <img
-              src={isCollapsed ? "/logo-icon.png" : "/logo.png"}
+              src={isCollapsed ? (COMPANY_LOGO_ICON_DATA_URL || "/logo-icon.png") : (COMPANY_LOGO_DATA_URL || "/logo.png")}
               alt="Santhi Processing Unit Logo"
               className={isCollapsed ? "h-8 w-auto object-contain" : "h-9 w-auto object-contain max-w-[200px]"}
+              onError={(e) => { (e.currentTarget as HTMLImageElement).src = isCollapsed ? COMPANY_LOGO_ICON_DATA_URL : COMPANY_LOGO_DATA_URL; }}
             />
           </div>
         </div>
@@ -642,7 +643,12 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
           <div className="flex items-center flex-1 gap-6">
             <div className="hidden md:flex items-center">
-              <img src="/logo.png" alt="Santhi Processing Unit Logo" className="h-10 w-auto object-contain bg-white p-1 rounded-xl shadow-sm border border-slate-200" />
+              <img
+                src={COMPANY_LOGO_DATA_URL || "/logo.png"}
+                alt="Santhi Processing Unit Logo"
+                className="h-10 w-auto object-contain bg-white p-1 rounded-xl shadow-sm border border-slate-200"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).src = COMPANY_LOGO_DATA_URL; }}
+              />
             </div>
             <div ref={searchContainerRef} className="relative max-w-md w-full">
               <form onSubmit={handleSearchSubmit} className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-colors w-full ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-600 focus-within:border-spu-secondary'}`}>
