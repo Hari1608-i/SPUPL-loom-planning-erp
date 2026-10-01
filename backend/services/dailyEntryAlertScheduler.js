@@ -372,7 +372,7 @@ async function runAlertCycle({ forceDate = null, forceTime = null, forceSlot = n
 async function getLiveStatus(queryDate = null) {
   const { dateStr, timeStr, isSunday } = getISTDateTime(queryDate);
 
-  const configs = await prisma.dailyEntryAlertConfig.findMany({
+  let configs = await prisma.dailyEntryAlertConfig.findMany({
     include: {
       schedules: {
         orderBy: { slot_time: 'asc' }
@@ -381,9 +381,53 @@ async function getLiveStatus(queryDate = null) {
     orderBy: { id: 'asc' }
   });
 
-  const departmentStatuses = [];
+  // Auto-seed if empty
+  if (configs.length === 0) {
+    const defaultDepts = [
+      { code: 'PLANNING', name: '1. PLANNING', r1: '+919789268826' },
+      { code: 'SIZING', name: '2. SIZING' },
+      { code: 'WEAVING', name: '3. WEAVING' },
+      { code: 'GREIGE_INSPECTION', name: '4. GREIGE INSPECTION (GREY WAREHOUSE)' },
+      { code: 'FINISHED_INSPECTION', name: '5. FINISHED INSPECTION' },
+      { code: 'SAMPLING', name: '6. SAMPLING' },
+      { code: 'MENDING', name: '7. MENDING' },
+      { code: 'PROCESSING_DYEING', name: '8. PROCESSING & DYEING' },
+      { code: 'YARN_DEPARTMENT', name: '9. YARN DEPARTMENT' },
+      { code: 'OUTSOURCING', name: '10. OUTSOURCING' },
+      { code: 'DISPATCH_PACKING', name: '11. DISPATCH & PACKING' },
+      { code: 'SPINNING', name: '12. SPINNING' },
+      { code: 'HRD', name: '13. HRD' },
+      { code: 'TRANSPORT', name: '14. TRANSPORT' }
+    ];
 
-  for (const config of configs) {
+    for (const d of defaultDepts) {
+      await prisma.dailyEntryAlertConfig.create({
+        data: {
+          department_code: d.code,
+          department_name: d.name,
+          is_active: true,
+          channel: 'WhatsApp',
+          receiver_number_1: d.r1 || '+919191111111',
+          sender_number: '+919677139280',
+          sender_verification_status: 'VERIFIED',
+          schedules: {
+            create: DEFAULT_SCHEDULE.map(s => ({
+              slot_time: s.time,
+              slot_type: s.type,
+              is_enabled: true
+            }))
+          }
+        }
+      });
+    }
+
+    configs = await prisma.dailyEntryAlertConfig.findMany({
+      include: { schedules: { orderBy: { slot_time: 'asc' } } },
+      orderBy: { id: 'asc' }
+    });
+  }
+
+  const departmentStatuses = await Promise.all(configs.map(async (config) => {
     const deptCode = config.department_code;
     const { completed, entryCount, lastUpdatedAt } = await checkDepartmentCompleted(deptCode, dateStr);
 
@@ -435,7 +479,7 @@ async function getLiveStatus(queryDate = null) {
       lastReminderDisplay = `${format12Hour(latestLog.scheduled_time)} (${latestLog.status})`;
     }
 
-    departmentStatuses.push({
+    return {
       department_code: deptCode,
       department_name: config.department_name,
       is_active: config.is_active,
@@ -451,8 +495,8 @@ async function getLiveStatus(queryDate = null) {
       receiver_number_2: config.receiver_number_2 || '',
       channel: config.channel || 'WhatsApp',
       schedules: config.schedules || []
-    });
-  }
+    };
+  }));
 
   // Summary counts
   const total = departmentStatuses.length;

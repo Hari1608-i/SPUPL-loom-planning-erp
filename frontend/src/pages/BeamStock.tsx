@@ -564,10 +564,10 @@ export default function BeamStock() {
       warp_meter: Number(quickForm.warp_meter),
       available_meter: Number(quickForm.warp_meter),
       location: quickForm.location,
-      beam_status: 'Allocated',
-      status: 'Allocated',
-      reserved_for: quickAddOrderModal.ibpo,
-      remarks: quickForm.remarks || `Allocated for Order ${quickAddOrderModal.ibpo}`
+      beam_status: 'Available',
+      status: 'Available',
+      reserved_for: null,
+      remarks: quickForm.remarks || `Added for Order ${quickAddOrderModal.ibpo}`
     }];
 
     try {
@@ -585,7 +585,9 @@ export default function BeamStock() {
       setSuccessMsg(`🎉 Beam #${quickForm.beam_no} created & linked to Order "${quickAddOrderModal.ibpo}" (Design: ${quickAddOrderModal.designNo})!`);
       setQuickAddOrderModal(null);
       await fetchData();
-      await refreshData();
+      if (refreshData) {
+        try { await refreshData(); } catch (e) { }
+      }
       setTimeout(() => setSuccessMsg(null), 5000);
     } catch (e: any) {
       setErrorMsg(`Save Error: ${e.message}`);
@@ -729,7 +731,7 @@ export default function BeamStock() {
     }
 
     setIsSaving(true);
-    setErrorMsg('Saving Beam Stock records to Database...');
+    setErrorMsg(null);
 
     try {
       const payload = validRows.map(r => ({
@@ -763,7 +765,9 @@ export default function BeamStock() {
       }
 
       await fetchData();
-      await refreshData();
+      if (refreshData) {
+        try { await refreshData(); } catch (e) { }
+      }
       setSuccessMsg(`Successfully saved ${payload.length} Beam Stock records to Database!`);
       setTimeout(() => setSuccessMsg(null), 4000);
     } catch (e: any) {

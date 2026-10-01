@@ -502,13 +502,43 @@ app.post('/api/users', async (req, res) => {
       hash = await bcrypt.hash(password, 10);
     }
 
-    if (id) {
-      const existing = await prisma.user.findUnique({ where: { id } });
-      const data = { employeeName, employeeId, role, department, designation, email, mobile, status, permissions };
+    const userId = id ? parseInt(id, 10) : null;
+    const cleanUsername = String(username || '').trim();
+    if (!userId && !cleanUsername) {
+      return res.status(400).json({ error: 'Username is required to create a user.' });
+    }
+
+    const cleanEmpId = employeeId ? String(employeeId).trim() : (cleanUsername ? cleanUsername : `EMP-${Date.now()}`);
+    const cleanEmpName = employeeName ? String(employeeName).trim() : cleanUsername;
+
+    if (userId) {
+      const existing = await prisma.user.findUnique({ where: { id: userId } });
+      if (!existing) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const data = {
+        employeeName: cleanEmpName,
+        employeeId: cleanEmpId,
+        role: role || existing.role,
+        department: department !== undefined ? department : existing.department,
+        designation: designation !== undefined ? designation : existing.designation,
+        email: email !== undefined ? email : existing.email,
+        mobile: mobile !== undefined ? mobile : existing.mobile,
+        status: status || existing.status,
+        permissions: typeof permissions === 'object' ? JSON.stringify(permissions) : permissions
+      };
+      if (cleanUsername && cleanUsername !== existing.username) {
+        const duplicate = await prisma.user.findUnique({ where: { username: cleanUsername } });
+        if (duplicate) {
+          return res.status(400).json({ error: `Username "${cleanUsername}" is already taken.` });
+        }
+        data.username = cleanUsername;
+      }
       if (hash) data.password_hash = hash;
       if (status === 'ACTIVE') data.failedAttempts = 0; // unlock
 
-      const user = await prisma.user.update({ where: { id }, data });
+      const user = await prisma.user.update({ where: { id: userId }, data });
 
       // Audit Log
       await prisma.systemAuditLog.create({
@@ -517,15 +547,32 @@ app.post('/api/users', async (req, res) => {
           screen: 'User Management',
           action: 'EDIT_USER',
           oldValue: JSON.stringify({ role: existing.role, status: existing.status }),
-          newValue: JSON.stringify({ role, status })
+          newValue: JSON.stringify({ role: user.role, status: user.status })
         }
       });
 
       res.json(user);
     } else {
+      const duplicateUser = await prisma.user.findUnique({ where: { username: cleanUsername } });
+      if (duplicateUser) {
+        return res.status(400).json({ error: `Username "${cleanUsername}" already exists. Please choose a different username.` });
+      }
+
+      const duplicateEmp = await prisma.user.findUnique({ where: { employeeId: cleanEmpId } });
+      const finalEmpId = duplicateEmp ? `${cleanEmpId}-${Date.now().toString().slice(-4)}` : cleanEmpId;
+
       const user = await prisma.user.create({
         data: {
-          username, employeeName, employeeId, role, department, designation, email, mobile, status, permissions,
+          username: cleanUsername,
+          employeeName: cleanEmpName,
+          employeeId: finalEmpId,
+          role: role || 'VIEWER',
+          department: department || '',
+          designation: designation || '',
+          email: email || '',
+          mobile: mobile || '',
+          status: status || 'ACTIVE',
+          permissions: typeof permissions === 'object' ? JSON.stringify(permissions) : (permissions || null),
           password_hash: hash || await bcrypt.hash('Default@123', 10)
         }
       });
@@ -536,7 +583,7 @@ app.post('/api/users', async (req, res) => {
           username: adminUser || 'System',
           screen: 'User Management',
           action: 'CREATE_USER',
-          newValue: username
+          newValue: cleanUsername
         }
       });
 

@@ -39,6 +39,7 @@ const screens = [
   "Reed Stock",
   "Beam Stock",
   "Sizing Dashboard",
+  "Daily Entry Alert",
   "User Management",
   "System Health"
 ];
@@ -73,18 +74,24 @@ export const REPORT_ACTIONS = [
 
 const getDefaultRolePermissions = (role: string) => {
   const roleUpper = role?.toUpperCase() || '';
+  const isAdmin = ['ADMINISTRATOR', 'ADMIN', 'SYSTEM ADMINISTRATOR'].includes(roleUpper);
+  const isPlanning = roleUpper === 'PLANNING';
   const perms: Record<string, any> = {};
 
   screens.forEach(screen => {
+    let hasAccess = isAdmin;
+    if (!isAdmin && isPlanning) {
+      hasAccess = screen !== 'User Management' && screen !== 'System Health';
+    }
     perms[screen] = {
-      view: false,
-      create: false,
-      edit: false,
-      delete: false,
-      approve: false,
-      export: false,
-      print: false,
-      excel: false
+      view: hasAccess,
+      create: hasAccess,
+      edit: hasAccess,
+      delete: isAdmin,
+      approve: hasAccess,
+      export: hasAccess,
+      print: hasAccess,
+      excel: hasAccess
     };
   });
 
@@ -92,13 +99,13 @@ const getDefaultRolePermissions = (role: string) => {
   perms['Daily & Periodic Operational Reports'] = {};
   REPORT_DEPARTMENTS.forEach(dept => {
     perms['Daily & Periodic Operational Reports'][dept.code] = {
-      view: false,
-      entry: false,
-      edit: false,
-      delete: false,
-      print: false,
-      excel: false,
-      approved: false
+      view: isAdmin || isPlanning,
+      entry: isAdmin || isPlanning,
+      edit: isAdmin || isPlanning,
+      delete: isAdmin,
+      print: isAdmin || isPlanning,
+      excel: isAdmin || isPlanning,
+      approved: isAdmin
     };
   });
 
@@ -153,7 +160,7 @@ export default function UserManagement() {
   
   // Pagination & Filtering
   const [page, setPage] = useState(1);
-  const [limit] = useState(10);
+  const [limit, setLimit] = useState(25);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   
@@ -192,15 +199,21 @@ export default function UserManagement() {
 
   const handleSaveUser = async () => {
     try {
-      await fetch(`${API_BASE_URL}/api/users`, {
+      const res = await fetch(`${API_BASE_URL}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ ...formData, permissions: JSON.stringify(formData.permissions), adminUser: currentUser?.username })
       });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to save user.');
+        return;
+      }
       setIsWizardOpen(false);
       fetchUsers();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert('Error saving user: ' + err.message);
     }
   };
 
@@ -520,8 +533,24 @@ export default function UserManagement() {
         </div>
         
         {/* Pagination Footer */}
-        <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-sm text-slate-500 font-medium">
-          <div>Showing {total > 0 ? (page - 1) * limit + 1 : 0} to {Math.min(page * limit, total)} of {total} users</div>
+        <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500 font-medium">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs text-slate-600 font-bold">
+              <span>Per page:</span>
+              <select
+                value={limit}
+                onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}
+                className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none cursor-pointer"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={500}>500 (All)</option>
+              </select>
+            </div>
+            <div>Showing {total > 0 ? (page - 1) * limit + 1 : 0} to {Math.min(page * limit, total)} of {total} users</div>
+          </div>
           <div className="flex gap-2">
             <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white hover:bg-slate-100 disabled:opacity-50 font-bold">Prev</button>
             <button disabled={page * limit >= total} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white hover:bg-slate-100 disabled:opacity-50 font-bold">Next</button>

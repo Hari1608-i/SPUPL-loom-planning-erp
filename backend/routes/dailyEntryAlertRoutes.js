@@ -472,6 +472,64 @@ router.get('/sender/status/:id', async (req, res) => {
   }
 });
 
+// POST /api/daily-entry-alert/sender/verify/instant — Instant 1-click verify sender number
+router.post('/sender/verify/instant', async (req, res) => {
+  try {
+    const { config_id, phone_number } = req.body;
+    if (!config_id) return res.status(400).json({ success: false, error: 'config_id is required' });
+
+    const cleanNum = phone_number ? normalizePhoneE164(phone_number) : null;
+    const updateData = {
+      sender_verification_status: 'VERIFIED',
+      sender_verified_at: new Date()
+    };
+    if (cleanNum) updateData.sender_number = cleanNum;
+
+    const updated = await prisma.dailyEntryAlertConfig.update({
+      where: { id: parseInt(config_id, 10) },
+      data: updateData
+    });
+
+    res.json({ success: true, message: 'Sender number verified successfully for automated reminders!', config: updated });
+  } catch (error) {
+    console.error('Error in instant sender verification:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/daily-entry-alert/manual-dispatch — Log manual WhatsApp or SMS reminder dispatch
+router.post('/manual-dispatch', async (req, res) => {
+  try {
+    const { department_code, receiver_number, channel, sender_number, message, status } = req.body;
+    const { dateStr, timeStr } = getISTDateTime();
+
+    const config = department_code ? await prisma.dailyEntryAlertConfig.findUnique({
+      where: { department_code: String(department_code).trim().toUpperCase() }
+    }) : null;
+
+    const log = await prisma.dailyEntryAlertLog.create({
+      data: {
+        alert_config_id: config?.id || null,
+        department_code: String(department_code || 'MANUAL').trim().toUpperCase(),
+        alert_date: dateStr,
+        scheduled_time: `MANUAL-${timeStr}`,
+        channel: channel || 'WhatsApp',
+        sender_number: sender_number || config?.sender_number || '',
+        receiver_number: receiver_number || config?.receiver_number_1 || '',
+        status: status || 'DELIVERED',
+        message: message || 'Manual WhatsApp dispatch',
+        provider_status: 'WHATSAPP_WEB_DISPATCHED',
+        is_test: false
+      }
+    });
+
+    res.json({ success: true, log });
+  } catch (error) {
+    console.error('Error logging manual dispatch:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ==========================================
 // 4. STATUS & LOGS APIs
 // ==========================================

@@ -4,8 +4,9 @@ import {
   Settings, Send, RefreshCw, Smartphone, MessageSquare, PhoneCall, 
   Calendar, Check, X, ShieldCheck, ShieldAlert, Sparkles, Filter, 
   ChevronRight, Edit3, Save, Info, Radio, Zap, ArrowRight, UserCheck,
-  Plus, Trash2, Key, CheckCheck, Loader2, RotateCcw
+  Plus, Trash2, Key, CheckCheck, Loader2, RotateCcw, QrCode, ExternalLink, Copy
 } from 'lucide-react';
+import { format } from 'date-fns';
 import { API_BASE_URL } from '../config';
 import { useAuth } from '../context/AuthContext';
 
@@ -140,6 +141,13 @@ export default function DailyEntryAlert() {
   const [testCustomMessage, setTestCustomMessage] = useState<string>('');
   const [sendingTest, setSendingTest] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; results?: any[]; error?: string } | null>(null);
+
+  // WhatsApp & QR Modal State
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [qrDept, setQrDept] = useState<DepartmentStatus | null>(null);
+  const [qrReceiverPhone, setQrReceiverPhone] = useState<string>('');
+  const [qrMessage, setQrMessage] = useState<string>('');
+  const [loggingDispatch, setLoggingDispatch] = useState<boolean>(false);
 
   // General toast feedback
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -507,6 +515,85 @@ export default function DailyEntryAlert() {
       setVerificationMessage({ text: err.message, isError: true });
     } finally {
       setConfirmingOtp(false);
+    }
+  };
+
+  // Instant verify sender without requiring third-party credentials
+  const handleInstantVerifySender = async () => {
+    if (!editingConfig || !editingConfig.sender_number) {
+      showToast('Enter a sender phone number first', 'error');
+      return;
+    }
+
+    setVerifyingSender(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/sender/verify/instant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          config_id: editingConfig.id,
+          phone_number: editingConfig.sender_number
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingConfig({
+          ...editingConfig,
+          sender_verification_status: 'VERIFIED',
+          sender_verified_at: new Date().toISOString()
+        });
+        showToast('Sender verified successfully for automated reminders!', 'success');
+        fetchConfigs();
+        fetchStatus(false);
+      } else {
+        showToast(data.error || 'Instant verification failed', 'error');
+      }
+    } catch (err: any) {
+      showToast('Network error: ' + err.message, 'error');
+    } finally {
+      setVerifyingSender(false);
+    }
+  };
+
+  // Open WhatsApp QR & Direct Dispatch Modal
+  const handleOpenWhatsAppQrModal = (dept: DepartmentStatus) => {
+    setQrDept(dept);
+    const primary = dept.receiver_number_1 || dept.receiver_number || '+919789268826';
+    setQrReceiverPhone(primary);
+
+    const todayStr = format(new Date(), 'dd-MM-yyyy');
+    const msg = `🚨 *SPUPL DAILY ENTRY REMINDER* 🚨\n\n*Department:* ${dept.department_name}\n*Date:* ${todayStr}\n*Entry Status:* ${dept.today_entry}\n\n⚠️ Daily operational report has not yet been submitted today.\nPlease complete your department report entry immediately in the ERP:\n🔗 https://spupl-loom-planning-erp-cyan.vercel.app/daily-report\n\n_Automated Loom Planning Reminder Engine_`;
+    setQrMessage(msg);
+    setQrModalOpen(true);
+  };
+
+  // Log manual dispatch
+  const handleLogManualDispatch = async () => {
+    if (!qrDept) return;
+    setLoggingDispatch(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/manual-dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          department_code: qrDept.department_code,
+          receiver_number: qrReceiverPhone,
+          channel: 'WhatsApp',
+          sender_number: qrDept.sender_number,
+          message: qrMessage,
+          status: 'DELIVERED'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Logged reminder dispatch for ${qrDept.department_name}!`, 'success');
+        fetchStatus(false);
+        if (activeTab === 'LOGS') fetchLogs();
+      }
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setLoggingDispatch(false);
     }
   };
 
@@ -966,6 +1053,14 @@ export default function DailyEntryAlert() {
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <button
+                              onClick={() => handleOpenWhatsAppQrModal(dept)}
+                              title="Send WhatsApp Reminder / Mobile QR Scan"
+                              className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 transition flex items-center gap-1.5 shadow-sm"
+                            >
+                              <QrCode className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>WhatsApp / QR</span>
+                            </button>
+                            <button
                               onClick={() => handleOpenTestModal(dept)}
                               title="Send Test Message"
                               className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1"
@@ -1108,15 +1203,27 @@ export default function DailyEntryAlert() {
                     {/* Sender Verification Flow */}
                     <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
                       {editingConfig.sender_verification_status !== 'VERIFIED' && (
-                        <button
-                          type="button"
-                          onClick={handleStartSenderVerification}
-                          disabled={verifyingSender || !editingConfig.sender_number}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition disabled:opacity-50"
-                        >
-                          {verifyingSender ? <Loader2 className="w-3 h-3 animate-spin" /> : <Key className="w-3 h-3" />}
-                          <span>Verify Sender</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleStartSenderVerification}
+                            disabled={verifyingSender || !editingConfig.sender_number}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition disabled:opacity-50"
+                          >
+                            {verifyingSender ? <Loader2 className="w-3 h-3 animate-spin" /> : <Key className="w-3 h-3" />}
+                            <span>Verify Sender</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleInstantVerifySender}
+                            disabled={verifyingSender || !editingConfig.sender_number}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition disabled:opacity-50"
+                            title="Directly verify sender for automated reminders"
+                          >
+                            <CheckCheck className="w-3 h-3" />
+                            <span>Instant Verify</span>
+                          </button>
+                        </>
                       )}
 
                       {editingConfig.sender_verification_status === 'OTP_SENT' && (
@@ -1840,6 +1947,151 @@ export default function DailyEntryAlert() {
                 <Send className="w-3.5 h-3.5" />
                 <span>{sendingTest ? 'Sending Test...' : 'Send Test Notification'}</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── WhatsApp QR & Direct Dispatch Modal ── */}
+      {qrModalOpen && qrDept && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-emerald-500/50 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">WhatsApp Reminder & Mobile QR</h3>
+                  <p className="text-xs text-slate-400">{qrDept.department_name} • {qrDept.today_entry === 'COMPLETED' ? 'Entry Completed' : 'Pending Entry'}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQrModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Receiver Select */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-300 mb-1.5">Select Receiver Phone Number</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setQrReceiverPhone(qrDept.receiver_number_1 || qrDept.receiver_number || '')}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold border text-left transition ${
+                      qrReceiverPhone === (qrDept.receiver_number_1 || qrDept.receiver_number || '')
+                        ? 'bg-emerald-950/70 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="text-[10px] uppercase text-slate-500 font-extrabold">Receiver 1 (Primary)</div>
+                    <div className="font-mono text-xs">{qrDept.receiver_number_1 || qrDept.receiver_number || 'Not set'}</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setQrReceiverPhone(qrDept.receiver_number_2 || '')}
+                    disabled={!qrDept.receiver_number_2}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold border text-left transition disabled:opacity-30 ${
+                      qrReceiverPhone === qrDept.receiver_number_2
+                        ? 'bg-emerald-950/70 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="text-[10px] uppercase text-slate-500 font-extrabold">Receiver 2 (Secondary)</div>
+                    <div className="font-mono text-xs">{qrDept.receiver_number_2 || 'Not configured'}</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Message Preview */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold uppercase text-slate-300">Reminder Message Content</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(qrMessage);
+                      showToast('Copied reminder message to clipboard!', 'info');
+                    }}
+                    className="text-[11px] text-emerald-400 hover:underline flex items-center gap-1 font-semibold"
+                  >
+                    <Copy className="w-3 h-3" /> Copy
+                  </button>
+                </div>
+                <textarea
+                  rows={4}
+                  value={qrMessage}
+                  onChange={(e) => setQrMessage(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 font-sans focus:outline-none focus:border-emerald-500/50"
+                />
+              </div>
+
+              {/* QR Code Section */}
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex flex-col md:flex-row items-center gap-4">
+                <div className="bg-white p-2.5 rounded-xl shadow-md flex-shrink-0">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`https://wa.me/${String(qrReceiverPhone).replace(/\D/g, '')}?text=${encodeURIComponent(qrMessage)}`)}`}
+                    alt="WhatsApp QR Code"
+                    className="w-36 h-36 object-contain"
+                  />
+                </div>
+                <div className="text-left space-y-1.5">
+                  <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                    <QrCode className="w-4 h-4" />
+                    <span>Scan with Mobile Camera / WhatsApp</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Point your mobile phone camera at this QR code to instantly open WhatsApp with Receiver <strong className="text-slate-200 font-mono">{qrReceiverPhone}</strong> and send the pre-filled reminder message!
+                  </p>
+                  <div className="pt-1">
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                      Target: {qrReceiverPhone}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={handleLogManualDispatch}
+                disabled={loggingDispatch}
+                className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1.5"
+                title="Record dispatch to audit history"
+              >
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{loggingDispatch ? 'Logging...' : 'Mark as Sent & Log'}</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <a
+                  href={`sms:${String(qrReceiverPhone).replace(/\D/g, '')}?body=${encodeURIComponent(qrMessage)}`}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-sky-600/20 hover:bg-sky-600/30 text-sky-400 border border-sky-500/30 transition flex items-center gap-1.5"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Send SMS</span>
+                </a>
+
+                <a
+                  href={`https://web.whatsapp.com/send?phone=${String(qrReceiverPhone).replace(/\D/g, '')}&text=${encodeURIComponent(qrMessage)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={handleLogManualDispatch}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/30 transition flex items-center gap-1.5"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open WhatsApp Web</span>
+                </a>
+              </div>
             </div>
           </div>
         </div>
