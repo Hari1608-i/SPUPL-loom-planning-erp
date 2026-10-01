@@ -4980,13 +4980,13 @@ return (
                   </div>
                 ) : currentDept.code === 'YARN_DEPARTMENT' ? (
                   <div className="space-y-4">
-                    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                    <div className="bg-white dark:bg-slate-800 rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-sm overflow-hidden">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="bg-slate-50 dark:bg-slate-900/80 text-slate-500 dark:text-slate-400 text-[10px] uppercase font-black tracking-wider border-b border-slate-200 dark:border-slate-700">
-                            <th className="p-3">Metrics</th>
-                            <th className="p-3 text-center w-1/3 border-l border-slate-200 dark:border-slate-700">YD</th>
-                            <th className="p-3 text-center w-1/3 border-l border-slate-200 dark:border-slate-700">GREY</th>
+                          <tr className="bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-white text-xs uppercase font-black tracking-wider border-b-2 border-slate-300 dark:border-slate-600">
+                            <th className="p-3.5 text-slate-900 dark:text-white font-black text-xs sm:text-sm tracking-wider">METRICS</th>
+                            <th className="p-3.5 text-center w-1/3 border-l-2 border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white font-black text-xs sm:text-sm tracking-wider">YD</th>
+                            <th className="p-3.5 text-center w-1/3 border-l-2 border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white font-black text-xs sm:text-sm tracking-wider">GREY</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -4997,24 +4997,26 @@ return (
                             { label: 'ONTIME', greyCode: 'GREIGE_ONTIME', ydCode: 'DYED_ONTIME' },
                             { label: 'DELAY', greyCode: 'GREIGE_DELAY', ydCode: 'DYED_DELAY' }
                           ].map((row, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                              <td className="p-3 text-xs font-bold text-slate-800 dark:text-slate-200">{row.label}</td>
-                              <td className="p-2 border-l border-slate-200 dark:border-slate-700">
+                            <tr key={idx} className="hover:bg-indigo-50/40 dark:hover:bg-slate-750 transition-colors">
+                              <td className="p-3.5 text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-wide bg-slate-50/60 dark:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700">
+                                {row.label}
+                              </td>
+                              <td className="p-2.5 border-l border-slate-200 dark:border-slate-700">
                                 <input
                                   type="number"
                                   value={formInputs[row.ydCode] !== undefined ? formInputs[row.ydCode] : ''}
                                   onChange={e => handleInputChange(row.ydCode, e.target.value)}
                                   placeholder="0"
-                                  className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-xs font-bold text-center text-slate-900 dark:text-white outline-none focus:border-indigo-500"
+                                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-xs sm:text-sm font-black text-center text-slate-900 dark:text-white outline-none focus:border-indigo-500 focus:bg-white"
                                 />
                               </td>
-                              <td className="p-2 border-l border-slate-200 dark:border-slate-700">
+                              <td className="p-2.5 border-l border-slate-200 dark:border-slate-700">
                                 <input
                                   type="number"
                                   value={formInputs[row.greyCode] !== undefined ? formInputs[row.greyCode] : ''}
                                   onChange={e => handleInputChange(row.greyCode, e.target.value)}
                                   placeholder="0"
-                                  className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-xs font-bold text-center text-slate-900 dark:text-white outline-none focus:border-indigo-500"
+                                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-xs sm:text-sm font-black text-center text-slate-900 dark:text-white outline-none focus:border-indigo-500 focus:bg-white"
                                 />
                               </td>
                             </tr>
