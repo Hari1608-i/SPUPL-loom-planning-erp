@@ -277,133 +277,155 @@ export default function BeamStock() {
     // Helper: normalize status string for case-insensitive comparison
     const normStatus = (s: string) => (s || '').trim().toUpperCase();
 
-    return orders
-      .filter(o => {
-        const st = (o.status || '').toUpperCase();
-        const compSt = (o.order_completion_status || '').toUpperCase();
-        return st !== 'ORDER COMPLETED' && st !== 'COMPLETED' && compSt !== 'COMPLETED';
-      })
-      .map(ord => {
-        const ibpo = ord.ibpo_no || ord.order_no || '—';
-        const designNo = ord.design_no_sp_no || ibpo;
-        const matchedDesign = designs.find(d => (d.design_no_sp_no || d.designNo) === designNo);
+    // 1. Filter to active non-completed orders only
+    const nonCompletedOrders = orders.filter(o => {
+      const st = (o.status || '').toUpperCase();
+      const compSt = (o.order_completion_status || '').toUpperCase();
+      return st !== 'ORDER COMPLETED' && st !== 'COMPLETED' && compSt !== 'COMPLETED';
+    });
 
-        // Required beams = planned loom count (minimum 0 — only non-zero if planning exists)
-        const requiredBeams = Math.max(0, Number(ord.planned_loom_count) || 0);
-        const orderMtr = Number(ord.order_qty) || Number(ord.warp_qty) || 0;
+    // 2. Group by unique logical requirement key: IBPO (or order_no) + DESIGN NO
+    // SSOT Rule: ORDER-LEVEL REQUIREMENT VIEW = ONE ROW PER UNIQUE ACTIVE ORDER / IBPO + DESIGN
+    const groupedOrders = new Map<string, typeof nonCompletedOrders>();
 
-        // Warp Meter from order field
-        const calculatedWarpMtr = Number(ord.warp_qty) || orderMtr;
-        const manualWarpMtr = manualWarpOverrides[ibpo];
-        const finalWarpMtr = manualWarpMtr && manualWarpMtr > 0 ? manualWarpMtr : calculatedWarpMtr;
+    nonCompletedOrders.forEach(ord => {
+      const rawIbpo = (ord.ibpo_no || ord.order_no || '').trim().toUpperCase();
+      const rawDesign = (ord.design_no_sp_no || '').trim().toUpperCase();
+      const key = rawIbpo ? `${rawIbpo}__${rawDesign}` : `order_id_${ord.id}`;
 
-        // ── PLANNED SIZING DATE ──
-        let plannedSizingDate = 'PENDING';
-        const sizingDateRaw = ord.sizing_planned_date || ord.sizing_plan_date;
-        if (sizingDateRaw) {
-          try {
-            const d = new Date(sizingDateRaw);
-            if (!isNaN(d.getTime())) plannedSizingDate = format(d, 'dd-MM-yyyy');
-          } catch (e) { }
-        }
+      let list = groupedOrders.get(key);
+      if (!list) {
+        list = [];
+        groupedOrders.set(key, list);
+      }
+      list.push(ord);
+    });
 
-        // ── LOOM START DATE ──
-        let loomStartDate = 'NOT STARTED';
-        const loomDateRaw = ord.actual_weaving_start_date || ord.weaving_start_date || ord.weaving_planned_date || ord.weaving_planned_start_date;
-        if (loomDateRaw) {
-          try {
-            const d = new Date(loomDateRaw);
-            if (!isNaN(d.getTime())) loomStartDate = format(d, 'dd-MM-yyyy');
-          } catch (e) { }
-        }
+    // 3. Map each unique active order/design group to exactly ONE requirement analysis row
+    return Array.from(groupedOrders.values()).map(orderGroup => {
+      // Pick representative order (prefer record with highest id or explicit planned_loom_count / dates)
+      const ord = orderGroup.find(o => Number(o.planned_loom_count) > 0) || orderGroup[0];
 
-        // ── BEAM COUNTS — design-specific and order-specific matching ──
-        const seenBeamNos = new Set<string>();
-        const matchingBeams = rows.filter(r => {
-          const rDesign = (r.design_no || '').trim().toLowerCase();
-          const rParty = (r.party_beam_no || r.ibpo || r.order_no || '').trim().toLowerCase();
-          const rBeamNo = (r.beam_no || '').trim();
-          if (!rBeamNo) return false;
-          const isMatch = (rDesign && designNo && (rDesign === designNo.trim().toLowerCase() || rDesign.includes(designNo.trim().toLowerCase()) || designNo.trim().toLowerCase().includes(rDesign))) ||
-            (rParty && ibpo && (rParty === ibpo.trim().toLowerCase() || rParty.includes(ibpo.trim().toLowerCase()) || ibpo.trim().toLowerCase().includes(rParty)));
-          if (!isMatch) return false;
-          if (seenBeamNos.has(rBeamNo.toUpperCase())) return false;
-          seenBeamNos.add(rBeamNo.toUpperCase());
-          return true;
-        });
+      const ibpo = ord.ibpo_no || ord.order_no || '—';
+      const designNo = ord.design_no_sp_no || ibpo;
+      const matchedDesign = designs.find(d => (d.design_no_sp_no || d.designNo) === designNo);
 
-        // AVAILABLE: physical beams currently in stock and ready
-        const availableStatuses = new Set(['AVAILABLE', 'READY', 'CUT BEAM']);
+      // Required beams = planned loom count (minimum 0 — only non-zero if planning exists)
+      const requiredBeams = Math.max(0, ...orderGroup.map(o => Number(o.planned_loom_count) || 0));
+      const orderMtr = Number(ord.order_qty) || Number(ord.warp_qty) || 0;
 
-        const availablePhysicalBeamsList = matchingBeams.filter(b => {
-          const st = normStatus(b.beam_status);
-          const bNo = (b.beam_no || '').trim().toUpperCase();
-          const bId = typeof b.id === 'number' ? b.id : null;
-          const isRunning = runningBeamNos.has(bNo) || (bId !== null && runningBeamIds.has(bId)) || st === 'RUNNING' || st === 'IN USE';
-          const isAssigned = (!!b.loom_no_assigned && Number(b.loom_no_assigned) > 0) || (b.remarks && b.remarks.includes('Reserved')) || (b.reserved_for && String(b.reserved_for).trim() !== '') || planAllocatedBeamNos.has(bNo) || (bId !== null && planAllocatedBeamIds.has(bId));
-          return (availableStatuses.has(st) || !st) && !isRunning && !isAssigned;
-        });
+      // Warp Meter from order field
+      const calculatedWarpMtr = Number(ord.warp_qty) || orderMtr;
+      const manualWarpMtr = manualWarpOverrides[ibpo];
+      const finalWarpMtr = manualWarpMtr && manualWarpMtr > 0 ? manualWarpMtr : calculatedWarpMtr;
 
-        const availableBeams = availablePhysicalBeamsList.length;
+      // ── PLANNED SIZING DATE ──
+      let plannedSizingDate = 'PENDING';
+      const sizingDateRaw = orderGroup.map(o => o.sizing_planned_date || o.sizing_plan_date).find(Boolean);
+      if (sizingDateRaw) {
+        try {
+          const d = new Date(sizingDateRaw);
+          if (!isNaN(d.getTime())) plannedSizingDate = format(d, 'dd-MM-yyyy');
+        } catch (e) { }
+      }
 
-        // Sum of Warp Mtr from physical beams that are currently AVAILABLE and eligible for this design
-        const availableWarpMtr = availablePhysicalBeamsList.reduce((sum, b) => {
-          const mtr = typeof b.warp_meter === 'number' ? b.warp_meter : parseFloat(String(b.warp_meter || 0)) || 0;
-          return sum + mtr;
-        }, 0);
+      // ── LOOM START DATE ──
+      let loomStartDate = 'NOT STARTED';
+      const loomDateRaw = orderGroup.map(o => o.actual_weaving_start_date || o.weaving_start_date || o.weaving_planned_date || o.weaving_planned_start_date).find(Boolean);
+      if (loomDateRaw) {
+        try {
+          const d = new Date(loomDateRaw);
+          if (!isNaN(d.getTime())) loomStartDate = format(d, 'dd-MM-yyyy');
+        } catch (e) { }
+      }
 
-        // Active running looms weaving this design or order
-        const runningLoomCountForOrder = Object.values(activeRuns || {}).filter((r: any) => {
-          if (!r) return false;
-          const rDes = (r.designNo || r.design_no_sp_no || '').trim().toLowerCase();
-          const rOrd = (r.orderNo || r.order_no || r.customerName || '').trim().toLowerCase();
-          const tDes = designNo.trim().toLowerCase();
-          const tOrd = ibpo.trim().toLowerCase();
-          return (rDes && (rDes === tDes || rDes.includes(tDes) || tDes.includes(rDes))) ||
-            (rOrd && (rOrd === tOrd || rOrd.includes(tOrd) || tOrd.includes(rOrd)));
-        }).length;
-
-        // Count allocations from rawNextPlans for this order/design
-        const planAllocatedCount = rawNextPlans.filter(p => {
-          const st = (p.status || '').toUpperCase();
-          if (st === 'CANCELLED' || st === 'COMPLETED') return false;
-          const pIbpo = (p.order_no || '').trim().toLowerCase();
-          const pDes = (p.next_design || '').trim().toLowerCase();
-          const tIbpo = (ibpo || '').trim().toLowerCase();
-          const tDes = (designNo || '').trim().toLowerCase();
-          const isMatch = (pIbpo && (pIbpo === tIbpo || pIbpo.includes(tIbpo) || tIbpo.includes(pIbpo))) ||
-            (pDes && (pDes === tDes || pDes.includes(tDes) || tDes.includes(pDes)));
-          return isMatch && (p.reserved_beam_id || p.reserved_beam_no || p.beam_status === 'BEAM ALLOCATED' || st === 'CONFIRMED');
-        }).length;
-
-        const allocatedBeams = runningLoomCountForOrder + planAllocatedCount;
-
-        // BALANCE BEAMS: Net outstanding required beams = MAX(Required Beams - Allocated Beams, 0)
-        const balanceBeams = Math.max(0, requiredBeams - allocatedBeams);
-
-        // WARP BALANCE = If all beams allocated, balance is 0; otherwise outstanding warp meters minus available stock
-        const warpBalance = balanceBeams === 0 ? 0 : Math.max(0, (balanceBeams * Math.round(finalWarpMtr / Math.max(1, requiredBeams))) - availableWarpMtr);
-
-        return {
-          ord,
-          ibpo,
-          designNo,
-          matchedDesign,
-          orderMtr,
-          calculatedWarpMtr,
-          manualWarpMtr,
-          finalWarpMtr,
-          availableWarpMtr,
-          warpBalance,
-          plannedLooms: requiredBeams,
-          plannedSizingDate,
-          loomStartDate,
-          requiredBeams,
-          availableBeams,
-          allocatedBeams,
-          balanceBeams
-        };
+      // ── BEAM COUNTS — design-specific and order-specific matching ──
+      const seenBeamNos = new Set<string>();
+      const matchingBeams = rows.filter(r => {
+        const rDesign = (r.design_no || '').trim().toLowerCase();
+        const rParty = (r.party_beam_no || r.ibpo || r.order_no || '').trim().toLowerCase();
+        const rBeamNo = (r.beam_no || '').trim();
+        if (!rBeamNo) return false;
+        const isMatch = (rDesign && designNo && (rDesign === designNo.trim().toLowerCase() || rDesign.includes(designNo.trim().toLowerCase()) || designNo.trim().toLowerCase().includes(rDesign))) ||
+          (rParty && ibpo && (rParty === ibpo.trim().toLowerCase() || rParty.includes(ibpo.trim().toLowerCase()) || ibpo.trim().toLowerCase().includes(rParty)));
+        if (!isMatch) return false;
+        if (seenBeamNos.has(rBeamNo.toUpperCase())) return false;
+        seenBeamNos.add(rBeamNo.toUpperCase());
+        return true;
       });
+
+      // AVAILABLE: physical beams currently in stock and ready
+      const availableStatuses = new Set(['AVAILABLE', 'READY', 'CUT BEAM']);
+
+      const availablePhysicalBeamsList = matchingBeams.filter(b => {
+        const st = normStatus(b.beam_status);
+        const bNo = (b.beam_no || '').trim().toUpperCase();
+        const bId = typeof b.id === 'number' ? b.id : null;
+        const isRunning = runningBeamNos.has(bNo) || (bId !== null && runningBeamIds.has(bId)) || st === 'RUNNING' || st === 'IN USE';
+        const isAssigned = (!!b.loom_no_assigned && Number(b.loom_no_assigned) > 0) || (b.remarks && b.remarks.includes('Reserved')) || (b.reserved_for && String(b.reserved_for).trim() !== '') || planAllocatedBeamNos.has(bNo) || (bId !== null && planAllocatedBeamIds.has(bId));
+        return (availableStatuses.has(st) || !st) && !isRunning && !isAssigned;
+      });
+
+      const availableBeams = availablePhysicalBeamsList.length;
+
+      // Sum of Warp Mtr from physical beams that are currently AVAILABLE and eligible for this design
+      const availableWarpMtr = availablePhysicalBeamsList.reduce((sum, b) => {
+        const mtr = typeof b.warp_meter === 'number' ? b.warp_meter : parseFloat(String(b.warp_meter || 0)) || 0;
+        return sum + mtr;
+      }, 0);
+
+      // Active running looms weaving this design or order
+      const runningLoomCountForOrder = Object.values(activeRuns || {}).filter((r: any) => {
+        if (!r) return false;
+        const rDes = (r.designNo || r.design_no_sp_no || '').trim().toLowerCase();
+        const rOrd = (r.orderNo || r.order_no || r.customerName || '').trim().toLowerCase();
+        const tDes = designNo.trim().toLowerCase();
+        const tOrd = ibpo.trim().toLowerCase();
+        return (rDes && (rDes === tDes || rDes.includes(tDes) || tDes.includes(rDes))) ||
+          (rOrd && (rOrd === tOrd || rOrd.includes(tOrd) || tOrd.includes(rOrd)));
+      }).length;
+
+      // Count allocations from rawNextPlans for this order/design
+      const planAllocatedCount = rawNextPlans.filter(p => {
+        const st = (p.status || '').toUpperCase();
+        if (st === 'CANCELLED' || st === 'COMPLETED') return false;
+        const pIbpo = (p.order_no || '').trim().toLowerCase();
+        const pDes = (p.next_design || '').trim().toLowerCase();
+        const tIbpo = (ibpo || '').trim().toLowerCase();
+        const tDes = (designNo || '').trim().toLowerCase();
+        const isMatch = (pIbpo && (pIbpo === tIbpo || pIbpo.includes(tIbpo) || tIbpo.includes(pIbpo))) ||
+          (pDes && (pDes === tDes || pDes.includes(tDes) || tDes.includes(pDes)));
+        return isMatch && (p.reserved_beam_id || p.reserved_beam_no || p.beam_status === 'BEAM ALLOCATED' || st === 'CONFIRMED');
+      }).length;
+
+      const allocatedBeams = runningLoomCountForOrder + planAllocatedCount;
+
+      // BALANCE BEAMS: Net outstanding required beams = MAX(Required Beams - Allocated Beams, 0)
+      const balanceBeams = Math.max(0, requiredBeams - allocatedBeams);
+
+      // WARP BALANCE = If all beams allocated, balance is 0; otherwise outstanding warp meters minus available stock
+      const warpBalance = balanceBeams === 0 ? 0 : Math.max(0, (balanceBeams * Math.round(finalWarpMtr / Math.max(1, requiredBeams))) - availableWarpMtr);
+
+      return {
+        ord,
+        ibpo,
+        designNo,
+        matchedDesign,
+        orderMtr,
+        calculatedWarpMtr,
+        manualWarpMtr,
+        finalWarpMtr,
+        availableWarpMtr,
+        warpBalance,
+        plannedLooms: requiredBeams,
+        plannedSizingDate,
+        loomStartDate,
+        requiredBeams,
+        availableBeams,
+        allocatedBeams,
+        balanceBeams
+      };
+    });
   }, [orders, designs, rows, rawNextPlans, activeRuns, manualWarpOverrides, runningBeamNos, runningBeamIds, planAllocatedBeamNos, planAllocatedBeamIds]);
 
   // Filtered Order Requirements for Display
@@ -1169,7 +1191,7 @@ export default function BeamStock() {
                 </tr>
               ) : (
                 displayedOrderRequirements.map((req, idx) => (
-                  <tr key={req.ord?.id ? `order-req-${req.ord.id}` : `order-req-${req.ibpo}-${idx}`} className="hover:bg-slate-850/60 transition-colors">
+                  <tr key={`order-req-${req.ibpo}-${req.designNo}`} className="hover:bg-slate-850/60 transition-colors">
                     <td className="py-2 px-1 text-center text-slate-500 font-bold">{idx + 1}</td>
 
                     <td className="py-2 px-1.5 font-black text-blue-300">
