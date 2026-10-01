@@ -2536,10 +2536,13 @@ const getDispatchMonthlyCalculations = useCallback((isPrint: boolean = false) =>
   const explicitTargetDays = isPrint ? getPrintMetricTarget('TARGET_DAYS') : (editedTargets['TARGET_DAYS'] || editedTargets['NO_OF_DAYS']);
   const targetDays = explicitTargetDays || 26;
 
+  const explicitOverall = isPrint ? getPrintMetricTarget('OVERALL_TARGET_LACS') : (editedTargets['OVERALL_TARGET_LACS'] || editedTargets['OVERALL_TARGET']);
   const despatchTarget = isPrint ? (getPrintMetricTarget('DESPATCH_MTRS') || 77950) : (editedTargets['DESPATCH_MTRS'] || 77950);
 
   const actualDays = mSummary?.daysEntered || 1;
-  const overallTargetLacs = (despatchTarget * targetDays) / 100000;
+  const overallTargetLacs = (explicitOverall !== undefined && explicitOverall !== null && !isNaN(Number(explicitOverall)))
+    ? Number(explicitOverall)
+    : (despatchTarget * targetDays) / 100000;
   const uptoDateLacs = mSummary?.monthlyTotal ? mSummary.monthlyTotal / 100000 : 0;
   const balanceLacs = overallTargetLacs - uptoDateLacs;
   const dailyTargetLacs = overallTargetLacs / targetDays;
@@ -4567,6 +4570,14 @@ return (
                                 targets[m.code] = Number(tVal);
                               }
                             });
+                            if (currentDept.code === 'DISPATCH_PACKING') {
+                              if (editedTargets['OVERALL_TARGET_LACS'] !== undefined && editedTargets['OVERALL_TARGET_LACS'] !== null && !isNaN(Number(editedTargets['OVERALL_TARGET_LACS']))) {
+                                targets['OVERALL_TARGET_LACS'] = Number(editedTargets['OVERALL_TARGET_LACS']);
+                              }
+                              if (editedTargets['TARGET_DAYS'] !== undefined && editedTargets['TARGET_DAYS'] !== null && !isNaN(Number(editedTargets['TARGET_DAYS']))) {
+                                targets['TARGET_DAYS'] = Number(editedTargets['TARGET_DAYS']);
+                              }
+                            }
                             const isDailyWeaving = currentDept.code === 'WEAVING' && targetType === 'DAILY';
                             const res = await fetch(`${API_BASE_URL}/api/daily-report/targets`, {
                               method: 'POST',
@@ -5054,7 +5065,16 @@ return (
                                 <input
                                   type="number"
                                   value={effectiveTarget !== undefined && effectiveTarget !== null ? effectiveTarget : ''}
-                                  onChange={e => handleTargetChange(metric.code, e.target.value)}
+                                  onChange={e => {
+                                    handleTargetChange(metric.code, e.target.value);
+                                    if (currentDept.code === 'DISPATCH_PACKING' && metric.code === 'DESPATCH_MTRS') {
+                                      const days = Number(editedTargets['TARGET_DAYS']) || 26;
+                                      if (e.target.value !== '' && !isNaN(Number(e.target.value))) {
+                                        const calcLacs = Number(((Number(e.target.value) * days) / 100000).toFixed(2));
+                                        handleTargetChange('OVERALL_TARGET_LACS', String(calcLacs));
+                                      }
+                                    }
+                                  }}
                                   placeholder="Target"
                                   className="w-24 px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-indigo-400 rounded text-xs font-bold text-indigo-900 dark:text-indigo-100 outline-none"
                                 />
@@ -5100,18 +5120,85 @@ return (
 
                     {currentDept.code === 'DISPATCH_PACKING' && (
                       <div className="col-span-full mt-4 p-4 rounded-xl border bg-amber-50/30 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/50">
-                        <h4 className="text-sm font-bold text-amber-900 dark:text-amber-100 mb-3 uppercase tracking-wider flex items-center gap-2">
-                          <span className="w-1.5 h-4 bg-amber-500 rounded-full"></span>
-                          Monthly Dispatch Status (Lacs)
-                        </h4>
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="text-sm font-bold text-amber-900 dark:text-amber-100 uppercase tracking-wider flex items-center gap-2">
+                            <span className="w-1.5 h-4 bg-amber-500 rounded-full"></span>
+                            Monthly Dispatch Status (Lacs)
+                          </h4>
+                          {!editMonthlyTargetsMode && (
+                            <button
+                              type="button"
+                              onClick={() => setEditMonthlyTargetsMode(true)}
+                              className="flex items-center gap-1 text-[11px] font-bold text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/60 hover:bg-amber-200 px-2 py-0.5 rounded border border-amber-300 transition-colors"
+                              title="Edit Monthly Dispatch Target"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>Edit Target</span>
+                            </button>
+                          )}
+                        </div>
                         {(() => {
                           const dispatchCalc = getDispatchMonthlyCalculations(false);
+                          const overallLacsVal = editedTargets['OVERALL_TARGET_LACS'] !== undefined && editedTargets['OVERALL_TARGET_LACS'] !== null
+                            ? editedTargets['OVERALL_TARGET_LACS']
+                            : (editedTargets['DESPATCH_MTRS']
+                                ? Number(((editedTargets['DESPATCH_MTRS'] * dispatchCalc.targetDays) / 100000).toFixed(2))
+                                : dispatchCalc.overallTarget);
+
                           return (
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-                                <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Overall Target</div>
-                                <div className="text-sm font-black text-slate-800 dark:text-slate-100">{dispatchCalc.overallTarget}</div>
-                                <div className="text-[9px] text-slate-400 mt-0.5">({dispatchCalc.targetDays} days)</div>
+                              <div className={`p-2.5 rounded-lg bg-white dark:bg-slate-900 border shadow-sm ${editMonthlyTargetsMode ? 'border-amber-400 dark:border-amber-600 ring-1 ring-amber-400/50' : 'border-slate-200 dark:border-slate-700'}`}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <div className="text-[10px] text-slate-500 font-bold uppercase">Overall Target</div>
+                                  {editMonthlyTargetsMode && (
+                                    <span className="text-[9px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/50 px-1 py-0.2 rounded">Lacs</span>
+                                  )}
+                                </div>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="space-y-1">
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      value={overallLacsVal !== undefined && overallLacsVal !== null ? overallLacsVal : ''}
+                                      onChange={e => {
+                                        const val = e.target.value;
+                                        handleTargetChange('OVERALL_TARGET_LACS', val);
+                                        if (val !== '' && !isNaN(Number(val))) {
+                                          const days = Number(editedTargets['TARGET_DAYS']) || dispatchCalc.targetDays || 26;
+                                          const syncMtrs = Math.round((Number(val) * 100000) / days);
+                                          handleTargetChange('DESPATCH_MTRS', String(syncMtrs));
+                                          handleTargetChange('PACKING_MTRS', String(syncMtrs));
+                                        }
+                                      }}
+                                      placeholder="e.g. 20.27"
+                                      className="w-full px-2 py-1 bg-amber-50 dark:bg-slate-800 border border-amber-400 rounded text-xs font-black text-amber-950 dark:text-amber-100 outline-none focus:ring-1 focus:ring-amber-500"
+                                    />
+                                    <div className="flex items-center justify-between gap-1 text-[9px] text-slate-400">
+                                      <span>Days:</span>
+                                      <input
+                                        type="number"
+                                        value={editedTargets['TARGET_DAYS'] !== undefined ? editedTargets['TARGET_DAYS'] : 26}
+                                        onChange={e => {
+                                          const daysVal = e.target.value;
+                                          handleTargetChange('TARGET_DAYS', daysVal);
+                                          const days = Number(daysVal) || 26;
+                                          const currentOverall = editedTargets['OVERALL_TARGET_LACS'] !== undefined ? Number(editedTargets['OVERALL_TARGET_LACS']) : Number(dispatchCalc.overallTarget);
+                                          if (currentOverall > 0) {
+                                            const syncMtrs = Math.round((currentOverall * 100000) / days);
+                                            handleTargetChange('DESPATCH_MTRS', String(syncMtrs));
+                                            handleTargetChange('PACKING_MTRS', String(syncMtrs));
+                                          }
+                                        }}
+                                        className="w-12 px-1 py-0.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-[9px] font-bold text-center outline-none"
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="text-sm font-black text-slate-800 dark:text-slate-100">{dispatchCalc.overallTarget}</div>
+                                    <div className="text-[9px] text-slate-400 mt-0.5">({dispatchCalc.targetDays} days)</div>
+                                  </>
+                                )}
                               </div>
                               <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
                                 <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Up To Date</div>
