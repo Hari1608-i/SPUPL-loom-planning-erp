@@ -6,7 +6,7 @@
   "scripts": {
     "postinstall": "cd backend && npx prisma generate",
     "start": "node backend/upload_server.js",
-    "build": "npm install --prefix frontend && npm run build --prefix frontend"
+    "build": "node build.js"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
