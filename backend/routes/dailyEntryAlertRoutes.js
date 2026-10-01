@@ -251,12 +251,15 @@ router.post('/schedules', async (req, res) => {
       return res.status(400).json({ success: false, error: 'alert_config_id and slot_time (HH:mm) are required' });
     }
 
+    let cleanTime = String(slot_time).trim();
+    if (/^\d:[0-5]\d(:[0-5]\d)?$/.test(cleanTime)) cleanTime = '0' + cleanTime;
+    cleanTime = cleanTime.slice(0, 5);
+
     const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-    if (!timeRegex.test(String(slot_time).trim())) {
+    if (!timeRegex.test(cleanTime)) {
       return res.status(400).json({ success: false, error: 'Invalid time format. Please use 24-hour HH:mm (e.g., 08:30)' });
     }
 
-    const cleanTime = String(slot_time).trim();
     const configId = parseInt(alert_config_id, 10);
 
     // Check duplicate
@@ -264,7 +267,7 @@ router.post('/schedules', async (req, res) => {
       where: { alert_config_id: configId, slot_time: cleanTime }
     });
     if (existing) {
-      return res.status(400).json({ success: false, error: 'Reminder time already configured for this department' });
+      return res.status(400).json({ success: false, error: `Reminder time ${cleanTime} already configured for this department` });
     }
 
     const newSlot = await prisma.dailyEntryAlertSchedule.create({
@@ -294,11 +297,27 @@ router.put('/schedules/:id', async (req, res) => {
 
     const data = { updated_at: new Date() };
     if (slot_time !== undefined) {
+      let cleanTime = String(slot_time).trim();
+      if (/^\d:[0-5]\d(:[0-5]\d)?$/.test(cleanTime)) cleanTime = '0' + cleanTime;
+      cleanTime = cleanTime.slice(0, 5);
+
       const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-      if (!timeRegex.test(String(slot_time).trim())) {
-        return res.status(400).json({ success: false, error: 'Invalid time format. Use HH:mm' });
+      if (!timeRegex.test(cleanTime)) {
+        return res.status(400).json({ success: false, error: 'Invalid time format. Use HH:mm (e.g. 08:30)' });
       }
-      data.slot_time = String(slot_time).trim();
+
+      const current = await prisma.dailyEntryAlertSchedule.findUnique({ where: { id } });
+      if (!current) return res.status(404).json({ success: false, error: 'Schedule slot not found' });
+
+      // Check duplicate
+      const dup = await prisma.dailyEntryAlertSchedule.findFirst({
+        where: { alert_config_id: current.alert_config_id, slot_time: cleanTime, id: { not: id } }
+      });
+      if (dup) {
+        return res.status(400).json({ success: false, error: `Time slot ${cleanTime} already exists for this department` });
+      }
+
+      data.slot_time = cleanTime;
     }
     if (slot_type !== undefined) {
       data.slot_type = ['NORMAL', 'RAPID', 'FINAL'].includes(slot_type) ? slot_type : 'NORMAL';
@@ -328,6 +347,51 @@ router.delete('/schedules/:id', async (req, res) => {
     res.json({ success: true, message: 'Time slot deleted successfully' });
   } catch (error) {
     console.error('Error deleting schedule slot:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/daily-entry-alert/schedules/reset-defaults/:configId — Reset schedules to default slots
+router.post('/schedules/reset-defaults/:configId', async (req, res) => {
+  try {
+    const configId = parseInt(req.params.configId, 10);
+    if (isNaN(configId)) return res.status(400).json({ success: false, error: 'Valid alert_config_id is required' });
+
+    const DEFAULT_SLOTS = [
+      { time: '08:00', type: 'NORMAL', order: 1 },
+      { time: '08:30', type: 'NORMAL', order: 2 },
+      { time: '09:00', type: 'NORMAL', order: 3 },
+      { time: '09:30', type: 'NORMAL', order: 4 },
+      { time: '10:00', type: 'NORMAL', order: 5 },
+      { time: '10:15', type: 'NORMAL', order: 6 },
+      { time: '10:30', type: 'RAPID', order: 7 },
+      { time: '10:35', type: 'RAPID', order: 8 },
+      { time: '10:40', type: 'RAPID', order: 9 },
+      { time: '10:45', type: 'RAPID', order: 10 },
+      { time: '10:50', type: 'RAPID', order: 11 },
+      { time: '10:55', type: 'RAPID', order: 12 },
+      { time: '11:00', type: 'FINAL', order: 13 }
+    ];
+
+    await prisma.dailyEntryAlertSchedule.deleteMany({ where: { alert_config_id: configId } });
+    await prisma.dailyEntryAlertSchedule.createMany({
+      data: DEFAULT_SLOTS.map(s => ({
+        alert_config_id: configId,
+        slot_time: s.time,
+        slot_type: s.type,
+        is_enabled: true,
+        display_order: s.order
+      }))
+    });
+
+    const refreshed = await prisma.dailyEntryAlertSchedule.findMany({
+      where: { alert_config_id: configId },
+      orderBy: { slot_time: 'asc' }
+    });
+
+    res.json({ success: true, message: 'Schedule reset to standard default slots', schedules: refreshed });
+  } catch (error) {
+    console.error('Error resetting schedules:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

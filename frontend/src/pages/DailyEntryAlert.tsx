@@ -4,7 +4,7 @@ import {
   Settings, Send, RefreshCw, Smartphone, MessageSquare, PhoneCall, 
   Calendar, Check, X, ShieldCheck, ShieldAlert, Sparkles, Filter, 
   ChevronRight, Edit3, Save, Info, Radio, Zap, ArrowRight, UserCheck,
-  Plus, Trash2, Key, CheckCheck, Loader2
+  Plus, Trash2, Key, CheckCheck, Loader2, RotateCcw
 } from 'lucide-react';
 import { API_BASE_URL } from '../config';
 import { useAuth } from '../context/AuthContext';
@@ -96,10 +96,24 @@ export default function DailyEntryAlert() {
   const [editingConfig, setEditingConfig] = useState<AlertConfig | null>(null);
   const [savingConfig, setSavingConfig] = useState<boolean>(false);
 
+  // Helper to pick next available slot time that isn't already in the schedule
+  const getNextAvailableSlotTime = (schedules?: ScheduleSlot[]) => {
+    if (!schedules || schedules.length === 0) return '08:00';
+    const existing = new Set(schedules.map(s => s.slot_time));
+    for (let h = 8; h <= 21; h++) {
+      for (const m of ['00', '15', '30', '45']) {
+        const candidate = `${String(h).padStart(2, '0')}:${m}`;
+        if (!existing.has(candidate)) return candidate;
+      }
+    }
+    return '11:15';
+  };
+
   // Time Slot Management inside Edit Config
-  const [newSlotTime, setNewSlotTime] = useState<string>('10:15');
+  const [newSlotTime, setNewSlotTime] = useState<string>('11:15');
   const [newSlotType, setNewSlotType] = useState<'NORMAL' | 'RAPID' | 'FINAL'>('NORMAL');
   const [addingSlot, setAddingSlot] = useState<boolean>(false);
+  const [resettingDefaults, setResettingDefaults] = useState<boolean>(false);
 
   // Sender OTP Verification State
   const [verifyingSender, setVerifyingSender] = useState<boolean>(false);
@@ -222,21 +236,36 @@ export default function DailyEntryAlert() {
     }
   };
 
+  // Open Edit Modal for a Department
+  const handleOpenEditModal = (config: AlertConfig) => {
+    setEditingConfig({ ...config });
+    setNewSlotTime(getNextAvailableSlotTime(config.schedules));
+    setNewSlotType('NORMAL');
+  };
+
   // Add Time Slot to Department
   const handleAddSlot = async () => {
-    if (!editingConfig || !newSlotTime) return;
+    if (!editingConfig) return;
+    if (!newSlotTime || !newSlotTime.trim()) {
+      showToast('Please select or enter a valid reminder time', 'error');
+      return;
+    }
     
-    // Validate HH:mm
+    // Normalize format: e.g. "9:00" -> "09:00", "09:30:00" -> "09:30"
+    let cleanTime = newSlotTime.trim();
+    if (/^\d:[0-5]\d(:[0-5]\d)?$/.test(cleanTime)) cleanTime = '0' + cleanTime;
+    cleanTime = cleanTime.slice(0, 5);
+
     const regex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-    if (!regex.test(newSlotTime)) {
+    if (!regex.test(cleanTime)) {
       showToast('Invalid time format. Please use 24-hr HH:mm (e.g. 08:30)', 'error');
       return;
     }
 
     // Check existing
-    const existing = (editingConfig.schedules || []).some(s => s.slot_time === newSlotTime);
+    const existing = (editingConfig.schedules || []).some(s => s.slot_time === cleanTime);
     if (existing) {
-      showToast('Reminder time already configured.', 'error');
+      showToast(`Reminder time ${cleanTime} already configured for this department.`, 'error');
       return;
     }
 
@@ -247,16 +276,17 @@ export default function DailyEntryAlert() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           alert_config_id: editingConfig.id,
-          slot_time: newSlotTime,
+          slot_time: cleanTime,
           slot_type: newSlotType,
           is_enabled: true
         })
       });
       const data = await res.json();
       if (data.success) {
-        showToast(`Slot ${newSlotTime} (${newSlotType}) added`, 'success');
+        showToast(`Slot ${cleanTime} (${newSlotType}) added successfully`, 'success');
         const updatedSchedules = [...(editingConfig.schedules || []), data.schedule].sort((a, b) => a.slot_time.localeCompare(b.slot_time));
         setEditingConfig({ ...editingConfig, schedules: updatedSchedules });
+        setNewSlotTime(getNextAvailableSlotTime(updatedSchedules));
         fetchConfigs();
         fetchStatus(false);
       } else {
@@ -266,6 +296,77 @@ export default function DailyEntryAlert() {
       showToast(`Failed to add slot: ${err.message}`, 'error');
     } finally {
       setAddingSlot(false);
+    }
+  };
+
+  // Update Slot Time Directly (Time changing on existing slot)
+  const handleUpdateSlotTime = async (slotId: number | undefined, oldTime: string, newTime: string) => {
+    if (!slotId || !editingConfig || oldTime === newTime) return;
+
+    let cleanTime = newTime.trim();
+    if (/^\d:[0-5]\d(:[0-5]\d)?$/.test(cleanTime)) cleanTime = '0' + cleanTime;
+    cleanTime = cleanTime.slice(0, 5);
+
+    const regex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    if (!regex.test(cleanTime)) {
+      showToast('Invalid time format. Use HH:mm (e.g. 08:30)', 'error');
+      return;
+    }
+
+    const isDuplicate = (editingConfig.schedules || []).some(s => s.id !== slotId && s.slot_time === cleanTime);
+    if (isDuplicate) {
+      showToast(`Time slot ${cleanTime} already exists for this department.`, 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/schedules/${slotId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot_time: cleanTime })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Slot time updated from ${oldTime} to ${cleanTime}`, 'success');
+        const updated = (editingConfig.schedules || [])
+          .map(s => s.id === slotId ? { ...s, slot_time: cleanTime } : s)
+          .sort((a, b) => a.slot_time.localeCompare(b.slot_time));
+        setEditingConfig({ ...editingConfig, schedules: updated });
+        fetchConfigs();
+        fetchStatus(false);
+      } else {
+        showToast(data.error || 'Failed to update time slot', 'error');
+      }
+    } catch (err: any) {
+      showToast(`Error updating slot time: ${err.message}`, 'error');
+    }
+  };
+
+  // Reset to Factory Default Schedule (13 slots: 08:00 to 11:00)
+  const handleResetDefaults = async () => {
+    if (!editingConfig) return;
+    if (!window.confirm(`Reset reminder schedule for ${editingConfig.department_name} to standard default 13 slots (08:00 to 11:00)?`)) return;
+
+    setResettingDefaults(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/daily-entry-alert/schedules/reset-defaults/${editingConfig.id}`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Schedule reset to standard default slots`, 'success');
+        const updatedSchedules = data.schedules || [];
+        setEditingConfig({ ...editingConfig, schedules: updatedSchedules });
+        setNewSlotTime(getNextAvailableSlotTime(updatedSchedules));
+        fetchConfigs();
+        fetchStatus(false);
+      } else {
+        showToast(data.error || 'Failed to reset schedule', 'error');
+      }
+    } catch (err: any) {
+      showToast(`Failed to reset: ${err.message}`, 'error');
+    } finally {
+      setResettingDefaults(false);
     }
   };
 
@@ -1091,6 +1192,65 @@ export default function DailyEntryAlert() {
                       <option value="TRUE">Enabled (Send reminders on Sunday)</option>
                     </select>
                   </div>
+
+                  {/* Start Time */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                      Start Time (Normal Reminders)
+                    </label>
+                    <input 
+                      type="text"
+                      value={editingConfig.start_time || '08:00'}
+                      onChange={(e) => setEditingConfig({ ...editingConfig, start_time: e.target.value })}
+                      placeholder="08:00"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Default 08:00 AM</p>
+                  </div>
+
+                  {/* Rapid Reminder Start */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                      Rapid Reminder Start
+                    </label>
+                    <input 
+                      type="text"
+                      value={editingConfig.rapid_start_time || '10:30'}
+                      onChange={(e) => setEditingConfig({ ...editingConfig, rapid_start_time: e.target.value })}
+                      placeholder="10:30"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Default 10:30 AM</p>
+                  </div>
+
+                  {/* Rapid Interval & Final Time */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                        Interval (Mins)
+                      </label>
+                      <input 
+                        type="number"
+                        min="1"
+                        max="60"
+                        value={editingConfig.rapid_interval_minutes || 5}
+                        onChange={(e) => setEditingConfig({ ...editingConfig, rapid_interval_minutes: parseInt(e.target.value, 10) || 5 })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                        Final Time
+                      </label>
+                      <input 
+                        type="text"
+                        value={editingConfig.end_time || '11:00'}
+                        onChange={(e) => setEditingConfig({ ...editingConfig, end_time: e.target.value })}
+                        placeholder="11:00"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none font-mono"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 {/* ── Custom Reminder Time Slots Manager ── */}
@@ -1102,42 +1262,56 @@ export default function DailyEntryAlert() {
                         <span>Reminder Time Slots (Customizable Department Schedule)</span>
                       </h4>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        Configure exact reminder times. The engine sorts slots chronologically and dispatches only to enabled slots.
+                        Change any slot's time directly below, toggle active state, or add new slots. Engine dispatches only to enabled slots.
                       </p>
                     </div>
 
-                    {/* Inline Add Slot Control */}
-                    <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-700">
-                      <span className="text-xs text-slate-400 font-semibold">Time:</span>
-                      <input 
-                        type="time" 
-                        value={newSlotTime} 
-                        onChange={(e) => setNewSlotTime(e.target.value)}
-                        className="bg-slate-950 text-white font-mono text-xs px-2 py-1 rounded border border-slate-700 focus:border-amber-500 focus:outline-none"
-                      />
-                      <select
-                        value={newSlotType}
-                        onChange={(e) => setNewSlotType(e.target.value as any)}
-                        className="bg-slate-950 text-white text-xs px-2 py-1 rounded border border-slate-700 focus:border-amber-500 focus:outline-none"
-                      >
-                        <option value="NORMAL">NORMAL</option>
-                        <option value="RAPID">RAPID</option>
-                        <option value="FINAL">FINAL</option>
-                      </select>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Reset to Standard Defaults */}
                       <button
                         type="button"
-                        onClick={handleAddSlot}
-                        disabled={addingSlot}
-                        className="flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition disabled:opacity-50"
+                        onClick={handleResetDefaults}
+                        disabled={resettingDefaults}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition disabled:opacity-50 border border-slate-700"
+                        title="Reset this department to standard 13 default slots (08:00 to 11:00)"
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add Slot</span>
+                        <RotateCcw className={`w-3.5 h-3.5 ${resettingDefaults ? 'animate-spin' : ''}`} />
+                        <span>Reset 13 Default Slots</span>
                       </button>
+
+                      {/* Inline Add Slot Control */}
+                      <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-700">
+                        <span className="text-xs text-slate-400 font-semibold">Time:</span>
+                        <input 
+                          type="time" 
+                          value={newSlotTime} 
+                          onChange={(e) => setNewSlotTime(e.target.value)}
+                          className="bg-slate-950 text-white font-mono text-xs px-2 py-1 rounded border border-slate-700 focus:border-amber-500 focus:outline-none"
+                        />
+                        <select
+                          value={newSlotType}
+                          onChange={(e) => setNewSlotType(e.target.value as any)}
+                          className="bg-slate-950 text-white text-xs px-2 py-1 rounded border border-slate-700 focus:border-amber-500 focus:outline-none"
+                        >
+                          <option value="NORMAL">NORMAL</option>
+                          <option value="RAPID">RAPID</option>
+                          <option value="FINAL">FINAL</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleAddSlot}
+                          disabled={addingSlot}
+                          className="flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition disabled:opacity-50"
+                        >
+                          {addingSlot ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                          <span>Add Slot</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
 
                   {/* Slots Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                     {(editingConfig.schedules && editingConfig.schedules.length > 0) ? (
                       editingConfig.schedules.map((slot) => {
                         const [h, m] = slot.slot_time.split(':').map(Number);
@@ -1147,7 +1321,7 @@ export default function DailyEntryAlert() {
 
                         return (
                           <div 
-                            key={slot.slot_time}
+                            key={slot.id || slot.slot_time}
                             className={`p-3 rounded-xl border transition-all ${
                               slot.is_enabled
                                 ? slot.slot_type === 'FINAL'
@@ -1158,32 +1332,53 @@ export default function DailyEntryAlert() {
                                 : 'bg-slate-900/40 border-slate-800 text-slate-500 line-through opacity-60'
                             }`}
                           >
-                            <div className="flex items-center justify-between mb-2">
-                              <label className="flex items-center gap-2 cursor-pointer">
+                            <div className="flex items-center justify-between mb-2 gap-2">
+                              <label className="flex items-center gap-2 cursor-pointer flex-1">
                                 <input 
                                   type="checkbox"
                                   checked={slot.is_enabled}
                                   onChange={() => handleToggleSlot(slot.id, slot.is_enabled)}
-                                  className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 bg-slate-950 border-slate-700"
+                                  className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 bg-slate-950 border-slate-700 cursor-pointer"
                                 />
-                                <span className="font-mono font-bold text-xs">{displayTime}</span>
+                                <span className="font-mono font-bold text-xs text-white">{displayTime}</span>
                               </label>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteSlot(slot.id)}
                                 title="Delete slot"
-                                className="text-slate-500 hover:text-rose-400 p-0.5 rounded transition"
+                                className="text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-slate-800/80 transition"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
 
-                            <div className="flex items-center justify-between text-[10px]">
-                              <span className="font-mono text-slate-400">({slot.slot_time})</span>
+                            {/* Direct Time Changing Input & Type Selector */}
+                            <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-800/60 text-[11px]">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-400 font-medium">Time:</span>
+                                <input 
+                                  type="time"
+                                  defaultValue={slot.slot_time}
+                                  key={`${slot.id}-${slot.slot_time}`}
+                                  onBlur={(e) => {
+                                    if (e.target.value && e.target.value !== slot.slot_time) {
+                                      handleUpdateSlotTime(slot.id, slot.slot_time, e.target.value);
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      (e.target as HTMLInputElement).blur();
+                                    }
+                                  }}
+                                  className="bg-slate-950 text-white font-mono text-[11px] px-1.5 py-0.5 rounded border border-slate-700 focus:border-amber-500 focus:outline-none w-20 text-center"
+                                  title="Change time (auto-saves on blur or Enter)"
+                                />
+                              </div>
                               <select
                                 value={slot.slot_type}
                                 onChange={(e) => handleChangeSlotType(slot.id, e.target.value as any)}
-                                className="bg-slate-950 text-[10px] font-bold uppercase rounded px-1.5 py-0.5 border border-slate-700 text-slate-300"
+                                className="bg-slate-950 text-[10px] font-bold uppercase rounded px-1.5 py-0.5 border border-slate-700 text-slate-300 focus:border-amber-500 focus:outline-none"
                               >
                                 <option value="NORMAL">NORMAL</option>
                                 <option value="RAPID">RAPID</option>
@@ -1326,7 +1521,7 @@ export default function DailyEntryAlert() {
                     </button>
 
                     <button
-                      onClick={() => setEditingConfig({ ...config })}
+                      onClick={() => handleOpenEditModal(config)}
                       className="px-4 py-1.5 rounded-xl bg-amber-600/10 hover:bg-amber-600/20 text-amber-400 border border-amber-600/30 text-xs font-bold transition flex items-center gap-1.5"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
