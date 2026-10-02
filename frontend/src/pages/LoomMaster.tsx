@@ -37,6 +37,7 @@ export default function LoomMaster() {
   const [searchTerm, setSearchTerm] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedLoomNos, setSelectedLoomNos] = useState<number[]>([]);
 
   // Sync DB looms into editable rows, or initialize 20 blank rows if empty
   useEffect(() => {
@@ -292,6 +293,30 @@ export default function LoomMaster() {
     setRows(prev => prev.filter((_, idx) => idx !== index));
   };
 
+  const handleMultiDelete = async () => {
+    if (selectedLoomNos.length === 0) return;
+    if (!window.confirm(`Delete ${selectedLoomNos.length} selected loom(s) from database? This cannot be undone.`)) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/looms/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loomNos: selectedLoomNos })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to delete selected looms.');
+        return;
+      }
+      setRows(prev => prev.filter(r => !data.deletedLooms?.includes(Number(r.loomNo))));
+      setSelectedLoomNos([]);
+      refreshData();
+      setErrorMsg(`Successfully deleted ${data.count} loom(s) from Database.`);
+    } catch (err: any) {
+      alert('Delete error: ' + err.message);
+    }
+  };
+
   const handleExportExcel = () => {
     const exportData = rows
       .filter(r => r.loomNo !== '')
@@ -366,6 +391,15 @@ export default function LoomMaster() {
           </button>
 
           <button 
+            onClick={handleMultiDelete}
+            disabled={selectedLoomNos.length === 0}
+            className="flex items-center px-4 py-2.5 bg-rose-600 text-white hover:bg-rose-700 rounded-lg shadow-sm font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Delete selected looms"
+          >
+            <Trash2 className="w-4 h-4 mr-1.5" /> Multi Delete {selectedLoomNos.length > 0 && `(${selectedLoomNos.length})`}
+          </button>
+
+          <button 
             onClick={handleClearDatabase}
             className="flex items-center px-4 py-2.5 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 rounded-lg shadow-sm font-semibold text-sm transition-all"
             title="Delete all looms from database"
@@ -425,11 +459,27 @@ export default function LoomMaster() {
             {/* Header Rows */}
             <thead className="bg-industrial-50 sticky top-0 z-20 shadow-sm">
               <tr className="border-b-2 border-industrial-200">
-                <th colSpan={10} className="py-2 px-3 text-center bg-blue-50 text-blue-700 font-bold uppercase tracking-wider">
+                <th colSpan={11} className="py-2 px-3 text-center bg-blue-50 text-blue-700 font-bold uppercase tracking-wider">
                   MANUAL ENTRY (COPY/PASTE SUPPORTED FROM EXCEL)
                 </th>
               </tr>
               <tr className="border-b border-industrial-200 shadow-sm bg-industrial-900 text-white font-bold">
+                <th className="py-2.5 px-2 text-center w-8 print:hidden">
+                  <input
+                    type="checkbox"
+                    checked={filteredRows.length > 0 && selectedLoomNos.length === filteredRows.filter(r => r.loomNo).length}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        const allNos = filteredRows.map(r => Number(r.loomNo)).filter(n => !isNaN(n) && n > 0);
+                        setSelectedLoomNos(allNos);
+                      } else {
+                        setSelectedLoomNos([]);
+                      }
+                    }}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    title="Select All"
+                  />
+                </th>
                 <th className="py-2.5 px-2 text-center w-10">#</th>
                 <th className="py-2.5 px-3 min-w-[90px]">Unit</th>
                 <th className="py-2.5 px-3 min-w-[90px]">Loom No</th>
@@ -451,6 +501,23 @@ export default function LoomMaster() {
 
                 return (
                   <tr key={row.id} className="hover:bg-blue-50/50 transition-colors group">
+                    <td className="py-1.5 px-2 text-center print:hidden">
+                      {row.loomNo && (
+                        <input
+                          type="checkbox"
+                          checked={selectedLoomNos.includes(Number(row.loomNo))}
+                          onChange={e => {
+                            const no = Number(row.loomNo);
+                            if (e.target.checked) {
+                              setSelectedLoomNos(prev => [...prev, no]);
+                            } else {
+                              setSelectedLoomNos(prev => prev.filter(n => n !== no));
+                            }
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        />
+                      )}
+                    </td>
                     <td className="py-1.5 px-3 text-industrial-400 font-mono text-[10px] text-center bg-industrial-50/40">{visualIndex + 1}</td>
 
                     {/* 1. Unit */}

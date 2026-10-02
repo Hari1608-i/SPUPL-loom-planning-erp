@@ -1604,6 +1604,269 @@ app.post('/api/orders/bulk-delete', async (req, res) => {
   }
 });
 
+// Bulk Looms Delete Endpoint (Multi Delete)
+app.post('/api/looms/bulk-delete', async (req, res) => {
+  try {
+    const { loomNos } = req.body;
+    if (!Array.isArray(loomNos) || loomNos.length === 0) {
+      return res.status(400).json({ error: 'No loom numbers provided for bulk delete.' });
+    }
+
+    const numericLoomNos = loomNos.map(n => parseInt(n, 10)).filter(n => !isNaN(n));
+
+    // Check if any loom is currently running in Main Entry
+    const runningLooms = await prisma.loomRunEntry.findMany({
+      where: { loom_no: { in: numericLoomNos } }
+    });
+    const runningNos = new Set(runningLooms.map(r => r.loom_no));
+
+    // Check if any loom has active planned assignment
+    const plannedLooms = await prisma.plannedAssignment.findMany({
+      where: { loom_no: { in: numericLoomNos } }
+    });
+    const plannedNos = new Set(plannedLooms.map(p => p.loom_no));
+
+    const blocked = numericLoomNos.filter(n => runningNos.has(n) || plannedNos.has(n));
+    const allowed = numericLoomNos.filter(n => !runningNos.has(n) && !plannedNos.has(n));
+
+    if (allowed.length === 0) {
+      return res.status(400).json({
+        error: `Selected loom(s) [${blocked.join(', ')}] are currently active in production or planned and cannot be deleted.`
+      });
+    }
+
+    const deleteResult = await prisma.loomMaster.deleteMany({
+      where: { loom_no: { in: allowed } }
+    });
+
+    await prisma.systemAuditLog.create({
+      data: {
+        username: req.body.adminUser || req.headers['x-user'] || 'System',
+        screen: 'Loom Master',
+        action: 'MULTI_DELETE_LOOMS',
+        newValue: `${deleteResult.count} looms deleted: ${allowed.join(', ')}`
+      }
+    });
+
+    res.json({
+      success: true,
+      count: deleteResult.count,
+      deletedLooms: allowed,
+      blockedLooms: blocked
+    });
+  } catch (error) {
+    console.error('Bulk Loom Delete Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bulk Designs Delete Endpoint (Multi Delete)
+app.post('/api/designs/bulk-delete', async (req, res) => {
+  try {
+    const { designNos, force } = req.body;
+    if (!Array.isArray(designNos) || designNos.length === 0) {
+      return res.status(400).json({ error: 'No design numbers provided for bulk delete.' });
+    }
+
+    const trimmed = designNos.map(d => String(d || '').trim()).filter(Boolean);
+    const blocked = [];
+    const allowed = [];
+
+    if (!force) {
+      for (const dNo of trimmed) {
+        const [inOrders, inBeams, inRuns, inPlans, inHistory] = await Promise.all([
+          prisma.orderMaster.findFirst({ where: { design_no_sp_no: dNo } }),
+          prisma.beamStockMaster.findFirst({ where: { design_no: dNo } }),
+          prisma.loomRunEntry.findFirst({ where: { design_no_sp_no: dNo } }),
+          prisma.plannedAssignment.findFirst({ where: { OR: [{ current_design: dNo }, { next_design: dNo }] } }),
+          prisma.completedWarpHistory.findFirst({ where: { design_no_sp_no: dNo } })
+        ]);
+        if (inOrders || inBeams || inRuns || inPlans || inHistory) {
+          blocked.push(dNo);
+        } else {
+          allowed.push(dNo);
+        }
+      }
+    } else {
+      allowed.push(...trimmed);
+    }
+
+    if (allowed.length === 0) {
+      return res.status(400).json({
+        error: `Selected designs [${blocked.join(', ')}] are linked to orders or production and cannot be deleted.`
+      });
+    }
+
+    const deleteResult = await prisma.designMaster.deleteMany({
+      where: { design_no_sp_no: { in: allowed } }
+    });
+
+    await prisma.systemAuditLog.create({
+      data: {
+        username: req.body.adminUser || req.headers['x-user'] || 'System',
+        screen: 'Design Master',
+        action: 'MULTI_DELETE_DESIGNS',
+        newValue: `${deleteResult.count} designs deleted`
+      }
+    });
+
+    res.json({
+      success: true,
+      count: deleteResult.count,
+      deletedDesigns: allowed,
+      blockedDesigns: blocked
+    });
+  } catch (error) {
+    console.error('Bulk Design Delete Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bulk Reed Stock Delete Endpoint (Multi Delete)
+app.post('/api/reed-stock/bulk-delete', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No reed stock IDs provided.' });
+    }
+    const numericIds = ids.map(id => parseInt(id, 10)).filter(n => !isNaN(n));
+
+    const calculatedList = await getCalculatedReedStock();
+    const blocked = [];
+    const allowed = [];
+
+    for (const id of numericIds) {
+      const item = calculatedList.find(r => r.id === id);
+      if (item && (item.reserved_qty > 0 || item.running_qty > 0)) {
+        blocked.push(item.reed_count || String(id));
+      } else {
+        allowed.push(id);
+      }
+    }
+
+    if (allowed.length === 0) {
+      return res.status(400).json({
+        error: `Selected reeds [${blocked.join(', ')}] are currently reserved or running in production and cannot be deleted.`
+      });
+    }
+
+    const deleteResult = await prisma.reedStockMaster.deleteMany({
+      where: { id: { in: allowed } }
+    });
+
+    res.json({
+      success: true,
+      count: deleteResult.count,
+      deletedIds: allowed,
+      blockedReeds: blocked
+    });
+  } catch (error) {
+    console.error('Bulk Reed Stock Delete Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bulk Beam Stock Delete Endpoint (Multi Delete)
+app.post('/api/beam-stock/bulk-delete', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No beam stock IDs provided.' });
+    }
+    const numericIds = ids.map(id => parseInt(id, 10)).filter(n => !isNaN(n));
+
+    const existingBeams = await prisma.beamStockMaster.findMany({
+      where: { id: { in: numericIds } }
+    });
+
+    const blocked = [];
+    const allowed = [];
+
+    for (const b of existingBeams) {
+      const st = String(b.status || '').toUpperCase();
+      if (st.includes('RUNNING') || st.includes('LOADED') || st.includes('RESERVED') || b.loom_no_assigned) {
+        blocked.push(b.beam_no || String(b.id));
+      } else {
+        allowed.push(b.id);
+      }
+    }
+
+    if (allowed.length === 0) {
+      return res.status(400).json({
+        error: `Selected beam(s) [${blocked.join(', ')}] are currently committed to loom production/planning and cannot be deleted.`
+      });
+    }
+
+    const deleteResult = await prisma.beamStockMaster.deleteMany({
+      where: { id: { in: allowed } }
+    });
+
+    res.json({
+      success: true,
+      count: deleteResult.count,
+      deletedIds: allowed,
+      blockedBeams: blocked
+    });
+  } catch (error) {
+    console.error('Bulk Beam Stock Delete Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bulk Planned Assignments Delete Endpoint (Multi Delete)
+app.post('/api/planning/next-plans/bulk-delete', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No plan IDs provided.' });
+    }
+    const numericIds = ids.map(id => parseInt(id, 10)).filter(n => !isNaN(n));
+
+    const assignments = await prisma.plannedAssignment.findMany({
+      where: { id: { in: numericIds } }
+    });
+
+    // Release Reed and Beam for each assignment
+    for (const assignment of assignments) {
+      if (assignment.reserved_reed_id) {
+        const r = await prisma.reedStockMaster.findUnique({ where: { id: assignment.reserved_reed_id } });
+        if (r) {
+          await prisma.reedStockMaster.update({
+            where: { id: r.id },
+            data: {
+              status: 'Available',
+              reserved_qty: Math.max(0, r.reserved_qty - 1),
+              available_qty: r.available_qty + 1,
+              reserved_for_loom: null,
+              reserved_for_order: null,
+              reserved_for_design: null
+            }
+          });
+        }
+      }
+
+      if (assignment.reserved_beam_id) {
+        const beam = await prisma.beamStockMaster.findUnique({ where: { id: assignment.reserved_beam_id } });
+        if (beam) {
+          await prisma.beamStockMaster.update({
+            where: { id: beam.id },
+            data: { status: 'Available', reserved_for: null, loom_no_assigned: null }
+          });
+        }
+      }
+    }
+
+    const deleteResult = await prisma.plannedAssignment.deleteMany({
+      where: { id: { in: numericIds } }
+    });
+
+    res.json({ success: true, count: deleteResult.count });
+  } catch (error) {
+    console.error('Bulk Next Plans Delete Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Bulk Multiple Orders Completion Endpoint (Excel-style paste batch completion)
 app.post('/api/orders/bulk-complete', async (req, res) => {
   try {

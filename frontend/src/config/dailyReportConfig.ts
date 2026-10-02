@@ -346,23 +346,27 @@ export const DEPARTMENTS: DepartmentConfig[] = [
         ? Number(((totRew / finished) * 100).toFixed(2))
         : (finished !== null && totRew === 0 ? 0 : '');
 
-      return {
-        SPUPL_PROCESSING_MTRS: spuplProcessing,
-        DYEING_PRINTING_MTRS: dyeingPrinting,
-        REALISATION_PCT: realPct,
-        PROCESSING_REJECTION_PCT: procRejPct,
-        VENDOR_REJECTION_PCT: venRejPct,
-        WEAVING_REJECTION_PCT: weavRejPct,
-        PROCESSING_REWASH_PCT: procRewPct,
-        VENDOR_REWASH_PCT: venRewPct,
-        FINISHED_DIFF: finished !== null ? Math.round(finished - 77950) : '',
-        FINISHED_ACHIEVEMENT_PCT: finished !== null ? Number(((finished / 77950) * 100).toFixed(1)) : '',
-        TOTAL_FINISHED_FABRIC_MTRS: totFinFab,
-        TOTAL_REJECTION_MTRS: totRej,
-        TOTAL_REJECTION_PCT: totRejPct,
-        TOTAL_REWASH_MTRS: totRew,
-        TOTAL_REWASH_PCT: totRewPct
-      };
+        const finTarget = (raw._target_FINISHED_INSPECTION_MTRS !== undefined && Number(raw._target_FINISHED_INSPECTION_MTRS) > 0)
+          ? Number(raw._target_FINISHED_INSPECTION_MTRS)
+          : 77950;
+
+        return {
+          SPUPL_PROCESSING_MTRS: spuplProcessing,
+          DYEING_PRINTING_MTRS: dyeingPrinting,
+          REALISATION_PCT: realPct,
+          PROCESSING_REJECTION_PCT: procRejPct,
+          VENDOR_REJECTION_PCT: venRejPct,
+          WEAVING_REJECTION_PCT: weavRejPct,
+          PROCESSING_REWASH_PCT: procRewPct,
+          VENDOR_REWASH_PCT: venRewPct,
+          FINISHED_DIFF: finished !== null ? Math.round(finished - finTarget) : '',
+          FINISHED_ACHIEVEMENT_PCT: (finished !== null && finTarget > 0) ? Number(((finished / finTarget) * 100).toFixed(1)) : '',
+          TOTAL_FINISHED_FABRIC_MTRS: totFinFab,
+          TOTAL_REJECTION_MTRS: totRej,
+          TOTAL_REJECTION_PCT: totRejPct,
+          TOTAL_REWASH_MTRS: totRew,
+          TOTAL_REWASH_PCT: totRewPct
+        };
     }
   },
 

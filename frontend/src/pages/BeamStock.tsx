@@ -53,6 +53,7 @@ export default function BeamStock() {
 
   const [activeTab, setActiveTab] = useState<'STOCK' | 'REQUIREMENTS' | 'ALLOCATED'>('STOCK');
   const [rows, setRows] = useState<BeamRowState[]>([]);
+  const [selectedBeamIds, setSelectedBeamIds] = useState<(string | number)[]>([]);
   const [allocatedStockRows, setAllocatedStockRows] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -852,6 +853,41 @@ export default function BeamStock() {
     setTimeout(() => setSuccessMsg(null), 3000);
   };
 
+  const handleMultiDelete = async () => {
+    if (selectedBeamIds.length === 0) return;
+    if (!window.confirm(`Delete ${selectedBeamIds.length} selected beam stock row(s)?\n\nBeams currently reserved or running in production cannot be deleted.`)) return;
+
+    const numericIds = selectedBeamIds.filter(id => typeof id === 'number') as number[];
+    const clientRows = selectedBeamIds.filter(id => typeof id === 'string');
+
+    if (numericIds.length > 0) {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/beam-stock/bulk-delete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: numericIds })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.error || 'Failed to delete selected beams.');
+          return;
+        }
+        setRows(prev => prev.filter(r => !data.deletedIds?.includes(Number(r.id))));
+        alert(`Deleted ${data.count} beam record(s) successfully.${data.blockedBeams?.length ? ` Note: ${data.blockedBeams.length} beam(s) were blocked because they are reserved or running.` : ''}`);
+      } catch (err: any) {
+        alert('Delete error: ' + err.message);
+      }
+    }
+
+    if (clientRows.length > 0) {
+      setRows(prev => prev.filter(r => !clientRows.includes(String(r.id))));
+    }
+
+    setSelectedBeamIds([]);
+    fetchData();
+    refreshData();
+  };
+
   const handleExportExcel = () => {
     const exportData = filteredRows
       .filter(r => r.beam_no !== '')
@@ -1322,6 +1358,15 @@ export default function BeamStock() {
             </button>
 
             <button
+              onClick={handleMultiDelete}
+              disabled={selectedBeamIds.length === 0}
+              className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Delete selected beam rows"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Multi Delete {selectedBeamIds.length > 0 && `(${selectedBeamIds.length})`}
+            </button>
+
+            <button
               onClick={handleExportExcel}
               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition-all flex items-center"
             >
@@ -1351,6 +1396,21 @@ export default function BeamStock() {
           <table className="w-full text-left border-collapse whitespace-nowrap text-xs font-mono">
             <thead>
               <tr className="bg-slate-900 text-white uppercase text-[10px] font-black border-b border-slate-800">
+                <th className="p-2 text-center w-8 print:hidden">
+                  <input
+                    type="checkbox"
+                    checked={filteredRows.length > 0 && selectedBeamIds.length === filteredRows.length}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setSelectedBeamIds(filteredRows.map(r => r.id));
+                      } else {
+                        setSelectedBeamIds([]);
+                      }
+                    }}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    title="Select All"
+                  />
+                </th>
                 <th className="p-2 text-center w-10">S.No</th>
                 <th className="p-2 min-w-[110px]">Date *</th>
                 <th className="p-2 min-w-[130px] text-blue-300">Design No</th>
@@ -1376,6 +1436,20 @@ export default function BeamStock() {
               {filteredRows.map((row, index) => {
                 return (
                   <tr key={row.id} className="hover:bg-blue-50/40 transition-colors">
+                    <td className="p-2 text-center print:hidden">
+                      <input
+                        type="checkbox"
+                        checked={selectedBeamIds.includes(row.id)}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            setSelectedBeamIds(prev => [...prev, row.id]);
+                          } else {
+                            setSelectedBeamIds(prev => prev.filter(id => id !== row.id));
+                          }
+                        }}
+                        className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                    </td>
                     <td className="p-2 text-center font-bold text-slate-400">{index + 1}</td>
 
                     <td className="p-1">

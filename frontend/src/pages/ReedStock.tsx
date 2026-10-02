@@ -29,6 +29,7 @@ export default function ReedStock() {
   const [bulkPasteText, setBulkPasteText] = useState('');
   const [formData, setFormData] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
+  const [selectedReedIds, setSelectedReedIds] = useState<number[]>([]);
 
   const [showOrderStockModal, setShowOrderStockModal] = useState(false);
   const [selectedOrderForStock, setSelectedOrderForStock] = useState<any>(null);
@@ -419,6 +420,29 @@ export default function ReedStock() {
     }
   };
 
+  const handleMultiDelete = async () => {
+    if (selectedReedIds.length === 0) return;
+    if (!window.confirm(`Delete ${selectedReedIds.length} selected reed stock item(s)?\n\nCommitted reeds cannot be deleted.`)) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/reed-stock/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedReedIds })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to delete selected reeds.');
+        return;
+      }
+      setSelectedReedIds([]);
+      refreshData();
+      alert(`Deleted ${data.count} reed stock record(s) successfully.${data.blockedReeds?.length ? ` Note: ${data.blockedReeds.length} reed(s) were blocked because they are reserved or running.` : ''}`);
+    } catch (err: any) {
+      alert('Delete error: ' + err.message);
+    }
+  };
+
   const getStatusBadge = (r: any) => {
     const avail = Number(r.available_qty !== undefined ? r.available_qty : (r.total_qty || 1));
     const res = Number(r.reserved_qty || 0);
@@ -482,6 +506,15 @@ export default function ReedStock() {
             title="Print Reed Stock Report"
           >
             <Printer className="w-4 h-4 mr-1.5" /> Print
+          </button>
+
+          <button
+            onClick={handleMultiDelete}
+            disabled={selectedReedIds.length === 0}
+            className="flex items-center px-3 py-2 bg-rose-600 text-white hover:bg-rose-700 rounded-lg shadow-sm font-semibold text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Delete selected reed records"
+          >
+            <Trash2 className="w-4 h-4 mr-1.5" /> Multi Delete {selectedReedIds.length > 0 && `(${selectedReedIds.length})`}
           </button>
 
           <button
@@ -656,6 +689,21 @@ export default function ReedStock() {
           <table className="w-full text-left border-collapse text-xs table-fixed">
             <thead className="bg-slate-900 text-white font-bold sticky top-0 z-20 shadow-sm">
               <tr className="border-b border-slate-700">
+                <th className="py-2.5 px-2 text-center w-[3%]">
+                  <input
+                    type="checkbox"
+                    checked={filteredReeds.length > 0 && selectedReedIds.length === filteredReeds.length}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setSelectedReedIds(filteredReeds.map(r => r.id));
+                      } else {
+                        setSelectedReedIds([]);
+                      }
+                    }}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    title="Select All"
+                  />
+                </th>
                 <th className="py-2.5 px-2 text-center w-[3%]">#</th>
                 <th className="py-2.5 px-2 w-[10%]">Reed Count</th>
                 <th className="py-2.5 px-2 text-center w-[8%]">Dents / Inch</th>
@@ -673,7 +721,7 @@ export default function ReedStock() {
             <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
               {filteredReeds.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center">
+                  <td colSpan={13} className="py-12 text-center">
                     <div className="max-w-md mx-auto flex flex-col items-center justify-center p-6 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
                       <Database className="w-12 h-12 text-slate-400 mb-3" />
                       <h3 className="text-base font-bold text-slate-800">No Reed Stock Records Found</h3>
@@ -716,6 +764,20 @@ export default function ReedStock() {
 
                   return (
                     <tr key={r.id || idx} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-2 px-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedReedIds.includes(r.id)}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setSelectedReedIds(prev => [...prev, r.id]);
+                            } else {
+                              setSelectedReedIds(prev => prev.filter(id => id !== r.id));
+                            }
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        />
+                      </td>
                       <td className="py-2 px-2 text-center text-slate-400">{idx + 1}</td>
                       <td className="py-2 px-2 font-black text-slate-900 text-xs truncate">
                         {r.reed_count || '—'}

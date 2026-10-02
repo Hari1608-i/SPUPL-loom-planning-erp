@@ -114,6 +114,8 @@ export default function PlannedLooms() {
   const [reedSearchTerm, setReedSearchTerm] = useState('');
 
   // Delete a plan
+  const [selectedPlanIds, setSelectedPlanIds] = useState<number[]>([]);
+
   const handleDeletePlan = async (row: PlannedAssignment) => {
     if (!window.confirm(`Delete planned assignment for Loom ${row.loom_no}? This will also release any allocated reed and beam.`)) return;
     try {
@@ -130,6 +132,31 @@ export default function PlannedLooms() {
       }
     } catch (err: any) {
       setErrorMsg('Error deleting plan: ' + err.message);
+    }
+  };
+
+  const handleMultiDelete = async () => {
+    if (selectedPlanIds.length === 0) return;
+    if (!window.confirm(`Delete ${selectedPlanIds.length} selected planned assignment(s)? This will release all allocated reeds and beams.`)) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/planning/next-plans/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedPlanIds })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMsg(data.error || 'Failed to delete selected plans.');
+        return;
+      }
+      setSelectedPlanIds([]);
+      setSuccessMsg(`Deleted ${data.count} planned assignment(s) and released all allocations.`);
+      await refreshData();
+      const updated = await fetch(`${API_BASE_URL}/api/planning/next-plans`);
+      if (updated.ok) setAssignments(await updated.json());
+    } catch (err: any) {
+      setErrorMsg('Error deleting plans: ' + err.message);
     }
   };
   const [reedFilterTab, setReedFilterTab] = useState<'COMPATIBLE' | 'ALL_AVAILABLE'>('COMPATIBLE');
@@ -537,17 +564,28 @@ export default function PlannedLooms() {
           </p>
         </div>
 
-        <button
-          onClick={async () => {
-            setIsLoading(true);
-            await refreshData();
-            await fetchAssignments();
-            setIsLoading(false);
-          }}
-          className="flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shadow-md transition-all"
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-refresh-spin' : ''}`} /> Refresh Plans
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleMultiDelete}
+            disabled={selectedPlanIds.length === 0}
+            className="flex items-center px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Delete selected plans"
+          >
+            <Trash2 className="w-4 h-4 mr-1.5" /> Multi Delete {selectedPlanIds.length > 0 && `(${selectedPlanIds.length})`}
+          </button>
+
+          <button
+            onClick={async () => {
+              setIsLoading(true);
+              await refreshData();
+              await fetchAssignments();
+              setIsLoading(false);
+            }}
+            className="flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shadow-md transition-all"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-refresh-spin' : ''}`} /> Refresh Plans
+          </button>
+        </div>
       </div>
 
       {/* Alert Messages */}
@@ -597,6 +635,21 @@ export default function PlannedLooms() {
           <table className="w-full text-left border-collapse whitespace-nowrap text-xs">
             <thead>
               <tr className="bg-slate-900 text-white uppercase text-[10px] font-black border-b border-slate-800">
+                <th className="p-3 text-center w-8">
+                  <input
+                    type="checkbox"
+                    checked={filteredData.length > 0 && selectedPlanIds.length === filteredData.length}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setSelectedPlanIds(filteredData.map(r => r.id));
+                      } else {
+                        setSelectedPlanIds([]);
+                      }
+                    }}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    title="Select All"
+                  />
+                </th>
                 <th className="p-3 text-center">S.No</th>
                 <th className="p-3">Loom No</th>
                 <th className="p-3">Order / IBPO</th>
@@ -618,13 +671,13 @@ export default function PlannedLooms() {
             <tbody className="divide-y divide-slate-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan={15} className="p-12 text-center text-slate-400 font-medium">
+                  <td colSpan={16} className="p-12 text-center text-slate-400 font-medium">
                     Loading planned looms...
                   </td>
                 </tr>
               ) : filteredData.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="p-12 text-center text-slate-400 font-medium">
+                  <td colSpan={16} className="p-12 text-center text-slate-400 font-medium">
                     No active proposed next plans found. Assign a loom in <strong>Loom Planning Setup</strong>.
                   </td>
                 </tr>
@@ -685,6 +738,20 @@ export default function PlannedLooms() {
 
                   return (
                     <tr key={row.id} className={`hover:bg-slate-50 transition-colors ${isChangeRequested ? 'bg-amber-50/60' : ''}`}>
+                      <td className="p-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedPlanIds.includes(row.id)}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setSelectedPlanIds(prev => [...prev, row.id]);
+                            } else {
+                              setSelectedPlanIds(prev => prev.filter(id => id !== row.id));
+                            }
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        />
+                      </td>
                       <td className="p-3 text-center text-slate-400 font-mono font-bold">{idx + 1}</td>
 
                       <td className="p-3 font-black text-slate-900">

@@ -37,6 +37,7 @@ export default function DesignMaster() {
   const [sortAsc, setSortAsc] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedDesign, setSelectedDesign] = useState<DesignItem | null>(null);
+  const [selectedDesignNos, setSelectedDesignNos] = useState<string[]>([]);
 
   useEffect(() => {
     refreshData();
@@ -129,6 +130,29 @@ export default function DesignMaster() {
     triggerPrint();
   };
 
+  const handleMultiDelete = async () => {
+    if (selectedDesignNos.length === 0) return;
+    if (!window.confirm(`Delete ${selectedDesignNos.length} selected design(s) from Master Library?\n\nUnlinked designs will be removed permanently.`)) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/designs/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ designNos: selectedDesignNos, force: false })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to delete selected designs.');
+        return;
+      }
+      setSelectedDesignNos([]);
+      refreshData();
+      alert(`Deleted ${data.count} design(s) successfully.${data.blockedDesigns?.length ? ` Note: ${data.blockedDesigns.length} design(s) could not be deleted because they are linked to orders/production.` : ''}`);
+    } catch (err: any) {
+      alert('Delete error: ' + err.message);
+    }
+  };
+
   return (
     <div className="space-y-6 flex flex-col h-full bg-slate-50/70 p-4 print:p-0 print:bg-white">
       <CompanyPrintHeader title="Master Design Library (SSOT)" subtitle="Official Fabric & Construction Specifications" />
@@ -148,6 +172,15 @@ export default function DesignMaster() {
             className="flex items-center px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg shadow-sm font-semibold text-sm transition-all"
           >
             <RefreshCw className={`w-4 h-4 mr-1.5 ${isRefreshing ? 'animate-refresh-spin' : ''}`} /> Refresh Library
+          </button>
+
+          <button 
+            onClick={handleMultiDelete}
+            disabled={selectedDesignNos.length === 0}
+            className="flex items-center px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 shadow-sm font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Delete selected designs"
+          >
+            <Trash2 className="w-4 h-4 mr-1.5" /> Multi Delete {selectedDesignNos.length > 0 && `(${selectedDesignNos.length})`}
           </button>
 
           <button 
@@ -217,6 +250,21 @@ export default function DesignMaster() {
           <table className="w-full text-left border-collapse whitespace-nowrap text-xs">
             <thead className="bg-industrial-900 text-white font-bold sticky top-0 z-20 shadow-sm">
               <tr className="border-b border-industrial-700">
+                <th className="py-2.5 px-2 text-center w-8 print:hidden">
+                  <input
+                    type="checkbox"
+                    checked={filteredDesigns.length > 0 && selectedDesignNos.length === filteredDesigns.length}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setSelectedDesignNos(filteredDesigns.map(d => d.design_no_sp_no));
+                      } else {
+                        setSelectedDesignNos([]);
+                      }
+                    }}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    title="Select All"
+                  />
+                </th>
                 <th className="py-2.5 px-3 text-center w-10">#</th>
                 <th className="py-2.5 px-3 cursor-pointer hover:bg-industrial-800" onClick={() => handleSort('design_no_sp_no')}>
                   <div className="flex items-center">Design Number <ArrowUpDown className="w-3 h-3 ml-1 text-industrial-400" /></div>
@@ -240,6 +288,20 @@ export default function DesignMaster() {
             <tbody className="divide-y divide-industrial-100">
               {filteredDesigns.map((d, index) => (
                 <tr key={d.design_no_sp_no || index} className="hover:bg-blue-50/50 transition-colors">
+                  <td className="py-2 px-2 text-center print:hidden">
+                    <input
+                      type="checkbox"
+                      checked={selectedDesignNos.includes(d.design_no_sp_no)}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setSelectedDesignNos(prev => [...prev, d.design_no_sp_no]);
+                        } else {
+                          setSelectedDesignNos(prev => prev.filter(no => no !== d.design_no_sp_no));
+                        }
+                      }}
+                      className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    />
+                  </td>
                   <td className="py-2 px-3 text-industrial-400 font-mono text-[10px] text-center bg-industrial-50/40">{index + 1}</td>
                   <td className="py-2 px-3 font-black text-blue-900 bg-blue-50/30">{d.design_no_sp_no}</td>
                   <td className="py-2 px-3 font-semibold text-industrial-800">{d.construction || '—'}</td>

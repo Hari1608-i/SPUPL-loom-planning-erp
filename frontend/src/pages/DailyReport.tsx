@@ -798,8 +798,11 @@ export default function DailyReport() {
         raw[m.code] = m.defaultValue !== undefined ? m.defaultValue : '';
       }
     });
+    if (editedTargets['FINISHED_INSPECTION_MTRS'] !== undefined) {
+      raw._target_FINISHED_INSPECTION_MTRS = editedTargets['FINISHED_INSPECTION_MTRS'];
+    }
     return currentDept.calculate(raw);
-  }, [currentDept, formInputs]);
+  }, [currentDept, formInputs, editedTargets]);
 
   // Department overall performance mark
   const departmentPerformance = useMemo(() => {
@@ -5076,14 +5079,52 @@ return (
                   <div className="space-y-6">
                     {/* Reference Screenshot 2: FINAL INSPECTION */}
                     <div className="rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-sm overflow-hidden bg-white dark:bg-slate-800">
-                      <div className="bg-slate-100 dark:bg-slate-900 px-4 py-2 border-b-2 border-slate-300 dark:border-slate-700 flex items-center justify-between">
-                        <span className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                          FINAL INSPECTION
-                        </span>
-                        <span className="text-[10px] font-bold text-slate-500">
-                          Auto-Calculates Realisation &amp; Rejection %
-                        </span>
-                      </div>
+                      {(() => {
+                        const targetMtrs = editedTargets['FINISHED_INSPECTION_MTRS'] !== undefined
+                          ? editedTargets['FINISHED_INSPECTION_MTRS']
+                          : 77950;
+                        const finVal = formInputs['FINISHED_INSPECTION_MTRS'] !== undefined && formInputs['FINISHED_INSPECTION_MTRS'] !== ''
+                          ? Number(formInputs['FINISHED_INSPECTION_MTRS'])
+                          : null;
+                        return (
+                          <div className="bg-slate-100 dark:bg-slate-900 px-4 py-2 border-b-2 border-slate-300 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                                FINAL INSPECTION
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-500">
+                                Auto-Calculates Realisation &amp; Rejection %
+                              </span>
+                            </div>
+                            {editMonthlyTargetsMode ? (
+                              <div className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-300 dark:border-indigo-700">
+                                <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">Target ({targetMonth}):</span>
+                                <input
+                                  type="number"
+                                  value={targetMtrs !== undefined && targetMtrs !== null ? targetMtrs : ''}
+                                  onChange={e => handleTargetChange('FINISHED_INSPECTION_MTRS', e.target.value)}
+                                  placeholder="77950"
+                                  className="w-24 px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-indigo-400 rounded text-xs font-bold text-indigo-900 dark:text-indigo-100 outline-none"
+                                />
+                                <span className="text-[10px] text-slate-400 font-bold">Mtrs</span>
+                              </div>
+                            ) : (
+                              targetMtrs > 0 && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-900">
+                                    Target: {targetMtrs.toLocaleString()} Mtrs
+                                  </span>
+                                  {finVal !== null && (
+                                    <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${finVal >= targetMtrs ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'}`}>
+                                      {((finVal / targetMtrs) * 100).toFixed(1)}% Achieved
+                                    </span>
+                                  )}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        );
+                      })()}
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="border-b-2 border-slate-300 dark:border-slate-700">
@@ -5099,7 +5140,17 @@ return (
                           {/* Row 1: FINISHED INSPECTION MTRS */}
                           <tr>
                             <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
-                              FINISHED INSPECTION MTRS
+                              <div className="flex items-center justify-between">
+                                <span>FINISHED INSPECTION MTRS</span>
+                                {(() => {
+                                  const targetMtrs = editedTargets['FINISHED_INSPECTION_MTRS'] !== undefined ? editedTargets['FINISHED_INSPECTION_MTRS'] : 77950;
+                                  return (
+                                    <span className="text-[10px] font-bold text-indigo-800 bg-indigo-100/80 dark:bg-indigo-900/60 dark:text-indigo-200 px-1.5 py-0.5 rounded">
+                                      Target: {targetMtrs.toLocaleString()}
+                                    </span>
+                                  );
+                                })()}
+                              </div>
                             </td>
                             <td className="p-2 bg-[#fce4d6]">
                               <input
@@ -5701,16 +5752,19 @@ return (
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {/* Delete button only if record exists and user has delete permission */}
-                  {isCurrentDeptSaved && currentDeptPerm.delete && (
+                  {/* Delete button: if record exists in SQL, deletes from database; if unsaved inputs exist, clears form */}
+                  {((isCurrentDeptSaved && currentDeptPerm.delete) || Object.values(formInputs).some(v => v !== '' && v !== undefined)) && (
                     <button
-                      onClick={handleDeleteDepartment}
+                      onClick={isCurrentDeptSaved ? handleDeleteDepartment : () => {
+                        setFormInputs({});
+                        setDeptRemarks('');
+                      }}
                       disabled={deleting}
                       className="flex items-center gap-1.5 px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-800 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
-                      title="Delete only this date & department record"
+                      title={isCurrentDeptSaved ? "Delete only this date & department record from SQL" : "Clear form inputs"}
                     >
                       <Trash2 className="w-4 h-4" />
-                      <span>{deleting ? 'Deleting...' : 'Delete Entry'}</span>
+                      <span>{deleting ? 'Deleting...' : isCurrentDeptSaved ? 'Delete Entry' : 'Clear Form'}</span>
                     </button>
                   )}
 
