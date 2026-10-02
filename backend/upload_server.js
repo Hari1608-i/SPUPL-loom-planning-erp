@@ -2383,18 +2383,77 @@ app.post('/api/beam-stock', async (req, res) => {
 
 app.get('/api/beam-stock/allocated', async (req, res) => {
   try {
+    // 1. Get currently running beams to exclude any beam already running on a loom
+    const activeRuns = await prisma.loomRunEntry.findMany({
+      select: { loom_no: true, current_beam_no: true, beam_id: true }
+    });
+    const runningBeamNos = new Set(
+      activeRuns.map(r => (r.current_beam_no || '').trim().toUpperCase()).filter(Boolean)
+    );
+    const runningBeamIds = new Set(
+      activeRuns.map(r => r.beam_id).filter(Boolean)
+    );
+
+    // 2. Fetch all planned assignments that have allocated beams
+    const allocatedPlans = await prisma.plannedAssignment.findMany({
+      where: {
+        OR: [
+          { reserved_beam_id: { not: null } },
+          { reserved_beam_no: { not: null } },
+          { beam_status: 'BEAM ALLOCATED' }
+        ],
+        status: { notIn: ['COMPLETED', 'CANCELLED'] }
+      }
+    });
+
+    const planBeamIds = new Set(allocatedPlans.map(p => p.reserved_beam_id).filter(Boolean));
+    const planBeamNos = new Set(allocatedPlans.map(p => (p.reserved_beam_no || '').trim().toUpperCase()).filter(Boolean));
+    const planByBeamId = new Map(allocatedPlans.filter(p => p.reserved_beam_id).map(p => [p.reserved_beam_id, p]));
+    const planByBeamNo = new Map(allocatedPlans.filter(p => p.reserved_beam_no).map(p => [(p.reserved_beam_no || '').trim().toUpperCase(), p]));
+
+    // 3. Find physical beams in beamStockMaster
     const beams = await prisma.beamStockMaster.findMany({
       where: {
         OR: [
-          { status: { in: ['ALLOCATED', 'Allocated', 'RESERVED', 'Reserved', 'ASSIGNED', 'Assigned', 'CONFIRMED', 'Confirmed'] } },
+          { id: { in: Array.from(planBeamIds) } },
+          { beam_no: { in: Array.from(planBeamNos) } },
+          { status: { in: ['ALLOCATED', 'Allocated', 'RESERVED', 'Reserved', 'ASSIGNED', 'Assigned'] } },
           { loom_no_assigned: { not: null, gt: 0 } },
           { reserved_for: { not: null } }
         ]
       },
-      orderBy: { updatedAt: 'desc' }
+      orderBy: { id: 'desc' }
     });
-    res.json(beams);
+
+    // 4. Filter: only beams that are allocated to upcoming plans/orders but NOT currently running on a loom
+    const result = beams
+      .filter(b => {
+        const bNo = (b.beam_no || '').trim().toUpperCase();
+        const bSt = (b.status || '').toUpperCase();
+        if (runningBeamNos.has(bNo) || (b.id && runningBeamIds.has(b.id))) return false;
+        if (bSt === 'RUNNING' || bSt === 'IN USE') return false;
+        const isLinkedToPlan = planBeamIds.has(b.id) || planBeamNos.has(bNo);
+        const isMarkedAllocated = ['ALLOCATED', 'RESERVED', 'ASSIGNED'].includes(bSt) || (b.loom_no_assigned && b.loom_no_assigned > 0);
+        return isLinkedToPlan || isMarkedAllocated;
+      })
+      .map(b => {
+        const bNo = (b.beam_no || '').trim().toUpperCase();
+        const plan = planByBeamId.get(b.id) || planByBeamNo.get(bNo);
+        return {
+          ...b,
+          loom_no_assigned: plan?.loom_no || b.loom_no_assigned,
+          order_no: plan?.order_no || b.order_no || b.ibpo,
+          ibpo: plan?.order_no || b.ibpo || b.order_no,
+          design_no: plan?.next_design || b.design_no,
+          reserved_for: plan ? `Loom ${plan.loom_no} - Plan #${plan.id}` : b.reserved_for,
+          plan_status: plan?.status || 'ALLOCATED',
+          plan_id: plan?.id || null
+        };
+      });
+
+    res.json(result);
   } catch (error) {
+    console.error('Error in /api/beam-stock/allocated:', error);
     res.status(500).json({ error: error.message });
   }
 });

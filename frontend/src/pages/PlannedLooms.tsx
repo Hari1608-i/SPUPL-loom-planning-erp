@@ -305,25 +305,22 @@ export default function PlannedLooms() {
         });
       } catch (e) {}
 
-      const res = await fetch(`${API_BASE_URL}/api/planning/next-plan/confirm`, {
+      const res = await fetch(`${API_BASE_URL}/api/planning/next-plan/allocate-beam`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          planId: plan.id,
           loomNo: plan.loom_no,
-          nextDesign: plan.next_design,
-          orderNo: plan.order_no,
           beamId: targetBeamId,
-          reedId: plan.reserved_reed_id,
-          startDate: plan.planned_start_date,
-          processType: chosenType,
-          remarks: plan.remarks || 'Beam confirmed via Interactive Picker',
+          orderNo: plan.order_no,
+          sortChangeType: chosenType,
           plannerName: user?.username || 'Confirmation User'
         })
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
-        setSuccessMsg(`🎉 BEAM CONFIRMED! Physical Beam #${targetBeam ? targetBeam.beam_no : plan.reserved_beam_no} allocated & reserved for Loom ${plan.loom_no}. You may now click CONFIRM LOOM.`);
+        setSuccessMsg(`✅ BEAM ALLOCATED! Physical Beam #${targetBeam ? targetBeam.beam_no : plan.reserved_beam_no} reserved for Loom ${plan.loom_no}. Sort Change: ${chosenType}. Now click CONFIRM LOOM to start production.`);
         setConfirmBeamModalPlan(null);
         setSelectedBeamForConfirmation(null);
         setSelectedPlanForReview(null);
@@ -972,12 +969,13 @@ export default function PlannedLooms() {
                           {!isLoomConfirmed ? (
                             <button
                               onClick={() => handleConfirmLoom(row)}
+                              disabled={!isBeamConfirmed}
                               className={`px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm flex items-center transition-all ${
-                                (isBeamConfirmed || hasBeamStock)
+                                isBeamConfirmed
                                   ? 'bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-400/50 cursor-pointer'
                                   : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                               }`}
-                              title={!(isBeamConfirmed || hasBeamStock) ? 'Beam allocation required first' : 'Confirm Loom Plan & Transfer to Main Entry'}
+                              title={!isBeamConfirmed ? 'Beam allocation required first (Click ALLOCATE BEAM)' : 'Confirm Loom Plan & Transfer to Main Entry'}
                             >
                               <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> CONFIRM LOOM
                             </button>

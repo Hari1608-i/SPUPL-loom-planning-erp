@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Package, Search, Plus, Download, Trash2, Save, Printer,
-  Calendar, CheckCircle2, AlertCircle, RefreshCw, Copy, Layers, Filter, CheckCircle, AlertTriangle, Eye, X, Edit2, Upload, ArrowRight
+  Calendar, CheckCircle2, AlertCircle, RefreshCw, Copy, Layers, Filter, CheckCircle, AlertTriangle, Eye, X, Edit2, Upload, ArrowRight, ExternalLink
 } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { API_BASE_URL } from '../config';
@@ -76,8 +76,8 @@ export default function BeamStock() {
     errorList?: any[];
   } | null>(null);
 
-  // Requirement Panel Filter State
-  const [showAllOrders, setShowAllOrders] = useState(false);
+  // Requirement Panel Filter State (Default to showing all active orders so orders are not hidden)
+  const [showAllOrders, setShowAllOrders] = useState(true);
   const [orderReqSearchTerm, setOrderReqSearchTerm] = useState('');
 
   // Manual Warp Override Map (ibpo -> manualValue)
@@ -269,9 +269,12 @@ export default function BeamStock() {
     }
   };
 
+  // NOTE: fetchData only runs on mount. Physical Stock tab manual entries are preserved
+  // until user clicks Save or manually refreshes. Do NOT add reactive deps here.
   useEffect(() => {
     fetchData();
-  }, [runningBeamNos, planAllocatedBeamNos, runningBeamIds, planAllocatedBeamIds]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   // Order-Wise Beam Requirement Summaries (SSOT — 13 Required Columns)
   const activeOrderRequirements = useMemo(() => {
@@ -311,9 +314,17 @@ export default function BeamStock() {
       const designNo = ord.design_no_sp_no || ibpo;
       const matchedDesign = designs.find(d => (d.design_no_sp_no || d.designNo) === designNo);
 
-      // Required beams = planned loom count (minimum 0 — only non-zero if planning exists)
-      const requiredBeams = Math.max(0, ...orderGroup.map(o => Number(o.planned_loom_count) || 0));
+      // Required beams: check explicit required_beams, planned_warp_beams, planned_loom_count, or derive from order quantity
       const orderMtr = Number(ord.order_qty) || Number(ord.warp_qty) || 0;
+      const explicitReq = Math.max(0, ...orderGroup.map(o => 
+        Number(o.required_beams) || 
+        Number(o.planned_warp_beams) || 
+        Number(o.planned_loom_count) || 
+        0
+      ));
+      const requiredBeams = explicitReq > 0 
+        ? explicitReq 
+        : (orderMtr > 0 ? Math.max(1, Math.ceil(orderMtr / (Number(ord.beam_capacity) || 2000))) : 0);
 
       // Warp Meter from order field
       const calculatedWarpMtr = Number(ord.warp_qty) || orderMtr;
@@ -1213,6 +1224,17 @@ export default function BeamStock() {
             </div>
 
             <button
+              onClick={async () => {
+                await refreshData();
+                await fetchData();
+              }}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-sm transition-all flex items-center shrink-0"
+              title="Refresh Orders & Requirements Data from Database"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh Requirements
+            </button>
+
+            <button
               onClick={() => setShowAllOrders(!showAllOrders)}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs border border-slate-700 transition-all shrink-0"
             >
@@ -1373,6 +1395,19 @@ export default function BeamStock() {
             >
               <Plus className="w-3.5 h-3.5 mr-1" /> Add Row
             </button>
+
+            <button
+              onClick={() => {
+                const hasUnsaved = rows.some(r => typeof r.id === 'string' && (r.id.startsWith('manual-') || r.id.startsWith('blank-')) && r.beam_no?.trim());
+                if (hasUnsaved && !window.confirm('You have unsaved manual entries. Reload will clear them. Continue?')) return;
+                fetchData();
+              }}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl border border-slate-300 transition-all flex items-center"
+              title="Reload beam stock from database (unsaved rows will be cleared)"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1" /> Reload DB
+            </button>
+
 
             <button
               onClick={handleSaveAll}
@@ -1792,10 +1827,10 @@ export default function BeamStock() {
                             const ibpoEnc = encodeURIComponent(b.ibpo || b.order_no || '');
                             navigate(`/plan?beamId=${b.id}&beamNo=${beamNoEnc}&designNo=${designEnc}&ibpo=${ibpoEnc}${b.loom_no_assigned ? `&confirmLoom=${b.loom_no_assigned}` : ''}`);
                           }}
-                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] rounded-lg shadow-sm transition-all flex items-center justify-center mx-auto gap-1"
-                          title={`Confirm Beam #${b.beam_no} in Loom Planning Confirmation Workflow`}
+                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] rounded-lg shadow-sm transition-all flex items-center justify-center mx-auto gap-1"
+                          title={`Go to Confirmation Control to confirm Loom ${b.loom_no_assigned ? b.loom_no_assigned : ''}`}
                         >
-                          <CheckCircle className="w-3.5 h-3.5" /> CONFIRM
+                          <ExternalLink className="w-3.5 h-3.5" /> GO TO CONFIRMATION
                         </button>
                       </td>
                     </tr>

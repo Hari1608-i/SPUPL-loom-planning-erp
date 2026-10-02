@@ -2074,7 +2074,11 @@ export default function MainEntry() {
                           const pType = activeSortChange || prepRec?.confirmed_process || prepRec?.process_type || (nextPlansList[0] as any)?.sort_change_type;
                           const pStatus = prepRec?.status || (activeRunObj as any)?.prep_status || 'PENDING';
 
-                          if (!pType) {
+                          // Only display sort change if a beam is actually allocated (either on current run or next plan)
+                          const hasAllocatedBeam = !!(entry.currentBeamNo && entry.currentBeamNo.trim() !== '' && entry.currentBeamNo !== 'Not Allocated') ||
+                                                  !!(nextPlansList[0]?.reserved_beam_no || nextPlansList[0]?.reserved_beam_id);
+
+                          if (!hasAllocatedBeam || !pType) {
                             return <span className="text-slate-400 font-medium text-xs select-none">—</span>;
                           }
 
@@ -2442,10 +2446,11 @@ export default function MainEntry() {
                                   const prepRec = prepRecordsByLoom[loom.loomNo] || (cp.plan.WarpPreparationProcess && cp.plan.WarpPreparationProcess[0]);
                                   const pType = prepRec?.confirmed_process || prepRec?.process_type || (cp.plan as any).sort_change_type;
                                   const pStatus = prepRec?.status || 'PENDING';
+                                  const planHasAllocatedBeam = !!(cp.plan.reserved_beam_no || cp.plan.reserved_beam_id);
 
                                   return (
                                     <>
-                                      {pType && (
+                                      {planHasAllocatedBeam && pType && (
                                         <button
                                           type="button"
                                           onClick={() => handleOpenPrepModal(loom.loomNo, cp.plan, prepRec)}
