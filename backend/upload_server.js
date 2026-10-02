@@ -6225,20 +6225,7 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
 // WARP PREPARATION & KNOTTING WORKFLOW ENDPOINTS
 // ============================================================
 
-// 1. Evaluate Knotting Eligibility and get preparation details for a plan
-app.get('/api/warp-preparation/evaluate/:planId', async (req, res) => {
-  try {
-    const { planId } = req.params;
-    const details = await warpPreparationService.getPreparationDetailsByPlanId(planId);
-    if (!details) {
-      return res.status(404).json({ error: `Planned assignment #${planId} not found.` });
-    }
-    res.json({ success: true, details });
-  } catch (error) {
-    console.error('Warp prep evaluate error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
+// 1. Warp Preparation Details by Loom or Plan (see consolidated endpoints at bottom)
 
 // 2. Get preparation details by Loom Number
 app.get('/api/warp-preparation/loom/:loomNo', async (req, res) => {
@@ -6256,7 +6243,7 @@ app.get('/api/warp-preparation/loom/:loomNo', async (req, res) => {
 });
 
 // 3. Get all active preparation records for all looms (used by Main Entry & Planning)
-app.get('/api/warp-preparation/all-active', async (req, res) => {
+app.get(['/api/warp-preparation/all-active', '/api/warp-preparation/all'], async (req, res) => {
   try {
     const result = await warpPreparationService.getAllActivePreparationRecords();
     res.json({ success: true, ...result });
@@ -6546,6 +6533,51 @@ app.get('/api/planning/next-plans', async (req, res) => {
 
     res.json(assignments);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Alias for backwards-compatibility with /api/next-plans
+app.get('/api/next-plans', async (req, res) => {
+  try {
+    const assignments = await prisma.plannedAssignment.findMany({
+      where: {
+        status: { notIn: ['CANCELLED', 'COMPLETED'] },
+        confirmation_status: { notIn: ['CANCELLED', 'COMPLETED'] },
+        readiness_status: { not: 'RUNNING IN MAIN ENTRY' }
+      },
+      include: {
+        WarpPreparationProcess: {
+          orderBy: { id: 'desc' },
+          take: 1
+        }
+      },
+      orderBy: { id: 'asc' }
+    });
+    res.json(assignments);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/next-plans', async (req, res) => {
+  try {
+    const plans = Array.isArray(req.body) ? req.body : [req.body];
+    for (const p of plans) {
+      if (p.id) {
+        await prisma.plannedAssignment.update({
+          where: { id: Number(p.id) },
+          data: {
+            status: p.status || 'COMPLETED',
+            confirmation_status: p.confirmation_status || 'COMPLETED',
+            readiness_status: p.readiness_status || 'RUNNING IN MAIN ENTRY'
+          }
+        }).catch(() => {});
+      }
+    }
+    res.json({ success: true, count: plans.length });
+  } catch (error) {
+    console.error('Error in /api/next-plans POST:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -7465,9 +7497,10 @@ app.get('/api/system-health', async (req, res) => {
       warnings.push(`${negativeBeams.length} Beams have negative available meters.`);
     }
 
-    let invalidDesignRunsCount = runDesignNos.filter(no => !allDesignNos.includes(no)).length;
-    if (invalidDesignRunsCount > 0) {
-      errors.push(`${invalidDesignRunsCount} Active Runs reference a missing Design.`);
+    const invalidDesignRuns = runDesignNosObj.filter(r => r.design_no_sp_no && !allDesignNos.includes(r.design_no_sp_no));
+    if (invalidDesignRuns.length > 0) {
+      const detailsStr = invalidDesignRuns.map(r => `Loom ${r.loom_no} ("${r.design_no_sp_no}")`).join(', ');
+      errors.push(`${invalidDesignRuns.length} Active Run(s) reference a missing Design: ${detailsStr}.`);
     }
 
     // 6. Calculate Overall Health Score
