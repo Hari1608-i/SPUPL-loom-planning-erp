@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Layers, Search, Plus, RefreshCw, CheckCircle2, ShieldCheck, Download, Trash2, Edit3, Box, AlertTriangle, X, Database, ShoppingBag, CheckCircle } from 'lucide-react';
+import { Layers, Search, Plus, RefreshCw, CheckCircle2, ShieldCheck, Download, Trash2, Edit3, Box, AlertTriangle, X, Database, ShoppingBag, CheckCircle, FileSpreadsheet, Printer } from 'lucide-react';
 import { API_BASE_URL } from '../config';
 import { useAppContext } from '../context/AppProvider';
 import { calculateOrderReedRequirement } from '../utils/calculations';
+import * as XLSX from 'xlsx';
+import { triggerPrint } from '../utils/printManager';
 
 export default function ReedStock() {
   const { reeds, orders = [], designs = [], refreshData } = useAppContext();
@@ -255,6 +257,35 @@ export default function ReedStock() {
     }
   };
 
+  const handleExportExcel = () => {
+    try {
+      const exportData = filteredReeds.map((r, idx) => ({
+        'S.No': idx + 1,
+        'Reed Count': r.reed_count || '',
+        'Vendor / Make': r.vendor || r.make_vendor || '',
+        'Location': r.location || '',
+        'Available Qty': r.available_qty || 0,
+        'Reserved Qty': r.reserved_qty || 0,
+        'Running Qty': r.running_qty || 0,
+        'Total Physical': (r.available_qty || 0) + (r.reserved_qty || 0) + (r.running_qty || 0),
+        'Status': r.status || 'Available',
+        'Remarks': r.remarks || ''
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Reed_Stock');
+      XLSX.writeFile(wb, 'SPUPL_Reed_Stock.xlsx');
+    } catch (err: any) {
+      console.error('Error exporting Reed Stock:', err);
+      alert('Failed to export Reed Stock: ' + err.message);
+    }
+  };
+
+  const handlePrint = () => {
+    triggerPrint({ title: 'SPUPL - Reed Stock Master Report', orientation: 'landscape' });
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -438,8 +469,24 @@ export default function ReedStock() {
           </button>
 
           <button
-            onClick={() => setShowBulkModal(true)}
+            onClick={handleExportExcel}
             className="flex items-center px-3 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg shadow-sm font-semibold text-xs transition-all"
+            title="Download Reed Stock as Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-4 h-4 mr-1.5" /> Export Excel
+          </button>
+
+          <button
+            onClick={handlePrint}
+            className="flex items-center px-3 py-2 bg-slate-700 text-white hover:bg-slate-800 rounded-lg shadow-sm font-semibold text-xs transition-all"
+            title="Print Reed Stock Report"
+          >
+            <Printer className="w-4 h-4 mr-1.5" /> Print
+          </button>
+
+          <button
+            onClick={() => setShowBulkModal(true)}
+            className="flex items-center px-3 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg shadow-sm font-semibold text-xs transition-all"
           >
             <Download className="w-4 h-4 mr-1.5" /> Excel Bulk Paste
           </button>
