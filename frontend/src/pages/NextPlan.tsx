@@ -142,6 +142,7 @@ export default function NextPlan() {
   const urlBeamNo = searchParams.get('beamNo');
   const urlDesignNo = searchParams.get('designNo');
   const urlIbpo = searchParams.get('ibpo');
+  const urlLoomNo = searchParams.get('loomNo');
 
   // Set selected order if beam/order context is in URL, or default if none selected
   useEffect(() => {
@@ -161,6 +162,17 @@ export default function NextPlan() {
       }
     }
   }, [activeOrders, selectedOrder, urlIbpo, urlDesignNo]);
+
+  // Pre-select Loom No and open assign modal if loomNo is provided in query params
+  useEffect(() => {
+    if (urlLoomNo) {
+      const lNo = Number(urlLoomNo);
+      if (!isNaN(lNo) && lNo > 0) {
+        setAssignLoomNo(lNo);
+        setShowAssignModal(true);
+      }
+    }
+  }, [urlLoomNo]);
 
   // Reset selected beam when beam modal opens or closes
   useEffect(() => {

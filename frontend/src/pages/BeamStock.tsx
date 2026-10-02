@@ -1825,10 +1825,10 @@ export default function BeamStock() {
                             const beamNoEnc = encodeURIComponent(b.beam_no || '');
                             const designEnc = encodeURIComponent(b.design_no || '');
                             const ibpoEnc = encodeURIComponent(b.ibpo || b.order_no || '');
-                            navigate(`/plan?beamId=${b.id}&beamNo=${beamNoEnc}&designNo=${designEnc}&ibpo=${ibpoEnc}${b.loom_no_assigned ? `&confirmLoom=${b.loom_no_assigned}` : ''}`);
+                            navigate(`/planned-looms?loomNo=${b.loom_no_assigned || ''}&beamNo=${beamNoEnc}&designNo=${designEnc}&ibpo=${ibpoEnc}`);
                           }}
                           className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] rounded-lg shadow-sm transition-all flex items-center justify-center mx-auto gap-1"
-                          title={`Go to Confirmation Control to confirm Loom ${b.loom_no_assigned ? b.loom_no_assigned : ''}`}
+                          title={`Go to Next Planned Looms & Confirmation Control to confirm Loom ${b.loom_no_assigned ? b.loom_no_assigned : ''}`}
                         >
                           <ExternalLink className="w-3.5 h-3.5" /> GO TO CONFIRMATION
                         </button>

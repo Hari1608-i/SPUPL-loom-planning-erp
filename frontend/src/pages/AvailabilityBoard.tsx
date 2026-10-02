@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { calculateLoomRun, calculateNextPlanRunouts, calculateOrderPlanning, getMainEntryLoomRun } from '../utils/calculations';
 
 import { Calendar, Search, ArrowRight, Printer } from 'lucide-react';
@@ -32,6 +33,7 @@ const getDesignColor = (designNo: string) => {
 };
 
 export default function AvailabilityBoard() {
+  const navigate = useNavigate();
   const { activeRuns, nextPlans, rawNextPlans, orders, looms, designs } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [timelineScale, setTimelineScale] = useState(90);
@@ -204,21 +206,19 @@ export default function AvailabilityBoard() {
         });
       }
 
-      const finalDesign = currentDesign !== '-' ? currentDesign : (nextDesign !== '-' ? nextDesign : '-');
-      const finalRunout = currentRunoutDate || (calculatedNextPlans.length > 0 ? calculatedNextPlans[0].expectedRunoutDate : null);
-      const isNextPlanDisplay = currentDesign === '-' && nextDesign !== '-';
+      const isRunning = currentDesign !== '-' && currentBar !== null;
 
       return {
         loomNo,
         unit: loom?.unit || '1',
-        currentDesign: finalDesign,
-        currentRunout: finalRunout,
+        currentDesign,
+        currentRunout: currentRunoutDate,
         nextDesign,
         beamStatus: activeBeamStatus,
         planningStatus,
         currentBar,
         nextBars,
-        isNextPlanDisplay,
+        isRunning,
         currentBeamNo: activeRun?.currentBeamNo || activeRun?.beam_no || '',
         currentSetNo: activeRun?.setNo || activeRun?.set_no || '',
         currentOrderNo: activeRun?.orderNo || activeRun?.order_no || '',
@@ -253,10 +253,10 @@ export default function AvailabilityBoard() {
   });
 
   const totalLooms = boardData.length;
-  const runningCount = boardData.filter(b => b.currentDesign !== '-').length;
+  const runningCount = boardData.filter(b => b.currentBar !== null).length;
   const availableCount = totalLooms - runningCount;
-  const waitingCount = boardData.filter(b => b.currentDesign === '-' && b.planningStatus === 'WAITING FOR BEAM').length;
-  const readyCount = boardData.filter(b => b.currentDesign === '-' && b.planningStatus === 'READY TO START').length;
+  const waitingCount = boardData.filter(b => b.currentBar === null && b.planningStatus.includes('WAITING')).length;
+  const readyCount = boardData.filter(b => b.currentBar === null && b.planningStatus === 'READY TO START').length;
 
   const DAY_WIDTH = 60;
   const timelineWidth = Math.max(1200, timelineScale * DAY_WIDTH);
@@ -370,18 +370,37 @@ export default function AvailabilityBoard() {
               <div key={row.loomNo} className="flex border-b border-slate-100 hover:bg-slate-50 transition-colors group relative z-10 h-[44px]">
                 
                 <div className="flex w-[480px] flex-shrink-0 bg-white group-hover:bg-slate-50 divide-x divide-slate-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-300">
-                  <div className="w-16 p-2 flex items-center justify-center font-black text-slate-800 text-sm">{row.loomNo}</div>
+                  <div 
+                    onClick={() => navigate(`/plan?loomNo=${row.loomNo}`)}
+                    className="w-16 p-2 flex items-center justify-center font-black text-slate-800 text-sm cursor-pointer hover:text-indigo-600 hover:bg-indigo-50/50 transition-colors"
+                    title={`Click to Create/Assign Plan on Loom ${row.loomNo}`}
+                  >
+                    {row.loomNo}
+                  </div>
                   <div className="w-32 p-2 flex items-center text-xs font-bold text-slate-700 truncate">
                     {row.currentDesign !== '-' ? (
-                      <span className={`px-2 py-0.5 rounded text-white text-[10px] ${getDesignColor(row.currentDesign).split(' ')[0]}`} title={row.isNextPlanDisplay ? `Planned Next: ${row.currentDesign}` : `Running: ${row.currentDesign}`}>
+                      <span className={`px-2 py-0.5 rounded text-white text-[10px] ${getDesignColor(row.currentDesign).split(' ')[0]}`} title={`Running: ${row.currentDesign}`}>
                         {row.currentDesign}
                       </span>
-                    ) : '-'}
+                    ) : (
+                      <span className="text-slate-400 font-normal">-</span>
+                    )}
                   </div>
                   <div className="w-20 p-2 flex items-center justify-center text-xs font-bold text-slate-600">
                     {row.currentRunout && !isNaN(new Date(row.currentRunout).getTime()) ? format(new Date(row.currentRunout), 'dd/MM') : '-'}
                   </div>
-                  <div className="flex-1 p-2 flex flex-col justify-center truncate">
+                  <div 
+                    onClick={() => {
+                      if (row.nextBars && row.nextBars.length > 0) {
+                        const nb = row.nextBars[0];
+                        navigate(`/plan?loomNo=${row.loomNo}&ibpo=${encodeURIComponent(nb.orderNo || '')}&designNo=${encodeURIComponent(nb.designNo || '')}`);
+                      } else {
+                        navigate(`/plan?loomNo=${row.loomNo}`);
+                      }
+                    }}
+                    className="flex-1 p-2 flex flex-col justify-center truncate cursor-pointer hover:bg-indigo-50/40 transition-colors"
+                    title={`Click to Manage Plan on Loom ${row.loomNo}`}
+                  >
                       <span className={`text-[10px] font-black uppercase ${
                         row.planningStatus === 'AVAILABLE FOR PLANNING' ? 'text-slate-400' :
                         row.planningStatus === 'READY TO START' ? 'text-emerald-600' :
@@ -398,18 +417,20 @@ export default function AvailabilityBoard() {
                 >
                    {!row.currentBar && (!row.nextBars || row.nextBars.length === 0) && (
                      <div 
-                       className="absolute h-[28px] left-0 right-0 bg-slate-100/50 border border-slate-200 rounded-[10px] flex items-center justify-center text-[10px] font-bold text-slate-400 cursor-pointer hover:bg-slate-200 hover:text-slate-600 transition-all mx-1"
-                       title="Click to Create Next Plan"
+                       onClick={() => navigate(`/plan?loomNo=${row.loomNo}`)}
+                       className="absolute h-[28px] left-0 right-0 bg-slate-100/50 border border-slate-200 rounded-[10px] flex items-center justify-center text-[10px] font-bold text-slate-400 cursor-pointer hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600 transition-all mx-1"
+                       title={`Loom ${row.loomNo} is Available — Click to Assign Order / Next Plan`}
                      >
-                       AVAILABLE
+                       AVAILABLE FOR PLANNING (CLICK TO ASSIGN)
                      </div>
                    )}
 
                    {row.currentBar && (
                      <div 
+                       onClick={() => navigate(`/entry?search=L-${row.loomNo}`)}
                        className={`absolute h-[28px] rounded-[10px] border shadow-sm flex items-center overflow-hidden whitespace-nowrap text-[10px] font-bold px-3 transition-all duration-300 hover:z-30 hover:scale-[1.02] hover:shadow-lg cursor-pointer ${row.currentBar.color}`}
                        style={{ left: row.currentBar.left, width: row.currentBar.width }}
-                       title={row.currentBar.tooltip}
+                       title={`${row.currentBar.tooltip}\n\nClick to view in Main Entry`}
                      >
                        <span className="truncate">{row.currentBar.label}</span>
                      </div>
@@ -418,6 +439,13 @@ export default function AvailabilityBoard() {
                    {row.nextBars && row.nextBars.map((nb: any, idx: number) => (
                      <div 
                        key={nb.sequence || idx}
+                       onClick={() => {
+                         if (nb.orderNo && nb.orderNo !== '—') {
+                           navigate(`/plan?loomNo=${row.loomNo}&ibpo=${encodeURIComponent(nb.orderNo)}&designNo=${encodeURIComponent(nb.designNo)}`);
+                         } else {
+                           navigate(`/planned-looms?loomNo=${row.loomNo}`);
+                         }
+                       }}
                        className={`absolute h-[28px] rounded-[10px] border shadow-sm flex items-center overflow-hidden whitespace-nowrap text-[10px] font-bold px-2.5 transition-all duration-300 z-10 hover:z-30 hover:scale-[1.02] hover:shadow-lg cursor-pointer ${nb.color}`}
                        style={{ 
                          left: nb.left, 
@@ -426,7 +454,7 @@ export default function AvailabilityBoard() {
                          borderTopLeftRadius: (idx === 0 && row.currentBar && nb.isSameDesign) ? '0px' : '10px',
                          borderBottomLeftRadius: (idx === 0 && row.currentBar && nb.isSameDesign) ? '0px' : '10px',
                        }}
-                       title={nb.tooltip}
+                       title={`${nb.tooltip}\n\nClick to view/assign or reassign plan in Loom Planning`}
                      >
                        <span className="truncate">{nb.label}</span>
                      </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   ListTodo, Search, AlertCircle, CheckCircle2, Play, Lock, Eye, X, 
   AlertTriangle, ArrowRight, ShieldCheck, Sparkles, RefreshCw, MessageSquare, ExternalLink, Filter, Check, Layers, Trash2, Scissors
@@ -41,10 +41,17 @@ interface PlannedAssignment {
 
 export default function PlannedLooms() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const urlLoomNo = searchParams.get('loomNo');
+  const urlBeamNo = searchParams.get('beamNo');
   const { looms, designs, beams, reeds, orders, activeRuns, refreshData } = useAppContext();
   const { user } = useAuth();
 
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => {
+    if (urlLoomNo) return `Loom ${urlLoomNo}`;
+    if (urlBeamNo) return urlBeamNo;
+    return '';
+  });
   const [assignments, setAssignments] = useState<PlannedAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);

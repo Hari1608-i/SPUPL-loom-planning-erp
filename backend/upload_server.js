@@ -2425,23 +2425,15 @@ app.get('/api/beam-stock/allocated', async (req, res) => {
       orderBy: { id: 'desc' }
     });
 
-    // 4. Filter: only beams that are allocated to upcoming plans/orders but NOT currently running on a loom
+    // 4. Filter: only beams that are actively allocated to a loom plan but NOT currently running
     const result = beams
-      .filter(b => {
-        const bNo = (b.beam_no || '').trim().toUpperCase();
-        const bSt = (b.status || '').toUpperCase();
-        if (runningBeamNos.has(bNo) || (b.id && runningBeamIds.has(b.id))) return false;
-        if (bSt === 'RUNNING' || bSt === 'IN USE') return false;
-        const isLinkedToPlan = planBeamIds.has(b.id) || planBeamNos.has(bNo);
-        const isMarkedAllocated = ['ALLOCATED', 'RESERVED', 'ASSIGNED'].includes(bSt) || (b.loom_no_assigned && b.loom_no_assigned > 0);
-        return isLinkedToPlan || isMarkedAllocated;
-      })
       .map(b => {
         const bNo = (b.beam_no || '').trim().toUpperCase();
         const plan = planByBeamId.get(b.id) || planByBeamNo.get(bNo);
+        const loomNoAssigned = plan?.loom_no || (b.loom_no_assigned && b.loom_no_assigned > 0 ? b.loom_no_assigned : null);
         return {
           ...b,
-          loom_no_assigned: plan?.loom_no || b.loom_no_assigned,
+          loom_no_assigned: loomNoAssigned,
           order_no: plan?.order_no || b.order_no || b.ibpo,
           ibpo: plan?.order_no || b.ibpo || b.order_no,
           design_no: plan?.next_design || b.design_no,
@@ -2449,6 +2441,14 @@ app.get('/api/beam-stock/allocated', async (req, res) => {
           plan_status: plan?.status || 'ALLOCATED',
           plan_id: plan?.id || null
         };
+      })
+      .filter(b => {
+        const bNo = (b.beam_no || '').trim().toUpperCase();
+        const bSt = (b.status || '').toUpperCase();
+        if (runningBeamNos.has(bNo) || (b.id && runningBeamIds.has(b.id))) return false;
+        if (bSt === 'RUNNING' || bSt === 'IN USE') return false;
+        // Strictly require an assigned loom (Loom must be allocated, not Unassigned)
+        return !!(b.loom_no_assigned && b.loom_no_assigned > 0);
       });
 
     res.json(result);

@@ -730,13 +730,7 @@ export default function MainEntry() {
         warpedMeter: '', dailyProduction: '', rpm: '', efficiency: '', remarks: ''
       };
 
-      // If loom is not allocated (no running design), ignore production, rpm, and efficiency entry
-      if ((field === 'dailyProduction' || field === 'rpm' || field === 'efficiency') && (!prevEntry.designNo || prevEntry.designNo.trim() === '')) {
-        setErrorMsg(`Loom L-${loomNo}: Cannot enter production for a non-allocated loom. Please allocate a design first.`);
-        setTimeout(() => setErrorMsg(null), 3500);
-        return prev;
-      }
-
+      // Allow entering production, rpm, and efficiency on all looms (beam allocated or not)
       dirtyLoomsRef.current.add(loomNo);
       const updatedEntry = { ...prevEntry, [field]: value };
 
@@ -824,11 +818,7 @@ export default function MainEntry() {
         let updatedEntry = { ...newEntries[loomNo] };
         const isLoomAllocated = !!(updatedEntry.designNo && updatedEntry.designNo.trim() !== '');
 
-        // If loom is not allocated, ignore production/rpm/efficiency paste
-        if (!isLoomAllocated && (startField === 'dailyProduction' || startField === 'rpm' || startField === 'efficiency')) {
-          return;
-        }
-
+        // Allow pasting dailyProduction, rpm, and efficiency on all looms
         dirtyLoomsRef.current.add(loomNo);
 
         // Handle pasting into Daily Production (Col 13)
@@ -1024,6 +1014,8 @@ export default function MainEntry() {
     // Pre-validate all entries using indexed maps
     Object.entries(entries).forEach(([key, entry]) => {
       const loomNo = Number(key);
+      const hasDailyInput = entry.dailyProduction !== '' && entry.dailyProduction !== undefined && entry.dailyProduction !== null;
+
       if (entry.designNo && entry.designNo.trim() !== '') {
         if (entry.currentBeamNo && entry.currentBeamNo.trim() !== '') {
           const matchedBeam = beamsMap.get(entry.currentBeamNo.trim().toLowerCase());
@@ -1035,7 +1027,6 @@ export default function MainEntry() {
           }
         }
 
-        const hasDailyInput = entry.dailyProduction !== '' && entry.dailyProduction !== undefined && entry.dailyProduction !== null;
         const design = designsMap.get(entry.designNo.trim().toLowerCase());
         const run = {
           loomNo,
@@ -1059,6 +1050,26 @@ export default function MainEntry() {
         if (nextPlans[loomNo] && nextPlans[loomNo].designNo === entry.designNo) {
           consumedPlansArray.push({ loomNo, designNo: '' });
         }
+      } else if (hasDailyInput || (entry.rpm !== '' && entry.rpm !== null) || (entry.efficiency !== '' && entry.efficiency !== null)) {
+        // Allow saving production for looms without active design/beam
+        const run = {
+          loomNo,
+          designNo: (activeRuns[loomNo] as any)?.designNo || 'STANDARD',
+          currentBeamNo: (activeRuns[loomNo] as any)?.currentBeamNo || '',
+          loomStartDate: entry.loomStartDate,
+          warpedMeter: Number(entry.warpedMeter || 0),
+          dailyProduction: hasDailyInput ? Number(entry.dailyProduction) : Number(activeRuns[loomNo]?.dailyProduction || 0),
+          hasDailyInput,
+          rawDailyProduction: entry.dailyProduction,
+          rpm: entry.rpm !== '' ? Number(entry.rpm) : null,
+          efficiency: entry.efficiency !== '' ? Number(entry.efficiency) : null,
+          crimpPercent: 0.05,
+          sortChangeType: null,
+          prepStatus: null,
+          remarks: entry.remarks
+        };
+        runsArray.push(run);
+        savedCount++;
       }
     });
 
@@ -2224,30 +2235,23 @@ export default function MainEntry() {
                           )}
                           <input
                             type="number"
-                            value={!isLoomAllocated ? '' : entry.dailyProduction}
-                            disabled={!isLoomAllocated}
-                            placeholder={!isLoomAllocated ? 'Not Allocated' : 'Daily Mtr'}
+                            value={entry.dailyProduction}
+                            placeholder="Daily Mtr"
                             onChange={e => {
-                              if (!isLoomAllocated) return;
                               handleEntryChange(loom.loomNo, 'dailyProduction', e.target.value === '' ? '' : Number(e.target.value));
                             }}
                             onPaste={e => {
-                              if (!isLoomAllocated) return;
                               handlePaste(e as any, loom.loomNo, 'dailyProduction');
                             }}
                             className={`w-24 px-2.5 py-1.5 rounded-lg border-2 text-xs font-black shadow-sm focus:outline-none placeholder:text-slate-400 placeholder:font-normal ${
-                              !isLoomAllocated
-                                ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60 text-slate-400'
-                                : isNoProduction
-                                  ? 'bg-red-50 dark:bg-red-950/30 border-red-500 dark:border-red-500 text-red-900 dark:text-red-200 focus:border-red-600 placeholder:text-red-400 dark:placeholder:text-red-500'
-                                  : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 dark:border-emerald-500 text-slate-950 dark:text-white focus:border-emerald-600'
+                              isNoProduction
+                                ? 'bg-red-50 dark:bg-red-950/30 border-red-500 dark:border-red-500 text-red-900 dark:text-red-200 focus:border-red-600 placeholder:text-red-400 dark:placeholder:text-red-500'
+                                : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 dark:border-emerald-500 text-slate-950 dark:text-white focus:border-emerald-600'
                             }`}
                             title={
-                              !isLoomAllocated
-                                ? 'Loom is not allocated. Production entry is disabled.'
-                                : isNoProduction
-                                  ? (hasDraftInput && draftVal === 0 ? 'Zero production (0 M) for selected date' : 'Production not entered for selected date')
-                                  : `Production updated: ${draftVal} M for selected date`
+                              isNoProduction
+                                ? (hasDraftInput && draftVal === 0 ? 'Zero production (0 M) for selected date' : 'Production not entered for selected date')
+                                : `Production updated: ${draftVal} M for selected date`
                             }
                           />
                         </div>
@@ -2285,25 +2289,20 @@ export default function MainEntry() {
                           )}
                           <input
                             type="number"
-                            value={!isLoomAllocated ? '' : entry.rpm}
-                            disabled={!isLoomAllocated}
-                            placeholder={!isLoomAllocated ? '—' : '600'}
+                            value={entry.rpm}
+                            placeholder="600"
                             onChange={e => {
-                              if (!isLoomAllocated) return;
                               handleEntryChange(loom.loomNo, 'rpm', e.target.value === '' ? '' : Number(e.target.value));
                             }}
                             onPaste={e => {
-                              if (!isLoomAllocated) return;
                               handlePaste(e as any, loom.loomNo, 'rpm');
                             }}
                             className={`w-20 px-2.5 py-1.5 rounded-lg border-2 text-xs font-black text-slate-950 dark:text-white shadow-sm focus:border-emerald-600 placeholder:text-slate-400 placeholder:font-normal ${
-                              !isLoomAllocated
-                                ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60 text-slate-400'
-                                : isMissingRpm
-                                  ? 'bg-emerald-50/30 dark:bg-emerald-950/20 border-red-400 dark:border-red-600'
-                                  : 'bg-emerald-50/30 dark:bg-emerald-950/20 border-emerald-400 dark:border-emerald-600'
+                              isMissingRpm
+                                ? 'bg-red-50/30 dark:bg-red-950/20 border-red-400 dark:border-red-600'
+                                : 'bg-emerald-50/30 dark:bg-emerald-950/20 border-emerald-400 dark:border-emerald-600'
                             }`}
-                            title={!isLoomAllocated ? 'Loom is not allocated' : 'RPM for selected date'}
+                            title="RPM for selected date"
                           />
                         </div>
                       </td>
@@ -2319,25 +2318,20 @@ export default function MainEntry() {
                           )}
                           <input
                             type="number"
-                            value={!isLoomAllocated ? '' : entry.efficiency}
-                            disabled={!isLoomAllocated}
-                            placeholder={!isLoomAllocated ? '—' : '60%'}
+                            value={entry.efficiency}
+                            placeholder="60%"
                             onChange={e => {
-                              if (!isLoomAllocated) return;
                               handleEntryChange(loom.loomNo, 'efficiency', e.target.value === '' ? '' : Number(e.target.value));
                             }}
                             onPaste={e => {
-                              if (!isLoomAllocated) return;
                               handlePaste(e as any, loom.loomNo, 'efficiency');
                             }}
                             className={`w-20 px-2.5 py-1.5 rounded-lg border-2 text-xs font-black text-slate-950 dark:text-white shadow-sm focus:border-emerald-600 placeholder:text-slate-400 placeholder:font-normal ${
-                              !isLoomAllocated
-                                ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60 text-slate-400'
-                                : isMissingEff
-                                  ? 'bg-emerald-50/30 dark:bg-emerald-950/20 border-red-400 dark:border-red-600'
-                                  : 'bg-emerald-50/30 dark:bg-emerald-950/20 border-emerald-400 dark:border-emerald-600'
+                              isMissingEff
+                                ? 'bg-red-50/30 dark:bg-red-950/20 border-red-400 dark:border-red-600'
+                                : 'bg-emerald-50/30 dark:bg-emerald-950/20 border-emerald-400 dark:border-emerald-600'
                             }`}
-                            title={!isLoomAllocated ? 'Loom is not allocated' : 'Efficiency % for selected date'}
+                            title="Efficiency % for selected date"
                           />
                         </div>
                       </td>
