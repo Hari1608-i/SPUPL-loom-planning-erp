@@ -401,14 +401,21 @@ export default function ReedStock() {
   };
 
   const handleDelete = async (r: any) => {
-    if ((r.reserved_qty || 0) > 0 || (r.running_qty || 0) > 0) {
-      alert('This Reed Count is currently committed to loom planning/production and cannot be deleted.');
-      return;
+    const isCommitted = (r.reserved_qty || 0) > 0 || (r.running_qty || 0) > 0;
+    let isForce = false;
+
+    if (isCommitted) {
+      const confirmForce = window.confirm(
+        `This Reed Count "${r.reed_count}" is currently committed to loom planning/production (Reserved: ${r.reserved_qty || 0}, Running: ${r.running_qty || 0}).\n\nDo you want to FORCE DELETE this reed stock record?`
+      );
+      if (!confirmForce) return;
+      isForce = true;
+    } else {
+      if (!window.confirm(`Delete Reed Stock for Count "${r.reed_count}"?`)) return;
     }
 
-    if (!window.confirm(`Delete Reed Stock for Count "${r.reed_count}"?`)) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/reed-stock/${r.id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/api/reed-stock/${r.id}${isForce ? '?force=true' : ''}`, { method: 'DELETE' });
       if (res.ok) {
         await refreshData();
       } else {
@@ -422,13 +429,27 @@ export default function ReedStock() {
 
   const handleMultiDelete = async () => {
     if (selectedReedIds.length === 0) return;
-    if (!window.confirm(`Delete ${selectedReedIds.length} selected reed stock item(s)?\n\nCommitted reeds cannot be deleted.`)) return;
+
+    const committedReeds = reeds.filter((r: any) =>
+      selectedReedIds.includes(r.id) && ((r.reserved_qty || 0) > 0 || (r.running_qty || 0) > 0)
+    );
+
+    let isForce = false;
+    if (committedReeds.length > 0) {
+      const confirmForce = window.confirm(
+        `${committedReeds.length} of ${selectedReedIds.length} selected reed(s) are currently committed to loom planning/production (e.g. ${committedReeds.map((r: any) => r.reed_count).slice(0, 3).join(', ')}).\n\nDo you want to FORCE DELETE all ${selectedReedIds.length} selected reed item(s)?`
+      );
+      if (!confirmForce) return;
+      isForce = true;
+    } else {
+      if (!window.confirm(`Delete ${selectedReedIds.length} selected reed stock item(s)?`)) return;
+    }
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/reed-stock/bulk-delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selectedReedIds })
+        body: JSON.stringify({ ids: selectedReedIds, force: isForce })
       });
       const data = await res.json();
       if (!res.ok) {

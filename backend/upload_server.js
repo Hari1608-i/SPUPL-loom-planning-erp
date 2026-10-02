@@ -786,12 +786,14 @@ app.delete('/api/looms/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invalid Loom Number' });
     }
 
+    const isForce = req.query.force === 'true' || req.query.force === true || req.body?.force === true;
+
     // Check if loom is running in Main Entry
     const runEntry = await prisma.loomRunEntry.findUnique({
       where: { loom_no: loomNo }
     });
 
-    if (runEntry) {
+    if (!isForce && runEntry) {
       return res.status(400).json({ error: 'This loom is currently in use and cannot be deleted.' });
     }
 
@@ -800,8 +802,13 @@ app.delete('/api/looms/:id', async (req, res) => {
       where: { loom_no: loomNo }
     });
 
-    if (planEntry) {
+    if (!isForce && planEntry) {
       return res.status(400).json({ error: 'This loom has a next plan and cannot be deleted.' });
+    }
+
+    if (isForce) {
+      await prisma.loomRunEntry.deleteMany({ where: { loom_no: loomNo } }).catch(() => {});
+      await prisma.plannedAssignment.deleteMany({ where: { loom_no: loomNo } }).catch(() => {});
     }
 
     const adminUser = req.headers['x-user'] || 'System';
@@ -1557,42 +1564,44 @@ app.put('/api/orders/bulk', async (req, res) => {
 // Bulk Orders Delete Endpoint (Multi Delete)
 app.post('/api/orders/bulk-delete', async (req, res) => {
   try {
-    const { ids } = req.body;
+    const { ids, force } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'No order IDs provided for bulk delete.' });
     }
 
     const numericIds = ids.map(id => Number(id));
 
-    // Check operational status protection
-    const activeOrders = await prisma.orderMaster.findMany({
-      where: {
-        id: { in: numericIds },
-        OR: [
-          { status: 'WEAVING RUNNING' },
-          { status: 'WEAVING COMPLETED' },
-          { status: 'ORDER COMPLETED' },
-          { produced_qty: { gt: 0 } }
-        ]
-      }
-    });
-
-    if (activeOrders.length > 0) {
-      const blocked = activeOrders.map(o => o.ibpo_no || o.order_no).join(', ');
-      return res.status(400).json({
-        error: `Order(s) ${blocked} cannot be deleted because operational processing has already started.`
+    // Check operational status protection if not force
+    if (!force) {
+      const activeOrders = await prisma.orderMaster.findMany({
+        where: {
+          id: { in: numericIds },
+          OR: [
+            { status: 'WEAVING RUNNING' },
+            { status: 'WEAVING COMPLETED' },
+            { status: 'ORDER COMPLETED' },
+            { produced_qty: { gt: 0 } }
+          ]
+        }
       });
+
+      if (activeOrders.length > 0) {
+        const blocked = activeOrders.map(o => o.ibpo_no || o.order_no).join(', ');
+        return res.status(400).json({
+          error: `Order(s) ${blocked} cannot be deleted because operational processing has already started.`
+        });
+      }
     }
 
-    await prisma.beamRequirement.deleteMany({ where: { order_id: { in: numericIds } } });
-    await prisma.plannedAssignment.deleteMany({ where: { order_id: { in: numericIds } } });
+    await prisma.beamRequirement.deleteMany({ where: { order_id: { in: numericIds } } }).catch(() => {});
+    await prisma.plannedAssignment.deleteMany({ where: { order_id: { in: numericIds } } }).catch(() => {});
     const deleteResult = await prisma.orderMaster.deleteMany({ where: { id: { in: numericIds } } });
 
     await prisma.systemAuditLog.create({
       data: {
         username: req.body.adminUser || 'System',
         screen: 'Order Management',
-        action: 'MULTI_DELETE_ORDERS',
+        action: force ? 'FORCE_MULTI_DELETE_ORDERS' : 'MULTI_DELETE_ORDERS',
         newValue: `${deleteResult.count} orders deleted`
       }
     });
@@ -1607,7 +1616,7 @@ app.post('/api/orders/bulk-delete', async (req, res) => {
 // Bulk Looms Delete Endpoint (Multi Delete)
 app.post('/api/looms/bulk-delete', async (req, res) => {
   try {
-    const { loomNos } = req.body;
+    const { loomNos, force } = req.body;
     if (!Array.isArray(loomNos) || loomNos.length === 0) {
       return res.status(400).json({ error: 'No loom numbers provided for bulk delete.' });
     }
@@ -1627,12 +1636,17 @@ app.post('/api/looms/bulk-delete', async (req, res) => {
     const plannedNos = new Set(plannedLooms.map(p => p.loom_no));
 
     const blocked = numericLoomNos.filter(n => runningNos.has(n) || plannedNos.has(n));
-    const allowed = numericLoomNos.filter(n => !runningNos.has(n) && !plannedNos.has(n));
+    const allowed = force ? numericLoomNos : numericLoomNos.filter(n => !runningNos.has(n) && !plannedNos.has(n));
 
     if (allowed.length === 0) {
       return res.status(400).json({
         error: `Selected loom(s) [${blocked.join(', ')}] are currently active in production or planned and cannot be deleted.`
       });
+    }
+
+    if (force) {
+      await prisma.loomRunEntry.deleteMany({ where: { loom_no: { in: allowed } } }).catch(() => {});
+      await prisma.plannedAssignment.deleteMany({ where: { loom_no: { in: allowed } } }).catch(() => {});
     }
 
     const deleteResult = await prisma.loomMaster.deleteMany({
@@ -1643,7 +1657,7 @@ app.post('/api/looms/bulk-delete', async (req, res) => {
       data: {
         username: req.body.adminUser || req.headers['x-user'] || 'System',
         screen: 'Loom Master',
-        action: 'MULTI_DELETE_LOOMS',
+        action: force ? 'FORCE_MULTI_DELETE_LOOMS' : 'MULTI_DELETE_LOOMS',
         newValue: `${deleteResult.count} looms deleted: ${allowed.join(', ')}`
       }
     });
@@ -1652,7 +1666,7 @@ app.post('/api/looms/bulk-delete', async (req, res) => {
       success: true,
       count: deleteResult.count,
       deletedLooms: allowed,
-      blockedLooms: blocked
+      blockedLooms: force ? [] : blocked
     });
   } catch (error) {
     console.error('Bulk Loom Delete Error:', error);
@@ -1697,6 +1711,16 @@ app.post('/api/designs/bulk-delete', async (req, res) => {
       });
     }
 
+    if (force) {
+      for (const dNo of allowed) {
+        await prisma.orderMaster.deleteMany({ where: { design_no_sp_no: dNo } }).catch(() => {});
+        await prisma.beamStockMaster.deleteMany({ where: { design_no: dNo } }).catch(() => {});
+        await prisma.loomRunEntry.deleteMany({ where: { design_no_sp_no: dNo } }).catch(() => {});
+        await prisma.plannedAssignment.deleteMany({ where: { OR: [{ current_design: dNo }, { next_design: dNo }] } }).catch(() => {});
+        await prisma.completedWarpHistory.deleteMany({ where: { design_no_sp_no: dNo } }).catch(() => {});
+      }
+    }
+
     const deleteResult = await prisma.designMaster.deleteMany({
       where: { design_no_sp_no: { in: allowed } }
     });
@@ -1705,7 +1729,7 @@ app.post('/api/designs/bulk-delete', async (req, res) => {
       data: {
         username: req.body.adminUser || req.headers['x-user'] || 'System',
         screen: 'Design Master',
-        action: 'MULTI_DELETE_DESIGNS',
+        action: force ? 'FORCE_MULTI_DELETE_DESIGNS' : 'MULTI_DELETE_DESIGNS',
         newValue: `${deleteResult.count} designs deleted`
       }
     });
@@ -1714,7 +1738,7 @@ app.post('/api/designs/bulk-delete', async (req, res) => {
       success: true,
       count: deleteResult.count,
       deletedDesigns: allowed,
-      blockedDesigns: blocked
+      blockedDesigns: force ? [] : blocked
     });
   } catch (error) {
     console.error('Bulk Design Delete Error:', error);
@@ -1725,7 +1749,7 @@ app.post('/api/designs/bulk-delete', async (req, res) => {
 // Bulk Reed Stock Delete Endpoint (Multi Delete)
 app.post('/api/reed-stock/bulk-delete', async (req, res) => {
   try {
-    const { ids } = req.body;
+    const { ids, force } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'No reed stock IDs provided.' });
     }
@@ -1737,7 +1761,7 @@ app.post('/api/reed-stock/bulk-delete', async (req, res) => {
 
     for (const id of numericIds) {
       const item = calculatedList.find(r => r.id === id);
-      if (item && (item.reserved_qty > 0 || item.running_qty > 0)) {
+      if (!force && item && (item.reserved_qty > 0 || item.running_qty > 0)) {
         blocked.push(item.reed_count || String(id));
       } else {
         allowed.push(id);
@@ -1758,7 +1782,7 @@ app.post('/api/reed-stock/bulk-delete', async (req, res) => {
       success: true,
       count: deleteResult.count,
       deletedIds: allowed,
-      blockedReeds: blocked
+      blockedReeds: force ? [] : blocked
     });
   } catch (error) {
     console.error('Bulk Reed Stock Delete Error:', error);
@@ -1769,7 +1793,7 @@ app.post('/api/reed-stock/bulk-delete', async (req, res) => {
 // Bulk Beam Stock Delete Endpoint (Multi Delete)
 app.post('/api/beam-stock/bulk-delete', async (req, res) => {
   try {
-    const { ids } = req.body;
+    const { ids, force } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'No beam stock IDs provided.' });
     }
@@ -1784,7 +1808,7 @@ app.post('/api/beam-stock/bulk-delete', async (req, res) => {
 
     for (const b of existingBeams) {
       const st = String(b.status || '').toUpperCase();
-      if (st.includes('RUNNING') || st.includes('LOADED') || st.includes('RESERVED') || b.loom_no_assigned) {
+      if (!force && (st.includes('RUNNING') || st.includes('LOADED') || st.includes('RESERVED') || b.loom_no_assigned)) {
         blocked.push(b.beam_no || String(b.id));
       } else {
         allowed.push(b.id);
@@ -1805,7 +1829,7 @@ app.post('/api/beam-stock/bulk-delete', async (req, res) => {
       success: true,
       count: deleteResult.count,
       deletedIds: allowed,
-      blockedBeams: blocked
+      blockedBeams: force ? [] : blocked
     });
   } catch (error) {
     console.error('Bulk Beam Stock Delete Error:', error);
@@ -2179,8 +2203,9 @@ app.delete('/api/orders/:id', async (req, res) => {
 
     const isLinked = !!(inRuns || inPlans);
     const isAdmin = userRole.includes('ADMIN') || userRole.includes('ADMINISTRATOR') || username.includes('admin') || username === 'santhiadmin' || !userRole;
+    const isForce = req.query.force === 'true' || req.query.force === true || req.body?.force === true;
 
-    if (isLinked && !isAdmin) {
+    if (isLinked && !isAdmin && !isForce) {
       return res.status(400).json({ error: 'This Order is currently assigned to active running/planned looms. Deletion is not permitted.' });
     }
 
@@ -2611,8 +2636,20 @@ app.delete('/api/beam-stock/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    const result = await prisma.beamStockMaster.deleteMany({ where: { id } });
-    res.json({ success: true, count: result.count });
+    const isForce = req.query.force === 'true' || req.query.force === true || req.body?.force === true;
+
+    const beam = await prisma.beamStockMaster.findUnique({ where: { id } });
+    if (!beam) return res.status(404).json({ error: 'Beam not found' });
+
+    const st = String(beam.status || '').toUpperCase();
+    if (!isForce && (st.includes('RUNNING') || st.includes('LOADED') || st.includes('RESERVED') || beam.loom_no_assigned)) {
+      return res.status(400).json({
+        error: `Beam #${beam.beam_no || id} is currently ${beam.status || 'COMMITTED'} and cannot be deleted.`
+      });
+    }
+
+    const result = await prisma.beamStockMaster.delete({ where: { id } });
+    res.json({ success: true, count: 1 });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -5159,10 +5196,11 @@ app.put('/api/reed-stock/:id', async (req, res) => {
 app.delete('/api/reed-stock/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    const isForce = req.query.force === 'true' || req.query.force === true || req.body?.force === true;
     const calculatedList = await getCalculatedReedStock();
     const item = calculatedList.find(r => r.id === id);
 
-    if (item && (item.reserved_qty > 0 || item.running_qty > 0)) {
+    if (!isForce && item && (item.reserved_qty > 0 || item.running_qty > 0)) {
       return res.status(400).json({
         error: 'This Reed Count is currently committed to loom planning/production and cannot be deleted.'
       });
@@ -9160,19 +9198,6 @@ app.delete('/api/next-plans/:loomNo', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-// DELETE Beam Stock Item
-app.delete('/api/beam-stock/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    await prisma.beamStockMaster.delete({ where: { id } });
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Note: DELETE /api/orders/:id is defined above with full cascade deletion (beam requirements, next plans, yarn/sizing records)
 
 // DELETE Sizing Beam Preparation Request
 app.delete('/api/sizing/requests/:id', async (req, res) => {

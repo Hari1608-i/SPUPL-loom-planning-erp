@@ -396,14 +396,18 @@ export default function OrderManagement() {
       (o.produced_qty && o.produced_qty > 0)
     );
 
+    let isForce = false;
     if (activeRunning.length > 0) {
       const blockedList = activeRunning.map(o => o.ibpo_no || o.order_no).join(', ');
-      alert(`Order cannot be deleted because operational processing has already started for: ${blockedList}`);
-      return;
-    }
-
-    if (!window.confirm(`You have selected ${selectedOrderIds.length} orders.\nAre you sure you want to delete these orders?`)) {
-      return;
+      const confirmForce = window.confirm(
+        `${activeRunning.length} of ${selectedOrderIds.length} selected order(s) have active operational processing records (e.g. ${blockedList}).\n\nDo you want to FORCE DELETE all ${selectedOrderIds.length} selected order(s) and their linked beam requirements?`
+      );
+      if (!confirmForce) return;
+      isForce = true;
+    } else {
+      if (!window.confirm(`You have selected ${selectedOrderIds.length} orders.\nAre you sure you want to delete these orders?`)) {
+        return;
+      }
     }
 
     setLoading(true);
@@ -411,7 +415,7 @@ export default function OrderManagement() {
       const res = await fetch(`${API_BASE_URL}/api/orders/bulk-delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selectedOrderIds, adminUser: user?.username })
+        body: JSON.stringify({ ids: selectedOrderIds, force: isForce, adminUser: user?.username })
       });
 
       if (res.ok) {
@@ -966,14 +970,27 @@ export default function OrderManagement() {
 
   const handleDelete = async (id: number) => {
     const ord = orders.find(o => o.id === id);
-    if (ord && (ord.status === 'WEAVING RUNNING' || ord.status === 'WEAVING COMPLETED' || ord.status === 'ORDER COMPLETED' || (ord.produced_qty && ord.produced_qty > 0))) {
-      alert('Order cannot be deleted because operational processing has already started.');
-      return;
+    const isOperational = ord && (ord.status === 'WEAVING RUNNING' || ord.status === 'WEAVING COMPLETED' || ord.status === 'ORDER COMPLETED' || (ord.produced_qty && ord.produced_qty > 0));
+
+    let isForce = false;
+    if (isOperational) {
+      const confirmForce = window.confirm(
+        `Order "${ord?.ibpo_no || ord?.order_no || id}" has operational processing records (Status: ${ord?.status}).\n\nDo you want to FORCE DELETE this order?\n(This will delete the order and all linked beam requirements and allocations).`
+      );
+      if (!confirmForce) return;
+      isForce = true;
+    } else {
+      if (!window.confirm(`Are you sure you want to delete order "${ord?.ibpo_no || ord?.order_no || id}"?`)) return;
     }
 
-    if (!window.confirm('Are you sure you want to delete this order?')) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/orders/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/api/orders/${id}${isForce ? '?force=true' : ''}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user': user?.username || 'System'
+        }
+      });
       if (res.ok) {
         await loadData();
         await refreshData();

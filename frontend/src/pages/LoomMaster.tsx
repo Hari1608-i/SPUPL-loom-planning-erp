@@ -283,30 +283,64 @@ export default function LoomMaster() {
     ]);
   };
 
-  const handleDeleteRow = (index: number) => {
+  const handleDeleteRow = async (index: number) => {
     const target = rows[index];
     if (target.loomNo && !isNaN(Number(target.loomNo))) {
-      fetch(`${API_BASE_URL}/api/looms/${target.loomNo}`, { method: 'DELETE' })
-        .then(() => refreshData())
-        .catch(console.error);
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/looms/${target.loomNo}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const err = await res.json();
+          const confirmForce = window.confirm(
+            `${err.error || 'This loom is currently active in production or planned.'}\n\nDo you want to FORCE DELETE Loom ${target.loomNo}?\n(This will clear its live running entry / plans and delete the loom).`
+          );
+          if (confirmForce) {
+            const forceRes = await fetch(`${API_BASE_URL}/api/looms/${target.loomNo}?force=true`, { method: 'DELETE' });
+            if (!forceRes.ok) {
+              const forceErr = await forceRes.json();
+              alert(forceErr.error || 'Failed to force delete loom');
+              return;
+            }
+          } else {
+            return;
+          }
+        }
+        await refreshData();
+      } catch (err: any) {
+        console.error('Delete loom error:', err);
+      }
     }
     setRows(prev => prev.filter((_, idx) => idx !== index));
   };
 
   const handleMultiDelete = async () => {
     if (selectedLoomNos.length === 0) return;
-    if (!window.confirm(`Delete ${selectedLoomNos.length} selected loom(s) from database? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${selectedLoomNos.length} selected loom(s) from database?`)) return;
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/looms/bulk-delete`, {
+      let res = await fetch(`${API_BASE_URL}/api/looms/bulk-delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ loomNos: selectedLoomNos })
       });
-      const data = await res.json();
+      let data = await res.json();
       if (!res.ok) {
-        alert(data.error || 'Failed to delete selected looms.');
-        return;
+        const confirmForce = window.confirm(
+          `${data.error || 'Some looms are active in production or planned.'}\n\nDo you want to FORCE DELETE all ${selectedLoomNos.length} selected loom(s)?`
+        );
+        if (confirmForce) {
+          res = await fetch(`${API_BASE_URL}/api/looms/bulk-delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ loomNos: selectedLoomNos, force: true })
+          });
+          data = await res.json();
+          if (!res.ok) {
+            alert(data.error || 'Failed to force delete looms.');
+            return;
+          }
+        } else {
+          return;
+        }
       }
       setRows(prev => prev.filter(r => !data.deletedLooms?.includes(Number(r.loomNo))));
       setSelectedLoomNos([]);

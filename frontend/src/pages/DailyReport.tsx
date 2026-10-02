@@ -5142,14 +5142,27 @@ return (
                             <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
                               <div className="flex items-center justify-between">
                                 <span>FINISHED INSPECTION MTRS</span>
-                                {(() => {
-                                  const targetMtrs = editedTargets['FINISHED_INSPECTION_MTRS'] !== undefined ? editedTargets['FINISHED_INSPECTION_MTRS'] : 77950;
-                                  return (
-                                    <span className="text-[10px] font-bold text-indigo-800 bg-indigo-100/80 dark:bg-indigo-900/60 dark:text-indigo-200 px-1.5 py-0.5 rounded">
-                                      Target: {targetMtrs.toLocaleString()}
-                                    </span>
-                                  );
-                                })()}
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-indigo-400">
+                                    <span className="text-[9px] font-bold text-indigo-700 dark:text-indigo-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['FINISHED_INSPECTION_MTRS'] !== undefined ? editedTargets['FINISHED_INSPECTION_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('FINISHED_INSPECTION_MTRS', e.target.value)}
+                                      placeholder="77950"
+                                      className="w-20 px-1 py-0.5 bg-white dark:bg-slate-800 border border-indigo-300 rounded text-[11px] font-bold text-indigo-900 dark:text-indigo-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  (() => {
+                                    const targetMtrs = editedTargets['FINISHED_INSPECTION_MTRS'] !== undefined ? editedTargets['FINISHED_INSPECTION_MTRS'] : 77950;
+                                    return (
+                                      <span className="text-[10px] font-bold text-indigo-800 bg-indigo-100/80 dark:bg-indigo-900/60 dark:text-indigo-200 px-1.5 py-0.5 rounded">
+                                        Target: {targetMtrs.toLocaleString()}
+                                      </span>
+                                    );
+                                  })()
+                                )}
                               </div>
                             </td>
                             <td className="p-2 bg-[#fce4d6]">
@@ -5179,7 +5192,27 @@ return (
                           {/* Row 3: PROCESSING REJECTION MTRS */}
                           <tr>
                             <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
-                              PROCESSING REJECTION MTRS
+                              <div className="flex items-center justify-between">
+                                <span>PROCESSING REJECTION MTRS</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-rose-300">
+                                    <span className="text-[9px] font-bold text-rose-700 dark:text-rose-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['PROCESSING_REJECTION_MTRS'] !== undefined ? editedTargets['PROCESSING_REJECTION_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('PROCESSING_REJECTION_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-rose-400 rounded text-[11px] font-bold text-rose-900 dark:text-rose-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['PROCESSING_REJECTION_MTRS'] !== undefined && editedTargets['PROCESSING_REJECTION_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-rose-800 bg-rose-100/80 px-1.5 py-0.5 rounded">
+                                      Target: {Number(editedTargets['PROCESSING_REJECTION_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2 bg-[#fce4d6]">
                               <input
@@ -5211,7 +5244,27 @@ return (
                           {/* Row 5: VENDOR REJECTION MTRS */}
                           <tr>
                             <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
-                              VENDOR REJECTION MTRS
+                              <div className="flex items-center justify-between">
+                                <span>VENDOR REJECTION MTRS</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-rose-300">
+                                    <span className="text-[9px] font-bold text-rose-700 dark:text-rose-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['VENDOR_REJECTION_MTRS'] !== undefined ? editedTargets['VENDOR_REJECTION_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('VENDOR_REJECTION_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-rose-400 rounded text-[11px] font-bold text-rose-900 dark:text-rose-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['VENDOR_REJECTION_MTRS'] !== undefined && editedTargets['VENDOR_REJECTION_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-rose-800 bg-rose-100/80 px-1.5 py-0.5 rounded">
+                                      Target: {Number(editedTargets['VENDOR_REJECTION_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2 bg-[#fce4d6]">
                               <input
@@ -5243,7 +5296,27 @@ return (
                           {/* Row 7: WEAVING REJECTION MTRS */}
                           <tr>
                             <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
-                              WEAVING REJECTION MTRS
+                              <div className="flex items-center justify-between">
+                                <span>WEAVING REJECTION MTRS</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-rose-300">
+                                    <span className="text-[9px] font-bold text-rose-700 dark:text-rose-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['WEAVING_REJECTION_MTRS'] !== undefined ? editedTargets['WEAVING_REJECTION_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('WEAVING_REJECTION_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-rose-400 rounded text-[11px] font-bold text-rose-900 dark:text-rose-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['WEAVING_REJECTION_MTRS'] !== undefined && editedTargets['WEAVING_REJECTION_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-rose-800 bg-rose-100/80 px-1.5 py-0.5 rounded">
+                                      Target: {Number(editedTargets['WEAVING_REJECTION_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2 bg-[#fce4d6]">
                               <input
@@ -5275,7 +5348,27 @@ return (
                           {/* Row 9: PROCESSING REWASH MTRS */}
                           <tr>
                             <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
-                              PROCESSING REWASH MTRS
+                              <div className="flex items-center justify-between">
+                                <span>PROCESSING REWASH MTRS</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-amber-300">
+                                    <span className="text-[9px] font-bold text-amber-700 dark:text-amber-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['PROCESSING_REWASH_MTRS'] !== undefined ? editedTargets['PROCESSING_REWASH_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('PROCESSING_REWASH_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-amber-400 rounded text-[11px] font-bold text-amber-900 dark:text-amber-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['PROCESSING_REWASH_MTRS'] !== undefined && editedTargets['PROCESSING_REWASH_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100/80 px-1.5 py-0.5 rounded">
+                                      Target: {Number(editedTargets['PROCESSING_REWASH_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2 bg-[#fce4d6]">
                               <input
@@ -5307,7 +5400,27 @@ return (
                           {/* Row 11: VENDOR REWASH MTRS */}
                           <tr>
                             <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
-                              VENDOR REWASH MTRS
+                              <div className="flex items-center justify-between">
+                                <span>VENDOR REWASH MTRS</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-amber-300">
+                                    <span className="text-[9px] font-bold text-amber-700 dark:text-amber-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['VENDOR_REWASH_MTRS'] !== undefined ? editedTargets['VENDOR_REWASH_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('VENDOR_REWASH_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-amber-400 rounded text-[11px] font-bold text-amber-900 dark:text-amber-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['VENDOR_REWASH_MTRS'] !== undefined && editedTargets['VENDOR_REWASH_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100/80 px-1.5 py-0.5 rounded">
+                                      Target: {Number(editedTargets['VENDOR_REWASH_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2 bg-[#fce4d6]">
                               <input
@@ -5339,7 +5452,27 @@ return (
                           {/* Row 13: SALES RETURN */}
                           <tr>
                             <td className="p-2.5 bg-[#6fa8dc] text-slate-900 font-black border-r border-slate-300">
-                              SALES RETURN
+                              <div className="flex items-center justify-between">
+                                <span>SALES RETURN</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-blue-300">
+                                    <span className="text-[9px] font-bold text-blue-700 dark:text-blue-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['SALES_RETURN_MTRS'] !== undefined ? editedTargets['SALES_RETURN_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('SALES_RETURN_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-blue-400 rounded text-[11px] font-bold text-blue-900 dark:text-blue-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['SALES_RETURN_MTRS'] !== undefined && editedTargets['SALES_RETURN_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-blue-800 bg-blue-100/80 px-1.5 py-0.5 rounded">
+                                      Target: {Number(editedTargets['SALES_RETURN_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2 bg-[#f6b26b]">
                               <input
@@ -5374,7 +5507,27 @@ return (
                               INWARD
                             </td>
                             <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
-                              NORMAL
+                              <div className="flex items-center justify-between">
+                                <span>NORMAL</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-indigo-300">
+                                    <span className="text-[9px] font-bold text-indigo-700 dark:text-indigo-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['NORMAL_MTRS'] !== undefined ? editedTargets['NORMAL_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('NORMAL_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-indigo-400 rounded text-[11px] font-bold text-indigo-900 dark:text-indigo-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['NORMAL_MTRS'] !== undefined && editedTargets['NORMAL_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                                      Target: {Number(editedTargets['NORMAL_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2 w-1/3">
                               <input
@@ -5391,7 +5544,27 @@ return (
                           {/* SOFT FLOW */}
                           <tr>
                             <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
-                              SOFT FLOW
+                              <div className="flex items-center justify-between">
+                                <span>SOFT FLOW</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-indigo-300">
+                                    <span className="text-[9px] font-bold text-indigo-700 dark:text-indigo-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['SOFT_FLOW_MTRS'] !== undefined ? editedTargets['SOFT_FLOW_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('SOFT_FLOW_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-indigo-400 rounded text-[11px] font-bold text-indigo-900 dark:text-indigo-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['SOFT_FLOW_MTRS'] !== undefined && editedTargets['SOFT_FLOW_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                                      Target: {Number(editedTargets['SOFT_FLOW_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2">
                               <input
@@ -5408,7 +5581,27 @@ return (
                           {/* BRUSHED */}
                           <tr>
                             <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
-                              BRUSHED
+                              <div className="flex items-center justify-between">
+                                <span>BRUSHED</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-indigo-300">
+                                    <span className="text-[9px] font-bold text-indigo-700 dark:text-indigo-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['BRUSHED_MTRS'] !== undefined ? editedTargets['BRUSHED_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('BRUSHED_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-indigo-400 rounded text-[11px] font-bold text-indigo-900 dark:text-indigo-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['BRUSHED_MTRS'] !== undefined && editedTargets['BRUSHED_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                                      Target: {Number(editedTargets['BRUSHED_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2">
                               <input
@@ -5425,7 +5618,27 @@ return (
                           {/* SPUPL PROCESSING (Calculated = Normal + Soft Flow + Brushed) */}
                           <tr className="bg-slate-50 dark:bg-slate-900/60 font-black">
                             <td className="p-2.5 bg-[#9bc2e6] text-slate-900 font-black border-r border-slate-300">
-                              SPUPL PROCESSING
+                              <div className="flex items-center justify-between">
+                                <span>SPUPL PROCESSING</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-indigo-300">
+                                    <span className="text-[9px] font-bold text-indigo-700 dark:text-indigo-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['SPUPL_PROCESSING_MTRS'] !== undefined ? editedTargets['SPUPL_PROCESSING_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('SPUPL_PROCESSING_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-indigo-400 rounded text-[11px] font-bold text-indigo-900 dark:text-indigo-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['SPUPL_PROCESSING_MTRS'] !== undefined && editedTargets['SPUPL_PROCESSING_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                                      Target: {Number(editedTargets['SPUPL_PROCESSING_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2 text-center text-indigo-700 dark:text-indigo-300 text-sm font-black">
                               {liveCalculations['SPUPL_PROCESSING_MTRS'] !== undefined && liveCalculations['SPUPL_PROCESSING_MTRS'] !== ''
@@ -5440,7 +5653,27 @@ return (
                               DYEING &amp; PRINTING
                             </td>
                             <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
-                              Dyeing and Printing (Mtrs)
+                              <div className="flex items-center justify-between">
+                                <span>Dyeing and Printing (Mtrs)</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-purple-300">
+                                    <span className="text-[9px] font-bold text-purple-700 dark:text-purple-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['DYEING_PRINTING_MTRS'] !== undefined ? editedTargets['DYEING_PRINTING_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('DYEING_PRINTING_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-purple-400 rounded text-[11px] font-bold text-purple-900 dark:text-purple-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['DYEING_PRINTING_MTRS'] !== undefined && editedTargets['DYEING_PRINTING_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                                      Target: {Number(editedTargets['DYEING_PRINTING_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2 text-center text-purple-700 dark:text-purple-300 text-sm font-black">
                               {liveCalculations['DYEING_PRINTING_MTRS'] !== undefined && liveCalculations['DYEING_PRINTING_MTRS'] !== ''
@@ -5455,7 +5688,27 @@ return (
                               PURCHASE
                             </td>
                             <td className="p-2.5 bg-[#fce4d6] text-slate-900 font-black border-r border-slate-300">
-                              Fabric Purchase (Mtr)
+                              <div className="flex items-center justify-between">
+                                <span>Fabric Purchase (Mtr)</span>
+                                {editMonthlyTargetsMode ? (
+                                  <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-orange-300">
+                                    <span className="text-[9px] font-bold text-orange-700 dark:text-orange-300">Target:</span>
+                                    <input
+                                      type="number"
+                                      value={editedTargets['FABRIC_PURCHASE_MTRS'] !== undefined ? editedTargets['FABRIC_PURCHASE_MTRS'] : ''}
+                                      onChange={e => handleTargetChange('FABRIC_PURCHASE_MTRS', e.target.value)}
+                                      placeholder="Target"
+                                      className="w-16 px-1 py-0.5 bg-white dark:bg-slate-800 border border-orange-400 rounded text-[11px] font-bold text-orange-900 dark:text-orange-100 outline-none"
+                                    />
+                                  </div>
+                                ) : (
+                                  editedTargets['FABRIC_PURCHASE_MTRS'] !== undefined && editedTargets['FABRIC_PURCHASE_MTRS'] > 0 && (
+                                    <span className="text-[10px] font-bold text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">
+                                      Target: {Number(editedTargets['FABRIC_PURCHASE_MTRS']).toLocaleString()}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="p-2">
                               <input

@@ -825,20 +825,29 @@ export default function BeamStock() {
   };
 
   // Safe Deletion Safeguard
+  // Safe Deletion Safeguard with Force Delete option
   const handleDeleteRow = async (rowId: string | number) => {
     const target = rows.find(r => r.id === rowId);
     if (!target) return;
 
     // Check allocation safeguard
     const statusUpper = (target.beam_status || '').toUpperCase();
-    if (statusUpper === 'RESERVED' || statusUpper === 'ALLOCATED' || statusUpper === 'RUNNING' || statusUpper === 'CONFIRMED') {
-      alert(`⚠️ Cannot Delete Beam #${target.beam_no}: This physical beam is currently ${statusUpper} to a loom plan/production.`);
-      return;
+    const isCommitted = statusUpper === 'RESERVED' || statusUpper === 'ALLOCATED' || statusUpper === 'RUNNING' || statusUpper === 'CONFIRMED' || target.loom_no_assigned;
+
+    let isForce = false;
+    if (isCommitted) {
+      const confirmForce = window.confirm(
+        `Beam #${target.beam_no || 'Row'} is currently ${statusUpper || 'COMMITTED'} to a loom plan/production (Loom: ${target.loom_no_assigned || 'N/A'}).\n\nDo you want to FORCE DELETE this physical beam record?`
+      );
+      if (!confirmForce) return;
+      isForce = true;
+    } else {
+      if (!window.confirm(`Delete Beam #${target.beam_no || 'Row'}?`)) return;
     }
 
     if (typeof target.id === 'number') {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/beam-stock/${target.id}`, { method: 'DELETE' });
+        const res = await fetch(`${API_BASE_URL}/api/beam-stock/${target.id}${isForce ? '?force=true' : ''}`, { method: 'DELETE' });
         if (!res.ok) {
           const err = await res.json();
           alert(`Delete Error: ${err.error || 'Failed to delete beam record'}`);
@@ -855,17 +864,33 @@ export default function BeamStock() {
 
   const handleMultiDelete = async () => {
     if (selectedBeamIds.length === 0) return;
-    if (!window.confirm(`Delete ${selectedBeamIds.length} selected beam stock row(s)?\n\nBeams currently reserved or running in production cannot be deleted.`)) return;
 
     const numericIds = selectedBeamIds.filter(id => typeof id === 'number') as number[];
     const clientRows = selectedBeamIds.filter(id => typeof id === 'string');
+
+    const committedBeams = rows.filter(r => {
+      if (!selectedBeamIds.includes(r.id)) return false;
+      const st = (r.beam_status || '').toUpperCase();
+      return st === 'RESERVED' || st === 'ALLOCATED' || st === 'RUNNING' || st === 'CONFIRMED' || r.loom_no_assigned;
+    });
+
+    let isForce = false;
+    if (committedBeams.length > 0) {
+      const confirmForce = window.confirm(
+        `${committedBeams.length} of ${selectedBeamIds.length} selected beam(s) are currently committed/running in production (e.g. ${committedBeams.map(b => b.beam_no).slice(0, 3).join(', ')}).\n\nDo you want to FORCE DELETE all ${selectedBeamIds.length} selected beam record(s)?`
+      );
+      if (!confirmForce) return;
+      isForce = true;
+    } else {
+      if (!window.confirm(`Delete ${selectedBeamIds.length} selected beam stock row(s)?`)) return;
+    }
 
     if (numericIds.length > 0) {
       try {
         const res = await fetch(`${API_BASE_URL}/api/beam-stock/bulk-delete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: numericIds })
+          body: JSON.stringify({ ids: numericIds, force: isForce })
         });
         const data = await res.json();
         if (!res.ok) {
@@ -873,7 +898,7 @@ export default function BeamStock() {
           return;
         }
         setRows(prev => prev.filter(r => !data.deletedIds?.includes(Number(r.id))));
-        alert(`Deleted ${data.count} beam record(s) successfully.${data.blockedBeams?.length ? ` Note: ${data.blockedBeams.length} beam(s) were blocked because they are reserved or running.` : ''}`);
+        alert(`Deleted ${data.count} beam record(s) successfully.${data.blockedBeams?.length ? ` Note: ${data.blockedBeams.length} beam(s) were blocked.` : ''}`);
       } catch (err: any) {
         alert('Delete error: ' + err.message);
       }
