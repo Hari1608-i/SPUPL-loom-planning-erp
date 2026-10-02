@@ -2415,7 +2415,12 @@ app.get('/api/daily-report', async (req, res) => {
                 'TOTAL_REJECTION_MTRS',
                 'REWASH_MTRS',
                 'TOTAL_REWASH_MTRS',
-                'DYEING_PRINTING_MTRS'
+                'DYEING_PRINTING_MTRS',
+                'NORMAL_MTRS',
+                'SOFT_FLOW_MTRS',
+                'BRUSHED_MTRS',
+                'SPUPL_PROCESSING_MTRS',
+                'FABRIC_PURCHASE_MTRS'
               ]
             }
           }

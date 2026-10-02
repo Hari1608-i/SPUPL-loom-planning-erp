@@ -245,31 +245,53 @@ export const DEPARTMENTS: DepartmentConfig[] = [
     mentor: 'M.RAMESH',
     description: 'Finished inspection, realisation %, rewash, rejections & purchase inspection',
     rawMetrics: [
-      { code: 'SALES_RETURN_MTRS', name: 'Sales Returns (Mtrs)', type: 'number', target: 0, unit: 'Mtrs', placeholder: 'Mtrs' },
+      // Inward Section Entry Fields
+      { code: 'NORMAL_MTRS', name: 'NORMAL', type: 'number', unit: 'Mtrs', placeholder: 'Enter Normal Mtrs' },
+      { code: 'SOFT_FLOW_MTRS', name: 'SOFT FLOW', type: 'number', unit: 'Mtrs', placeholder: 'Enter Soft Flow Mtrs' },
+      { code: 'BRUSHED_MTRS', name: 'BRUSHED', type: 'number', unit: 'Mtrs', placeholder: 'Enter Brushed Mtrs' },
+      { code: 'FABRIC_PURCHASE_MTRS', name: 'Fabric Purchase (Mtr)', type: 'number', unit: 'Mtrs', placeholder: 'Enter Fabric Purchase Mtr' },
+      // Final Inspection Entry Fields
+      { code: 'FINISHED_INSPECTION_MTRS', name: 'FINISHED INSPECTION MTRS', type: 'number', target: 77950, unit: 'Mtrs', placeholder: 'Mtrs' },
+      { code: 'PROCESSING_REJECTION_MTRS', name: 'PROCESSING REJECTION MTRS', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
+      { code: 'VENDOR_REJECTION_MTRS', name: 'VENDOR REJECTION MTRS', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
+      { code: 'WEAVING_REJECTION_MTRS', name: 'WEAVING REJECTION MTRS', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
+      { code: 'PROCESSING_REWASH_MTRS', name: 'PROCESSING REWASH MTRS', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
+      { code: 'VENDOR_REWASH_MTRS', name: 'VENDOR REWASH MTRS', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
+      { code: 'SALES_RETURN_MTRS', name: 'SALES RETURN', type: 'number', target: 0, unit: 'Mtrs', placeholder: 'Mtrs' },
       { code: 'REPRODUCTION_MTRS', name: 'Reproduction (Mtrs)', type: 'number', target: 0, unit: 'Mtrs', placeholder: 'Mtrs' },
       { code: 'REJECTION_MTRS', name: 'Daily Rejection Total (Mtrs)', type: 'number', target: 0, unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'REWASH_MTRS', name: 'Daily Rewash Total (Mtrs)', type: 'number', target: 0, unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'DYEING_PRINTING_MTRS', name: 'Dyeing & Printing (Mtrs)', type: 'number', target: 50000, unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'FINISHED_INSPECTION_MTRS', name: 'Finished Inspection (Mtrs)', type: 'number', target: 77950, unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'REALISATION_PCT', name: 'Realisation %', type: 'number', unit: '%', placeholder: 'e.g. 99.2' },
-      { code: 'PROCESSING_REJECTION_MTRS', name: 'Processing Rejection (Mtrs)', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'VENDOR_REJECTION_MTRS', name: 'Vendor Rejection (Mtrs)', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'WEAVING_REJECTION_MTRS', name: 'Weaving Rejection (Mtrs)', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'PROCESSING_REWASH_MTRS', name: 'Processing Rewash (Mtrs)', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'VENDOR_REWASH_MTRS', name: 'Vendor Rewash (Mtrs)', type: 'number', unit: 'Mtrs', placeholder: 'Mtrs' },
-      { code: 'FABRIC_PURCHASE_MTRS', name: 'Fabric Purchase Inspection (Mtrs)', type: 'number', target: 30000, unit: 'Mtrs', placeholder: 'Mtrs' }
+      { code: 'REWASH_MTRS', name: 'Daily Rewash Total (Mtrs)', type: 'number', target: 0, unit: 'Mtrs', placeholder: 'Mtrs' }
     ],
     calculatedMetrics: [
+      { code: 'REALISATION_PCT', name: 'REALISATION %', type: 'number', unit: '%', isCalculated: true },
+      { code: 'PROCESSING_REJECTION_PCT', name: 'Processing Rejection %', type: 'number', unit: '%', isCalculated: true },
+      { code: 'VENDOR_REJECTION_PCT', name: 'Vendor Rejection %', type: 'number', unit: '%', isCalculated: true },
+      { code: 'WEAVING_REJECTION_PCT', name: 'Weaving Rejection %', type: 'number', unit: '%', isCalculated: true },
+      { code: 'PROCESSING_REWASH_PCT', name: 'Processing Rewash %', type: 'number', unit: '%', isCalculated: true },
+      { code: 'VENDOR_REWASH_PCT', name: 'Vendor Rewash %', type: 'number', unit: '%', isCalculated: true },
+      { code: 'SPUPL_PROCESSING_MTRS', name: 'SPUPL PROCESSING (Mtrs)', type: 'number', unit: 'Mtrs', isCalculated: true },
+      { code: 'DYEING_PRINTING_MTRS', name: 'Dyeing and Printing (Mtrs)', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'FINISHED_DIFF', name: 'Inspection Diff (vs 77.9k)', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'FINISHED_ACHIEVEMENT_PCT', name: 'Inspection Achievement %', type: 'number', unit: '%', isCalculated: true },
       { code: 'TOTAL_FINISHED_FABRIC_MTRS', name: 'Total Finished Fabric (Mtrs)', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'TOTAL_REJECTION_MTRS', name: 'Total Finished Rejections', type: 'number', unit: 'Mtrs', isCalculated: true },
       { code: 'TOTAL_REJECTION_PCT', name: 'Total Rejection %', type: 'number', unit: '%', isCalculated: true },
       { code: 'TOTAL_REWASH_MTRS', name: 'Total Rewash Mtrs', type: 'number', unit: 'Mtrs', isCalculated: true },
-      { code: 'TOTAL_REWASH_PCT', name: 'Total Rewash %', type: 'number', unit: '%', isCalculated: true },
-      { code: 'FABRIC_PURCHASE_DIFF', name: 'Purchase Diff (vs 30k)', type: 'number', unit: 'Mtrs', isCalculated: true }
+      { code: 'TOTAL_REWASH_PCT', name: 'Total Rewash %', type: 'number', unit: '%', isCalculated: true }
     ],
     calculate: (raw) => {
+      // Inward calculations
+      const isNorm = isEntered(raw.NORMAL_MTRS);
+      const isSoft = isEntered(raw.SOFT_FLOW_MTRS);
+      const isBrush = isEntered(raw.BRUSHED_MTRS);
+      const normal = isNorm ? Number(raw.NORMAL_MTRS) : 0;
+      const softFlow = isSoft ? Number(raw.SOFT_FLOW_MTRS) : 0;
+      const brushed = isBrush ? Number(raw.BRUSHED_MTRS) : 0;
+      const hasAnyInward = isNorm || isSoft || isBrush;
+      const spuplProcessing = hasAnyInward ? Number((normal + softFlow + brushed).toFixed(2)) : '';
+      const dyeingPrinting = (isNorm || isSoft) ? Number((normal + softFlow).toFixed(2)) : '';
+
+      // Final Inspection calculations
       const isFin = isEntered(raw.FINISHED_INSPECTION_MTRS);
       const finished = isFin ? Number(raw.FINISHED_INSPECTION_MTRS) : null;
 
@@ -280,35 +302,66 @@ export const DEPARTMENTS: DepartmentConfig[] = [
       const venRej = hasVenRej ? Number(raw.VENDOR_REJECTION_MTRS) : 0;
       const weavRej = hasWeavRej ? Number(raw.WEAVING_REJECTION_MTRS) : 0;
       const hasAnyRej = hasProcRej || hasVenRej || hasWeavRej;
-      const totRej = hasAnyRej ? Number((procRej + venRej + weavRej).toFixed(1)) : '';
-      const totRejPct = (finished !== null && finished > 0 && typeof totRej === 'number') ? Number(((totRej / finished) * 100).toFixed(2)) : (finished !== null && totRej === 0 ? 0 : '');
-
-      // TOTAL = FINISHED INSPECTION MTRS - PROCESSING REJECTION - VENDOR REJECTION - WEAVING REJECTION
-      const totFinFab = finished !== null || hasAnyRej
-        ? Number(((finished || 0) - procRej - venRej - weavRej).toFixed(1))
-        : '';
 
       const hasProcRew = isEntered(raw.PROCESSING_REWASH_MTRS);
       const hasVenRew = isEntered(raw.VENDOR_REWASH_MTRS);
       const procRew = hasProcRew ? Number(raw.PROCESSING_REWASH_MTRS) : 0;
       const venRew = hasVenRew ? Number(raw.VENDOR_REWASH_MTRS) : 0;
       const hasAnyRew = hasProcRew || hasVenRew;
-      // SECOND TOTAL = PROCESSING REWASH MTRS + VENDOR REWASH MTRS
-      const totRew = hasAnyRew ? Number((procRew + venRew).toFixed(1)) : '';
-      const totRewPct = (finished !== null && finished > 0 && typeof totRew === 'number') ? Number(((totRew / finished) * 100).toFixed(2)) : (finished !== null && totRew === 0 ? 0 : '');
 
-      const isPurchase = isEntered(raw.FABRIC_PURCHASE_MTRS);
-      const purchase = isPurchase ? Number(raw.FABRIC_PURCHASE_MTRS) : null;
+      // Rejection % formulas (ROUND to 2 decimal places with zero protection)
+      const procRejPct = (finished !== null && finished > 0 && hasProcRej)
+        ? Number(((procRej / finished) * 100).toFixed(2))
+        : (finished !== null && procRej === 0 ? 0 : '');
+      const venRejPct = (finished !== null && finished > 0 && hasVenRej)
+        ? Number(((venRej / finished) * 100).toFixed(2))
+        : (finished !== null && venRej === 0 ? 0 : '');
+      const weavRejPct = (finished !== null && finished > 0 && hasWeavRej)
+        ? Number(((weavRej / finished) * 100).toFixed(2))
+        : (finished !== null && weavRej === 0 ? 0 : '');
+      const procRewPct = (finished !== null && finished > 0 && hasProcRew)
+        ? Number(((procRew / finished) * 100).toFixed(2))
+        : (finished !== null && procRew === 0 ? 0 : '');
+      const venRewPct = (finished !== null && finished > 0 && hasVenRew)
+        ? Number(((venRew / finished) * 100).toFixed(2))
+        : (finished !== null && venRew === 0 ? 0 : '');
+
+      // As On Date Realisation % = Finished / (Finished + Weaving Rejection + Processing Rewash) * 100
+      const asOnDenom = (finished || 0) + weavRej + procRew;
+      const realPct = (finished !== null && finished > 0 && asOnDenom > 0)
+        ? Number(((finished / asOnDenom) * 100).toFixed(2))
+        : '';
+
+      const totRej = hasAnyRej ? Number((procRej + venRej + weavRej).toFixed(1)) : '';
+      const totRejPct = (finished !== null && finished > 0 && typeof totRej === 'number')
+        ? Number(((totRej / finished) * 100).toFixed(2))
+        : (finished !== null && totRej === 0 ? 0 : '');
+
+      const totFinFab = (finished !== null || hasAnyRej)
+        ? Number(((finished || 0) - procRej - venRej - weavRej).toFixed(1))
+        : '';
+
+      const totRew = hasAnyRew ? Number((procRew + venRew).toFixed(1)) : '';
+      const totRewPct = (finished !== null && finished > 0 && typeof totRew === 'number')
+        ? Number(((totRew / finished) * 100).toFixed(2))
+        : (finished !== null && totRew === 0 ? 0 : '');
 
       return {
+        SPUPL_PROCESSING_MTRS: spuplProcessing,
+        DYEING_PRINTING_MTRS: dyeingPrinting,
+        REALISATION_PCT: realPct,
+        PROCESSING_REJECTION_PCT: procRejPct,
+        VENDOR_REJECTION_PCT: venRejPct,
+        WEAVING_REJECTION_PCT: weavRejPct,
+        PROCESSING_REWASH_PCT: procRewPct,
+        VENDOR_REWASH_PCT: venRewPct,
         FINISHED_DIFF: finished !== null ? Math.round(finished - 77950) : '',
         FINISHED_ACHIEVEMENT_PCT: finished !== null ? Number(((finished / 77950) * 100).toFixed(1)) : '',
         TOTAL_FINISHED_FABRIC_MTRS: totFinFab,
         TOTAL_REJECTION_MTRS: totRej,
         TOTAL_REJECTION_PCT: totRejPct,
         TOTAL_REWASH_MTRS: totRew,
-        TOTAL_REWASH_PCT: totRewPct,
-        FABRIC_PURCHASE_DIFF: purchase !== null ? Math.round(purchase - 30000) : ''
+        TOTAL_REWASH_PCT: totRewPct
       };
     }
   },

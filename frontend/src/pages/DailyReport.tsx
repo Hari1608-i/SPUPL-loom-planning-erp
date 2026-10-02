@@ -968,6 +968,85 @@ export default function DailyReport() {
         });
       }
 
+      // Save Finished Inspection calculated metrics to SQL so API, report and print preview get exact persistent values
+      if (currentDept.code === 'FINISHED_INSPECTION') {
+        const isFin = formInputs['FINISHED_INSPECTION_MTRS'] !== undefined && formInputs['FINISHED_INSPECTION_MTRS'] !== '';
+        const finVal = isFin ? Number(formInputs['FINISHED_INSPECTION_MTRS']) : null;
+
+        const hasProcRej = formInputs['PROCESSING_REJECTION_MTRS'] !== undefined && formInputs['PROCESSING_REJECTION_MTRS'] !== '';
+        const hasVenRej = formInputs['VENDOR_REJECTION_MTRS'] !== undefined && formInputs['VENDOR_REJECTION_MTRS'] !== '';
+        const hasWeavRej = formInputs['WEAVING_REJECTION_MTRS'] !== undefined && formInputs['WEAVING_REJECTION_MTRS'] !== '';
+        const procRej = hasProcRej ? Number(formInputs['PROCESSING_REJECTION_MTRS']) : 0;
+        const venRej = hasVenRej ? Number(formInputs['VENDOR_REJECTION_MTRS']) : 0;
+        const weavRej = hasWeavRej ? Number(formInputs['WEAVING_REJECTION_MTRS']) : 0;
+
+        const hasProcRew = formInputs['PROCESSING_REWASH_MTRS'] !== undefined && formInputs['PROCESSING_REWASH_MTRS'] !== '';
+        const hasVenRew = formInputs['VENDOR_REWASH_MTRS'] !== undefined && formInputs['VENDOR_REWASH_MTRS'] !== '';
+        const procRew = hasProcRew ? Number(formInputs['PROCESSING_REWASH_MTRS']) : 0;
+        const venRew = hasVenRew ? Number(formInputs['VENDOR_REWASH_MTRS']) : 0;
+
+        const isNorm = formInputs['NORMAL_MTRS'] !== undefined && formInputs['NORMAL_MTRS'] !== '';
+        const isSoft = formInputs['SOFT_FLOW_MTRS'] !== undefined && formInputs['SOFT_FLOW_MTRS'] !== '';
+        const isBrush = formInputs['BRUSHED_MTRS'] !== undefined && formInputs['BRUSHED_MTRS'] !== '';
+        const norm = isNorm ? Number(formInputs['NORMAL_MTRS']) : 0;
+        const soft = isSoft ? Number(formInputs['SOFT_FLOW_MTRS']) : 0;
+        const brush = isBrush ? Number(formInputs['BRUSHED_MTRS']) : 0;
+
+        const spuplProcessing = (isNorm || isSoft || isBrush) ? Number((norm + soft + brush).toFixed(2)) : null;
+        const dyeingPrinting = (isNorm || isSoft) ? Number((norm + soft).toFixed(2)) : null;
+
+        const procRejPct = (finVal && finVal > 0 && hasProcRej) ? Number(((procRej / finVal) * 100).toFixed(2)) : (finVal !== null && procRej === 0 ? 0 : null);
+        const venRejPct = (finVal && finVal > 0 && hasVenRej) ? Number(((venRej / finVal) * 100).toFixed(2)) : (finVal !== null && venRej === 0 ? 0 : null);
+        const weavRejPct = (finVal && finVal > 0 && hasWeavRej) ? Number(((weavRej / finVal) * 100).toFixed(2)) : (finVal !== null && weavRej === 0 ? 0 : null);
+        const procRewPct = (finVal && finVal > 0 && hasProcRew) ? Number(((procRew / finVal) * 100).toFixed(2)) : (finVal !== null && procRew === 0 ? 0 : null);
+        const venRewPct = (finVal && finVal > 0 && hasVenRew) ? Number(((venRew / finVal) * 100).toFixed(2)) : (finVal !== null && venRew === 0 ? 0 : null);
+
+        const asOnDenom = (finVal || 0) + weavRej + procRew;
+        const realPct = (finVal && finVal > 0 && asOnDenom > 0) ? Number(((finVal / asOnDenom) * 100).toFixed(2)) : null;
+
+        const hasAnyRej = hasProcRej || hasVenRej || hasWeavRej;
+        const totRej = hasAnyRej ? Number((procRej + venRej + weavRej).toFixed(1)) : null;
+        const totRejPct = (finVal && finVal > 0 && totRej !== null) ? Number(((totRej / finVal) * 100).toFixed(2)) : null;
+
+        const hasAnyRew = hasProcRew || hasVenRew;
+        const totRew = hasAnyRew ? Number((procRew + venRew).toFixed(1)) : null;
+        const totRewPct = (finVal && finVal > 0 && totRew !== null) ? Number(((totRew / finVal) * 100).toFixed(2)) : null;
+
+        const totFinFab = (finVal !== null || hasAnyRej) ? Number(((finVal || 0) - procRej - venRej - weavRej).toFixed(1)) : null;
+
+        const finCalculated = [
+          { code: 'SPUPL_PROCESSING_MTRS', name: 'SPUPL PROCESSING (Mtrs)', val: spuplProcessing },
+          { code: 'DYEING_PRINTING_MTRS', name: 'Dyeing and Printing (Mtrs)', val: dyeingPrinting },
+          { code: 'REALISATION_PCT', name: 'Realisation %', val: realPct },
+          { code: 'PROCESSING_REJECTION_PCT', name: 'Processing Rejection %', val: procRejPct },
+          { code: 'VENDOR_REJECTION_PCT', name: 'Vendor Rejection %', val: venRejPct },
+          { code: 'WEAVING_REJECTION_PCT', name: 'Weaving Rejection %', val: weavRejPct },
+          { code: 'PROCESSING_REWASH_PCT', name: 'Processing Rewash %', val: procRewPct },
+          { code: 'VENDOR_REWASH_PCT', name: 'Vendor Rewash %', val: venRewPct },
+          { code: 'TOTAL_REJECTION_MTRS', name: 'Total Finished Rejections', val: totRej },
+          { code: 'TOTAL_REJECTION_PCT', name: 'Total Rejection %', val: totRejPct },
+          { code: 'TOTAL_REWASH_MTRS', name: 'Total Rewash Mtrs', val: totRew },
+          { code: 'TOTAL_REWASH_PCT', name: 'Total Rewash %', val: totRewPct },
+          { code: 'TOTAL_FINISHED_FABRIC_MTRS', name: 'Total Finished Fabric (Mtrs)', val: totFinFab }
+        ];
+
+        finCalculated.forEach(c => {
+          if (c.val !== null && c.val !== undefined) {
+            metricsToSave.push({
+              metric_code: c.code,
+              metric_name: c.name,
+              raw_value: String(c.val),
+              actual_value: c.val,
+              target_value: 0,
+              diff_value: 0,
+              pct_value: c.code.endsWith('_PCT') ? c.val : 0,
+              performance_mark: 'LOGGED',
+              remarks: deptRemarks || ''
+            });
+          }
+        });
+      }
+
       const payload = {
         report_date: selectedDate,
         department_code: currentDept.code,
@@ -1508,8 +1587,11 @@ export default function DailyReport() {
       // TOTAL = FINISHED INSPECTION MTRS - PROCESSING REJECTION - VENDOR REJECTION - WEAVING REJECTION
       const totFinFabU = (finInspU !== null) || hasAnyRejFinU
         ? ((finInspU || 0) - (procRejU || 0) - (venRejU || 0) - (weavRejU || 0)) : null;
-      const totRejFinU = hasAnyRejFinU ? ((procRejU || 0) + (venRejU || 0) + (weavRejU || 0)) : null;
-      const realPctU = (finInspU && finInspU > 0 && totRejFinU !== null) ? (Math.max(0, 100 - (totRejFinU / finInspU) * 100)).toFixed(2) + '%' : '';
+      // Realisation % Up To Date = Finished / (Finished + Vendor Rejection + Weaving Rejection) * 100
+      const denomU = (finInspU || 0) + (venRejU || 0) + (weavRejU || 0);
+      const realPctU = (finInspU && finInspU > 0 && denomU > 0)
+        ? ((finInspU / denomU) * 100).toFixed(2) + '%'
+        : '';
 
       const procRewU = mSummaries.find(m => m.metric_code === 'PROCESSING_REWASH_MTRS' || m.metric_code === 'PROC_REWASH_MTRS')?.monthlyTotal ?? null;
       const procRewPctU = (finInspU && finInspU > 0 && procRewU !== null) ? ((procRewU / finInspU) * 100).toFixed(2) + '%' : '';
@@ -1558,8 +1640,6 @@ export default function DailyReport() {
       const totFinFabAsOn = (finInspAsOn !== null) || hasAnyRejFinAsOn
         ? ((finInspAsOn || 0) - (procRejAsOn || 0) - (venRejAsOn || 0) - (weavRejAsOn || 0)) : null;
       const totRejFinAsOn = hasAnyRejFinAsOn ? ((procRejAsOn || 0) + (venRejAsOn || 0) + (weavRejAsOn || 0)) : null;
-      const realPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRejFinAsOn !== null) ? (Math.max(0, 100 - (totRejFinAsOn / finInspAsOn) * 100)).toFixed(2) + '%' : '';
-
       const procRewAsOn = getAsOnNum('PROCESSING_REWASH_MTRS') ?? getAsOnNum('PROC_REWASH_MTRS');
       const procRewPctAsOn = (finInspAsOn && finInspAsOn > 0 && procRewAsOn !== null) ? ((procRewAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && procRewAsOn === 0 ? '0.00%' : '');
       const venRewAsOn = getAsOnNum('VENDOR_REWASH_MTRS');
@@ -1567,6 +1647,12 @@ export default function DailyReport() {
       const hasAnyRewFinAsOn = (procRewAsOn !== null || venRewAsOn !== null);
       const totRewFinAsOn = hasAnyRewFinAsOn ? ((procRewAsOn || 0) + (venRewAsOn || 0)) : null;
       const totRewFinPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRewFinAsOn !== null) ? ((totRewFinAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && totRewFinAsOn === 0 ? '0.00%' : '');
+
+      // Realisation % As On Date = Finished / (Finished + Weaving Rejection + Processing Rewash) * 100
+      const asOnDenom = (finInspAsOn || 0) + (weavRejAsOn || 0) + (procRewAsOn || 0);
+      const realPctAsOn = (finInspAsOn && finInspAsOn > 0 && asOnDenom > 0)
+        ? ((finInspAsOn / asOnDenom) * 100).toFixed(2) + '%'
+        : '';
 
       const salesRetAsOn = getAsOnNum('SALES_RETURN_MTRS') ?? getAsOnNum('SALES_RETURNS_MTRS');
 
@@ -3405,17 +3491,20 @@ return (
               const venRejPctU = (finInspU && finInspU > 0 && venRejU !== undefined && venRejU !== null) ? ((venRejU / finInspU) * 100).toFixed(2) + '%' : '';
               const weavRejU = effectivePrintMonthly.find(m => m.metric_code === 'WEAVING_REJECTION_MTRS')?.monthlyTotal;
               const weavRejPctU = (finInspU && finInspU > 0 && weavRejU !== undefined && weavRejU !== null) ? ((weavRejU / finInspU) * 100).toFixed(2) + '%' : '';
-              const hasAnyFinRejU = (procRejU !== undefined && procRejU !== null) || (venRejU !== undefined && venRejU !== null) || (weavRejU !== undefined && weavRejU !== null);
-              // TOTAL (right TOTAL row) = FINISHED INSPECTION - PROC REJECTION - VENDOR REJECTION - WEAVING REJECTION
-              const totFinFabU = (finInspU !== undefined && finInspU !== null) || hasAnyFinRejU
+              const hasAnyRejFinU = (procRejU !== undefined && procRejU !== null) || (venRejU !== undefined && venRejU !== null) || (weavRejU !== undefined && weavRejU !== null);
+              // TOTAL = FINISHED INSPECTION MTRS - PROCESSING REJECTION - VENDOR REJECTION - WEAVING REJECTION
+              const totFinFabU = (finInspU !== undefined && finInspU !== null) || hasAnyRejFinU
                 ? ((finInspU || 0) - (procRejU || 0) - (venRejU || 0) - (weavRejU || 0)) : null;
-              const totRejFinU = hasAnyFinRejU ? ((procRejU || 0) + (venRejU || 0) + (weavRejU || 0)) : null;
-              const realPctU = (finInspU && finInspU > 0 && totRejFinU !== null) ? (Math.max(0, 100 - (totRejFinU / finInspU) * 100)).toFixed(2) + '%' : '';
+              // Realisation % Up To Date = Finished / (Finished + Vendor Rejection + Weaving Rejection) * 100
+              const denomU = (finInspU || 0) + (venRejU || 0) + (weavRejU || 0);
+              const realPctU = (finInspU && finInspU > 0 && denomU > 0)
+                ? ((finInspU / denomU) * 100).toFixed(2) + '%'
+                : '';
 
               const procRewU = effectivePrintMonthly.find(m => m.metric_code === 'PROCESSING_REWASH_MTRS' || m.metric_code === 'PROC_REWASH_MTRS')?.monthlyTotal;
-              const procRewPctU = (finInspU && finInspU > 0 && procRewU !== undefined && procRewU !== null) ? ((procRewU / finInspU) * 100).toFixed(2) + '%' : '';
+              const procRewPctU = (finInspU && finInspU > 0 && procRewU !== undefined && procRewU !== null) ? ((procRewU / finInspU) * 100).toFixed(2) + '%' : (finInspU !== undefined && finInspU !== null && procRewU === 0 ? '0.00%' : '');
               const venRewU = effectivePrintMonthly.find(m => m.metric_code === 'VENDOR_REWASH_MTRS')?.monthlyTotal;
-              const venRewPctU = (finInspU && finInspU > 0 && venRewU !== undefined && venRewU !== null) ? ((venRewU / finInspU) * 100).toFixed(2) + '%' : '';
+              const venRewPctU = (finInspU && finInspU > 0 && venRewU !== undefined && venRewU !== null) ? ((venRewU / finInspU) * 100).toFixed(2) + '%' : (finInspU !== undefined && finInspU !== null && venRewU === 0 ? '0.00%' : '');
               const hasAnyRewFinU = (procRewU !== undefined && procRewU !== null) || (venRewU !== undefined && venRewU !== null);
               const totRewFinU = hasAnyRewFinU ? ((procRewU || 0) + (venRewU || 0)) : null;
               const totRewFinPctU = (finInspU && finInspU > 0 && totRewFinU !== null) ? ((totRewFinU / finInspU) * 100).toFixed(2) + '%' : (finInspU !== null && totRewFinU === 0 ? '0.00%' : '');
@@ -3450,25 +3539,30 @@ return (
               // Finished Fabric AS ON DATE
               const finInspAsOn = getAsOnMetricNum('FINISHED_INSPECTION_MTRS') ?? getAsOnMetricNum('FINISHED_INSPECTED_MTRS') ?? getAsOnMetricNum('FINISH_PRODN_MTRS');
               const procRejAsOn = getAsOnMetricNum('PROCESSING_REJECTION_MTRS');
-              const procRejPctAsOn = (finInspAsOn && finInspAsOn > 0 && procRejAsOn !== null) ? ((procRejAsOn / finInspAsOn) * 100).toFixed(2) + '%' : '';
+              const procRejPctAsOn = (finInspAsOn && finInspAsOn > 0 && procRejAsOn !== null) ? ((procRejAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && procRejAsOn === 0 ? '0.00%' : '');
               const venRejAsOn = getAsOnMetricNum('VENDOR_REJECTION_MTRS');
-              const venRejPctAsOn = (finInspAsOn && finInspAsOn > 0 && venRejAsOn !== null) ? ((venRejAsOn / finInspAsOn) * 100).toFixed(2) + '%' : '';
+              const venRejPctAsOn = (finInspAsOn && finInspAsOn > 0 && venRejAsOn !== null) ? ((venRejAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && venRejAsOn === 0 ? '0.00%' : '');
               const weavRejAsOn = getAsOnMetricNum('WEAVING_REJECTION_MTRS');
-              const weavRejPctAsOn = (finInspAsOn && finInspAsOn > 0 && weavRejAsOn !== null) ? ((weavRejAsOn / finInspAsOn) * 100).toFixed(2) + '%' : '';
+              const weavRejPctAsOn = (finInspAsOn && finInspAsOn > 0 && weavRejAsOn !== null) ? ((weavRejAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && weavRejAsOn === 0 ? '0.00%' : '');
               const hasAnyFinRejAsOn = procRejAsOn !== null || venRejAsOn !== null || weavRejAsOn !== null;
               // TOTAL = FINISHED INSPECTION MTRS - PROCESSING REJECTION - VENDOR REJECTION - WEAVING REJECTION
               const totFinFabAsOn = (finInspAsOn !== null) || hasAnyFinRejAsOn
                 ? ((finInspAsOn || 0) - (procRejAsOn || 0) - (venRejAsOn || 0) - (weavRejAsOn || 0)) : null;
               const totRejFinAsOn = hasAnyFinRejAsOn ? ((procRejAsOn || 0) + (venRejAsOn || 0) + (weavRejAsOn || 0)) : null;
-              const realPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRejFinAsOn !== null) ? (Math.max(0, 100 - (totRejFinAsOn / finInspAsOn * 100))).toFixed(2) + '%' : '';
 
               const procRewAsOn = getAsOnMetricNum('PROCESSING_REWASH_MTRS') ?? getAsOnMetricNum('PROC_REWASH_MTRS');
-              const procRewPctAsOn = (finInspAsOn && finInspAsOn > 0 && procRewAsOn !== null) ? ((procRewAsOn / finInspAsOn) * 100).toFixed(2) + '%' : '';
+              const procRewPctAsOn = (finInspAsOn && finInspAsOn > 0 && procRewAsOn !== null) ? ((procRewAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && procRewAsOn === 0 ? '0.00%' : '');
               const venRewAsOn = getAsOnMetricNum('VENDOR_REWASH_MTRS');
-              const venRewPctAsOn = (finInspAsOn && finInspAsOn > 0 && venRewAsOn !== null) ? ((venRewAsOn / finInspAsOn) * 100).toFixed(2) + '%' : '';
+              const venRewPctAsOn = (finInspAsOn && finInspAsOn > 0 && venRewAsOn !== null) ? ((venRewAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && venRewAsOn === 0 ? '0.00%' : '');
               const hasAnyRewFinAsOn = procRewAsOn !== null || venRewAsOn !== null;
               const totRewFinAsOn = hasAnyRewFinAsOn ? ((procRewAsOn || 0) + (venRewAsOn || 0)) : null;
               const totRewFinPctAsOn = (finInspAsOn && finInspAsOn > 0 && totRewFinAsOn !== null) ? ((totRewFinAsOn / finInspAsOn) * 100).toFixed(2) + '%' : (finInspAsOn !== null && totRewFinAsOn === 0 ? '0.00%' : '');
+
+              // Realisation % As On Date = Finished / (Finished + Weaving Rejection + Processing Rewash) * 100
+              const asOnDenom = (finInspAsOn || 0) + (weavRejAsOn || 0) + (procRewAsOn || 0);
+              const realPctAsOn = (finInspAsOn && finInspAsOn > 0 && asOnDenom > 0)
+                ? ((finInspAsOn / asOnDenom) * 100).toFixed(2) + '%'
+                : '';
 
               const salesRetAsOn = getAsOnMetricNum('SALES_RETURN_MTRS') ?? getAsOnMetricNum('SALES_RETURNS_MTRS');
 
@@ -4976,6 +5070,355 @@ return (
                             );
                           })}
                       </div>
+                    </div>
+                  </div>
+                ) : currentDept.code === 'FINISHED_INSPECTION' ? (
+                  <div className="space-y-6">
+                    {/* Reference Screenshot 2: FINAL INSPECTION */}
+                    <div className="rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-sm overflow-hidden bg-white dark:bg-slate-800">
+                      <div className="bg-slate-100 dark:bg-slate-900 px-4 py-2 border-b-2 border-slate-300 dark:border-slate-700 flex items-center justify-between">
+                        <span className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                          FINAL INSPECTION
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-500">
+                          Auto-Calculates Realisation &amp; Rejection %
+                        </span>
+                      </div>
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b-2 border-slate-300 dark:border-slate-700">
+                            <th className="p-3 text-xs font-black tracking-wider uppercase bg-[#ffff00] text-slate-900 border-r-2 border-slate-300">
+                              DETAILS
+                            </th>
+                            <th className="p-3 text-center text-xs font-black tracking-wider uppercase bg-[#ffff00] text-slate-900 w-1/3">
+                              AS ON DATE
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700 text-xs font-bold">
+                          {/* Row 1: FINISHED INSPECTION MTRS */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              FINISHED INSPECTION MTRS
+                            </td>
+                            <td className="p-2 bg-[#fce4d6]">
+                              <input
+                                type="number"
+                                step="any"
+                                value={formInputs['FINISHED_INSPECTION_MTRS'] !== undefined ? formInputs['FINISHED_INSPECTION_MTRS'] : ''}
+                                onChange={e => handleInputChange('FINISHED_INSPECTION_MTRS', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-center font-black text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                          </tr>
+
+                          {/* Row 2: REALISATION % */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              REALISATION %
+                            </td>
+                            <td className="p-2 bg-[#fce4d6] text-center font-black text-slate-900">
+                              {liveCalculations['REALISATION_PCT'] !== undefined && liveCalculations['REALISATION_PCT'] !== ''
+                                ? `${liveCalculations['REALISATION_PCT']}%`
+                                : '0.00%'}
+                            </td>
+                          </tr>
+
+                          {/* Row 3: PROCESSING REJECTION MTRS */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              PROCESSING REJECTION MTRS
+                            </td>
+                            <td className="p-2 bg-[#fce4d6]">
+                              <input
+                                type="number"
+                                step="any"
+                                value={formInputs['PROCESSING_REJECTION_MTRS'] !== undefined ? formInputs['PROCESSING_REJECTION_MTRS'] : ''}
+                                onChange={e => handleInputChange('PROCESSING_REJECTION_MTRS', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-center font-black text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                          </tr>
+
+                          {/* Row 4: REJECTION % (Processing) */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              REJECTION %
+                            </td>
+                            <td className="p-2 bg-[#fce4d6] text-center font-black text-slate-900">
+                              {liveCalculations['PROCESSING_REJECTION_PCT'] !== undefined && liveCalculations['PROCESSING_REJECTION_PCT'] !== ''
+                                ? `${liveCalculations['PROCESSING_REJECTION_PCT']}%`
+                                : '0.00%'}
+                            </td>
+                          </tr>
+
+                          {/* Spacing Row */}
+                          <tr className="h-2 bg-white dark:bg-slate-800"><td colSpan={2} className="p-0 border-0"></td></tr>
+
+                          {/* Row 5: VENDOR REJECTION MTRS */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              VENDOR REJECTION MTRS
+                            </td>
+                            <td className="p-2 bg-[#fce4d6]">
+                              <input
+                                type="number"
+                                step="any"
+                                value={formInputs['VENDOR_REJECTION_MTRS'] !== undefined ? formInputs['VENDOR_REJECTION_MTRS'] : ''}
+                                onChange={e => handleInputChange('VENDOR_REJECTION_MTRS', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-center font-black text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                          </tr>
+
+                          {/* Row 6: REJECTION % (Vendor) */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              REJECTION %
+                            </td>
+                            <td className="p-2 bg-[#fce4d6] text-center font-black text-slate-900">
+                              {liveCalculations['VENDOR_REJECTION_PCT'] !== undefined && liveCalculations['VENDOR_REJECTION_PCT'] !== ''
+                                ? `${liveCalculations['VENDOR_REJECTION_PCT']}%`
+                                : '0.00%'}
+                            </td>
+                          </tr>
+
+                          {/* Spacing Row */}
+                          <tr className="h-2 bg-white dark:bg-slate-800"><td colSpan={2} className="p-0 border-0"></td></tr>
+
+                          {/* Row 7: WEAVING REJECTION MTRS */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              WEAVING REJECTION MTRS
+                            </td>
+                            <td className="p-2 bg-[#fce4d6]">
+                              <input
+                                type="number"
+                                step="any"
+                                value={formInputs['WEAVING_REJECTION_MTRS'] !== undefined ? formInputs['WEAVING_REJECTION_MTRS'] : ''}
+                                onChange={e => handleInputChange('WEAVING_REJECTION_MTRS', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-center font-black text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                          </tr>
+
+                          {/* Row 8: REJECTION % (Weaving) */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              REJECTION %
+                            </td>
+                            <td className="p-2 bg-[#fce4d6] text-center font-black text-slate-900">
+                              {liveCalculations['WEAVING_REJECTION_PCT'] !== undefined && liveCalculations['WEAVING_REJECTION_PCT'] !== ''
+                                ? `${liveCalculations['WEAVING_REJECTION_PCT']}%`
+                                : '0.00%'}
+                            </td>
+                          </tr>
+
+                          {/* Spacing Row */}
+                          <tr className="h-2 bg-white dark:bg-slate-800"><td colSpan={2} className="p-0 border-0"></td></tr>
+
+                          {/* Row 9: PROCESSING REWASH MTRS */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              PROCESSING REWASH MTRS
+                            </td>
+                            <td className="p-2 bg-[#fce4d6]">
+                              <input
+                                type="number"
+                                step="any"
+                                value={formInputs['PROCESSING_REWASH_MTRS'] !== undefined ? formInputs['PROCESSING_REWASH_MTRS'] : ''}
+                                onChange={e => handleInputChange('PROCESSING_REWASH_MTRS', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-center font-black text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                          </tr>
+
+                          {/* Row 10: REWASH % (Processing) */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              REWASH %
+                            </td>
+                            <td className="p-2 bg-[#fce4d6] text-center font-black text-slate-900">
+                              {liveCalculations['PROCESSING_REWASH_PCT'] !== undefined && liveCalculations['PROCESSING_REWASH_PCT'] !== ''
+                                ? `${liveCalculations['PROCESSING_REWASH_PCT']}%`
+                                : '0.00%'}
+                            </td>
+                          </tr>
+
+                          {/* Spacing Row */}
+                          <tr className="h-2 bg-white dark:bg-slate-800"><td colSpan={2} className="p-0 border-0"></td></tr>
+
+                          {/* Row 11: VENDOR REWASH MTRS */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              VENDOR REWASH MTRS
+                            </td>
+                            <td className="p-2 bg-[#fce4d6]">
+                              <input
+                                type="number"
+                                step="any"
+                                value={formInputs['VENDOR_REWASH_MTRS'] !== undefined ? formInputs['VENDOR_REWASH_MTRS'] : ''}
+                                onChange={e => handleInputChange('VENDOR_REWASH_MTRS', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-center font-black text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                          </tr>
+
+                          {/* Row 12: REWASH % (Vendor) */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              REWASH %
+                            </td>
+                            <td className="p-2 bg-[#fce4d6] text-center font-black text-slate-900">
+                              {liveCalculations['VENDOR_REWASH_PCT'] !== undefined && liveCalculations['VENDOR_REWASH_PCT'] !== ''
+                                ? `${liveCalculations['VENDOR_REWASH_PCT']}%`
+                                : '0.00%'}
+                            </td>
+                          </tr>
+
+                          {/* Spacing Row */}
+                          <tr className="h-2 bg-white dark:bg-slate-800"><td colSpan={2} className="p-0 border-0"></td></tr>
+
+                          {/* Row 13: SALES RETURN */}
+                          <tr>
+                            <td className="p-2.5 bg-[#6fa8dc] text-slate-900 font-black border-r border-slate-300">
+                              SALES RETURN
+                            </td>
+                            <td className="p-2 bg-[#f6b26b]">
+                              <input
+                                type="number"
+                                step="any"
+                                value={formInputs['SALES_RETURN_MTRS'] !== undefined ? formInputs['SALES_RETURN_MTRS'] : ''}
+                                onChange={e => handleInputChange('SALES_RETURN_MTRS', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-center font-black text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Reference Screenshot 1: INWARD SECTION */}
+                    <div className="rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-sm overflow-hidden bg-white dark:bg-slate-800">
+                      <div className="bg-slate-100 dark:bg-slate-900 px-4 py-2 border-b-2 border-slate-300 dark:border-slate-700 flex items-center justify-between">
+                        <span className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                          INWARD
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-500">
+                          SPUPL PROCESSING = NORMAL + SOFT FLOW + BRUSHED
+                        </span>
+                      </div>
+                      <table className="w-full text-left border-collapse">
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700 text-xs font-bold">
+                          {/* NORMAL */}
+                          <tr>
+                            <td rowSpan={4} className="p-3 bg-[#a6a6a6] text-slate-900 font-black text-center align-middle w-1/4 border-r-2 border-slate-300 uppercase tracking-wider text-sm">
+                              INWARD
+                            </td>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              NORMAL
+                            </td>
+                            <td className="p-2 w-1/3">
+                              <input
+                                type="number"
+                                step="any"
+                                value={formInputs['NORMAL_MTRS'] !== undefined ? formInputs['NORMAL_MTRS'] : ''}
+                                onChange={e => handleInputChange('NORMAL_MTRS', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-center font-black text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                          </tr>
+
+                          {/* SOFT FLOW */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              SOFT FLOW
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="number"
+                                step="any"
+                                value={formInputs['SOFT_FLOW_MTRS'] !== undefined ? formInputs['SOFT_FLOW_MTRS'] : ''}
+                                onChange={e => handleInputChange('SOFT_FLOW_MTRS', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-center font-black text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                          </tr>
+
+                          {/* BRUSHED */}
+                          <tr>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              BRUSHED
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="number"
+                                step="any"
+                                value={formInputs['BRUSHED_MTRS'] !== undefined ? formInputs['BRUSHED_MTRS'] : ''}
+                                onChange={e => handleInputChange('BRUSHED_MTRS', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-center font-black text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                          </tr>
+
+                          {/* SPUPL PROCESSING (Calculated = Normal + Soft Flow + Brushed) */}
+                          <tr className="bg-slate-50 dark:bg-slate-900/60 font-black">
+                            <td className="p-2.5 bg-[#9bc2e6] text-slate-900 font-black border-r border-slate-300">
+                              SPUPL PROCESSING
+                            </td>
+                            <td className="p-2 text-center text-indigo-700 dark:text-indigo-300 text-sm font-black">
+                              {liveCalculations['SPUPL_PROCESSING_MTRS'] !== undefined && liveCalculations['SPUPL_PROCESSING_MTRS'] !== ''
+                                ? Number(liveCalculations['SPUPL_PROCESSING_MTRS']).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                : '0.00'}
+                            </td>
+                          </tr>
+
+                          {/* Dyeing and Printing (Mtrs) (Calculated = Normal + Soft Flow) */}
+                          <tr className="bg-slate-50 dark:bg-slate-900/60 font-black">
+                            <td className="p-2.5 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold border-r border-slate-300">
+                              DYEING &amp; PRINTING
+                            </td>
+                            <td className="p-2.5 bg-[#bdd7ee] text-slate-900 font-black border-r border-slate-300">
+                              Dyeing and Printing (Mtrs)
+                            </td>
+                            <td className="p-2 text-center text-purple-700 dark:text-purple-300 text-sm font-black">
+                              {liveCalculations['DYEING_PRINTING_MTRS'] !== undefined && liveCalculations['DYEING_PRINTING_MTRS'] !== ''
+                                ? Number(liveCalculations['DYEING_PRINTING_MTRS']).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                : '0.00'}
+                            </td>
+                          </tr>
+
+                          {/* Fabric Purchase (Mtr) (Manual Entry) */}
+                          <tr>
+                            <td className="p-2.5 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold border-r border-slate-300">
+                              PURCHASE
+                            </td>
+                            <td className="p-2.5 bg-[#fce4d6] text-slate-900 font-black border-r border-slate-300">
+                              Fabric Purchase (Mtr)
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="number"
+                                step="any"
+                                value={formInputs['FABRIC_PURCHASE_MTRS'] !== undefined ? formInputs['FABRIC_PURCHASE_MTRS'] : ''}
+                                onChange={e => handleInputChange('FABRIC_PURCHASE_MTRS', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-center font-black text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 ) : currentDept.code === 'YARN_DEPARTMENT' ? (
