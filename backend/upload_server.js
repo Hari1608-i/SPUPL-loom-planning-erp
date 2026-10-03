@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -1505,37 +1505,42 @@ app.post('/api/orders/bulk', async (req, res) => {
       };
     });
 
-    // 6. Run all design upserts in parallel (concurrent, not sequential)
+    // 6. Sequential batched design upserts (batches of 5) — avoids pgbouncer connection pool exhaustion
+    // Running all in parallel with Promise.all overwhelms the pool when there are many unique designs
     const uniqueDesignNos = [...new Set(preparedOrders.map(p => p.designNo))];
-    await Promise.all(uniqueDesignNos.map(designNo => {
-      const bodyForDesign = preparedOrders.find(p => p.designNo === designNo)?.body || {};
-      const parsedSpecs = parseConstructionSpecsServer(bodyForDesign.construction);
-      const rPick = bodyForDesign.pick ? String(bodyForDesign.pick) : (bodyForDesign.ppi ? String(bodyForDesign.ppi) : (parsedSpecs.pick || ''));
-      const rWidth = bodyForDesign.greige_width ? String(bodyForDesign.greige_width) : (parsedSpecs.greigeWidth || '');
-      const rReedSpace = bodyForDesign.reed_space || bodyForDesign.reed_space_warp_width
-        ? String(bodyForDesign.reed_space || bodyForDesign.reed_space_warp_width)
-        : (parsedSpecs.reedSpace || (rWidth ? String(parseFloat(rWidth) + 1.5) : ''));
-      const designData = {
-        construction: bodyForDesign.construction || '',
-        weft_colours: Number(bodyForDesign.weft_colours || bodyForDesign.no_of_clr_weft) || 0,
-        frames: Number(bodyForDesign.frames) || 0,
-        reed_count: bodyForDesign.reed_count ? String(bodyForDesign.reed_count) : '',
-        pick: rPick,
-        greige_width: rWidth,
-        total_ends: Number(bodyForDesign.total_ends) || null,
-        reed_space_warp_width: rReedSpace,
-        crimp_percent: bodyForDesign.crimp_percent ? Number(bodyForDesign.crimp_percent) / 100 : 0,
-        weave_type: bodyForDesign.weave_type || '',
-        beam_type: bodyForDesign.beam_type || '',
-        no_of_clr_warp: Number(bodyForDesign.no_of_clr_warp) || null,
-        no_of_clr_weft: Number(bodyForDesign.no_of_clr_weft || bodyForDesign.weft_colours) || null
-      };
-      return prisma.designMaster.upsert({
-        where: { design_no_sp_no: designNo },
-        update: designData,
-        create: { design_no_sp_no: designNo, ...designData, status: 'ACTIVE' }
-      });
-    }));
+    const DESIGN_BATCH_SIZE = 5;
+    for (let di = 0; di < uniqueDesignNos.length; di += DESIGN_BATCH_SIZE) {
+      const designBatch = uniqueDesignNos.slice(di, di + DESIGN_BATCH_SIZE);
+      await Promise.all(designBatch.map(designNo => {
+        const bodyForDesign = preparedOrders.find(p => p.designNo === designNo)?.body || {};
+        const parsedSpecs = parseConstructionSpecsServer(bodyForDesign.construction);
+        const rPick = bodyForDesign.pick ? String(bodyForDesign.pick) : (bodyForDesign.ppi ? String(bodyForDesign.ppi) : (parsedSpecs.pick || ''));
+        const rWidth = bodyForDesign.greige_width ? String(bodyForDesign.greige_width) : (parsedSpecs.greigeWidth || '');
+        const rReedSpace = bodyForDesign.reed_space || bodyForDesign.reed_space_warp_width
+          ? String(bodyForDesign.reed_space || bodyForDesign.reed_space_warp_width)
+          : (parsedSpecs.reedSpace || (rWidth ? String(parseFloat(rWidth) + 1.5) : ''));
+        const designData = {
+          construction: bodyForDesign.construction || '',
+          weft_colours: Number(bodyForDesign.weft_colours || bodyForDesign.no_of_clr_weft) || 0,
+          frames: Number(bodyForDesign.frames) || 0,
+          reed_count: bodyForDesign.reed_count ? String(bodyForDesign.reed_count) : '',
+          pick: rPick,
+          greige_width: rWidth,
+          total_ends: Number(bodyForDesign.total_ends) || null,
+          reed_space_warp_width: rReedSpace,
+          crimp_percent: bodyForDesign.crimp_percent ? Number(bodyForDesign.crimp_percent) / 100 : 0,
+          weave_type: bodyForDesign.weave_type || '',
+          beam_type: bodyForDesign.beam_type || '',
+          no_of_clr_warp: Number(bodyForDesign.no_of_clr_warp) || null,
+          no_of_clr_weft: Number(bodyForDesign.no_of_clr_weft || bodyForDesign.weft_colours) || null
+        };
+        return prisma.designMaster.upsert({
+          where: { design_no_sp_no: designNo },
+          update: designData,
+          create: { design_no_sp_no: designNo, ...designData, status: 'ACTIVE' }
+        });
+      }));
+    }
 
     // 7. Create all orders in one createMany call (single DB round trip)
     const orderDataList = preparedOrders.map(({ ibpoNo, designNo, expectedCompletionDate, orderNo, body }) => ({

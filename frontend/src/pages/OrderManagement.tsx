@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   ClipboardList, Plus, Search, AlertTriangle, Edit3, Trash2, X, Download,
   CheckCircle, Printer, FileSpreadsheet, AlertCircle
@@ -167,6 +167,7 @@ export default function OrderManagement() {
   const [multiRows, setMultiRows] = useState<MultiOrderRowState[]>([]);
   const [multiErrorMsg, setMultiErrorMsg] = useState<string | null>(null);
   const [isSubmittingMulti, setIsSubmittingMulti] = useState(false);
+  const [multiSaveProgress, setMultiSaveProgress] = useState<{ done: number; total: number } | null>(null);
 
   // Multiple Order Completion States (Excel single-column IBPO paste)
   const [showMultiCompleteModal, setShowMultiCompleteModal] = useState(false);
@@ -752,6 +753,7 @@ export default function OrderManagement() {
 
     setIsSubmittingMulti(true);
     setMultiErrorMsg(null);
+    setMultiSaveProgress(null);
 
     try {
       const payload = validRows.map(r => ({
@@ -762,25 +764,65 @@ export default function OrderManagement() {
         buyer_name: r.buyer_name?.trim() || ''
       }));
 
-      const res = await fetch(`${API_BASE_URL}/api/orders/bulk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orders: payload, adminUser: user?.username })
-      });
+      // Split into chunks of 20 to avoid Vercel 10s serverless timeout on Hobby plan
+      const CHUNK_SIZE = 20;
+      const chunks = [];
+      for (let ci = 0; ci < payload.length; ci += CHUNK_SIZE) {
+        chunks.push(payload.slice(ci, ci + CHUNK_SIZE));
+      }
 
-      const contentType = res.headers.get('content-type') || '';
-      const data = contentType.includes('application/json') ? await res.json() : { error: await res.text() };
+      let totalSaved = 0;
+      let totalSkipped = 0;
+      const errors = [];
 
-      if (res.ok) {
+      for (let ci = 0; ci < chunks.length; ci++) {
+        setMultiSaveProgress({ done: ci, total: chunks.length });
+        const chunk = chunks[ci];
+        try {
+          const chunkRes = await fetch(`${API_BASE_URL}/api/orders/bulk`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orders: chunk, adminUser: user?.username })
+          });
+          const ct = chunkRes.headers.get('content-type') || '';
+          const d = ct.includes('application/json') ? await chunkRes.json() : { error: await chunkRes.text() };
+          if (chunkRes.ok) {
+            totalSaved += d.count || 0;
+            totalSkipped += d.skippedCount || 0;
+          } else {
+            const errMsg = d.error || 'Failed to save chunk.';
+            if (errMsg.includes('already exist as active')) {
+              totalSkipped += chunk.length;
+            } else {
+              errors.push(`Chunk ${ci + 1}: ${errMsg}`);
+            }
+          }
+        } catch (chunkErr) {
+          errors.push(`Chunk ${ci + 1} error: ${chunkErr instanceof Error ? chunkErr.message : String(chunkErr)}`);
+        }
+      }
+
+      setMultiSaveProgress({ done: chunks.length, total: chunks.length });
+
+      if (errors.length > 0 && totalSaved === 0) {
+        setMultiErrorMsg(`Failed to save orders: ${errors.join('; ')}`);
+      } else {
         setShowMultiEntryModal(false);
+        setMultiSaveProgress(null);
         await loadData();
         await refreshData();
-        if (skippedIbpos.length > 0) {
-          alert(`✅ Saved ${validRows.length} order(s) successfully.\n\n⚠️ Skipped ${skippedIbpos.length} already-active IBPO(s):\n${skippedIbpos.join('\n')}`);
+        const msgs = [];
+        if (totalSaved > 0) msgs.push(`✅ Saved ${totalSaved} order(s) successfully.`);
+        if (skippedIbpos.length > 0 || totalSkipped > 0) {
+          const skipTotal = skippedIbpos.length + totalSkipped;
+          msgs.push(`⚠️ Skipped ${skipTotal} already-active IBPO(s).`);
+          if (skippedIbpos.length > 0) msgs.push(skippedIbpos.join('\n'));
         }
-      } else {
-        setMultiErrorMsg(data.error || 'Failed to save bulk orders.');
+        if (errors.length > 0) msgs.push(`⚠️ Some chunks had errors: ${errors.join('; ')}`);
+        if (msgs.length > 0) alert(msgs.join('\n'));
       }
+
+
     } catch (e: unknown) {
       setMultiErrorMsg('Error saving bulk orders: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -2330,12 +2372,16 @@ export default function OrderManagement() {
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
               <div className="text-xs font-bold text-slate-500">
                 Total Orders Ready: <strong className="text-slate-800">{multiRows.filter(r => r.ibpo_no.trim() || r.customer_name.trim()).length}</strong>
+                {multiSaveProgress && (
+                  <span className="ml-3 text-indigo-600">Saving chunk {multiSaveProgress.done + 1} of {multiSaveProgress.total}...</span>
+                )}
               </div>
               <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={() => setShowMultiEntryModal(false)}
-                  className="px-5 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 transition-colors"
+                  disabled={isSubmittingMulti}
+                  className="px-5 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-40"
                 >
                   Cancel
                 </button>
@@ -2345,7 +2391,10 @@ export default function OrderManagement() {
                   onClick={handleSaveMultiOrders}
                   className="px-6 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl text-xs font-black shadow-md hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 transition-all"
                 >
-                  {isSubmittingMulti ? 'Saving All Orders...' : 'SAVE ALL ORDERS'}
+                  {isSubmittingMulti
+                    ? (multiSaveProgress ? `Saving batch ${multiSaveProgress.done + 1}/${multiSaveProgress.total}...` :
+                      'Saving All Orders...')
+                    : 'SAVE ALL ORDERS'}
                 </button>
               </div>
             </div>
