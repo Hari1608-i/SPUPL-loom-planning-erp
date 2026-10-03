@@ -102,6 +102,17 @@ export default function BeamStock() {
     remarks: ''
   });
 
+  // Allocate Beam Modal State (Instant physical stock allocation)
+  const [allocatingBeam, setAllocatingBeam] = useState<BeamRowState | null>(null);
+  const [allocForm, setAllocForm] = useState({
+    order_no: '',
+    loom_no: '',
+    warp_meter: '',
+    remarks: ''
+  });
+  const [isAllocating, setIsAllocating] = useState(false);
+  const [confirmingBeamId, setConfirmingBeamId] = useState<string | number | null>(null);
+
   // Active running loom numbers
   const activeLoomNos = useMemo(() => {
     const set = new Set<number>();
@@ -160,29 +171,32 @@ export default function BeamStock() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/beam-stock`);
+      const res = await fetch(`${API_BASE_URL}/api/beam-stock?_t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch beam stock');
       const data = await res.json();
 
       if (Array.isArray(data) && data.length > 0) {
-        // Physical beam stock page: exclude any beams that are running on looms, allocated to plans, or completed
+        // Physical beam stock page: show available & ready beams in central stock
         const stockOnly = data.filter((b: any) => {
           const norm = (b.status || b.beam_status || '').trim().toUpperCase();
           const bNo = (b.beam_no || '').trim().toUpperCase();
           const bId = Number(b.id);
 
+          const isAvailable = norm === 'AVAILABLE' || norm === 'READY';
+
           const isLoomRunning =
             norm === 'RUNNING' || norm === 'IN USE' || norm === 'ON LOOM' ||
             (Boolean(b.loom_no_assigned) && Number(b.loom_no_assigned) > 0 && activeLoomNos.has(Number(b.loom_no_assigned))) ||
-            (bNo && runningBeamNos.has(bNo) && norm !== 'AVAILABLE' && norm !== 'READY') ||
-            (bId && runningBeamIds.has(bId) && norm !== 'AVAILABLE' && norm !== 'READY');
+            (!isAvailable && ((bNo && runningBeamNos.has(bNo)) || (bId && runningBeamIds.has(bId))));
 
           const isPlanAllocated =
             norm === 'ALLOCATED' || norm === 'RESERVED' || norm === 'ASSIGNED' ||
-            (bNo && planAllocatedBeamNos.has(bNo)) ||
-            (bId && planAllocatedBeamIds.has(bId)) ||
-            Boolean(b.loom_no_assigned && Number(b.loom_no_assigned) > 0) ||
-            Boolean(b.reserved_for && String(b.reserved_for).trim() !== '' && String(b.reserved_for).trim().toUpperCase() !== 'NULL');
+            (!isAvailable && (
+              (bNo && planAllocatedBeamNos.has(bNo)) ||
+              (bId && planAllocatedBeamIds.has(bId)) ||
+              Boolean(b.loom_no_assigned && Number(b.loom_no_assigned) > 0) ||
+              Boolean(b.reserved_for && String(b.reserved_for).trim() !== '' && String(b.reserved_for).trim().toUpperCase() !== 'NULL')
+            ));
 
           const isCompleted = norm === 'COMPLETED' || norm === 'EMPTY' || norm === 'SCRAP' || norm === 'ARCHIVED';
 
@@ -256,7 +270,7 @@ export default function BeamStock() {
 
       // Fetch Allocated Stock Beams
       try {
-        const allocRes = await fetch(`${API_BASE_URL}/api/beam-stock/allocated`);
+        const allocRes = await fetch(`${API_BASE_URL}/api/beam-stock/allocated?_t=${Date.now()}`, { cache: 'no-store' });
         if (allocRes.ok) {
           const allocData = await allocRes.json();
           setAllocatedStockRows(Array.isArray(allocData) ? allocData : []);
@@ -594,7 +608,40 @@ export default function BeamStock() {
         throw new Error(err.error || 'Failed to save beam stock');
       }
 
-      setSuccessMsg(`🎉 Beam #${quickForm.beam_no} created & linked to Order "${quickAddOrderModal.ibpo}" (Design: ${quickAddOrderModal.designNo})!`);
+      const resData = await res.json().catch(() => ({}));
+      const savedBeam = resData.beam || payload[0];
+
+      // Optimistically create new beam row so it immediately shows in Physical Beam Stock!
+      const newRow: BeamRowState = {
+        id: savedBeam.id || `created-${Date.now()}`,
+        date: quickForm.date,
+        design_no: quickAddOrderModal.designNo,
+        vendor_name: quickForm.vendor_name,
+        party_beam_no: quickForm.party_beam_no,
+        order_no: quickAddOrderModal.ibpo,
+        ibpo: quickAddOrderModal.ibpo,
+        set_no: quickForm.set_no,
+        beam_no: quickForm.beam_no.trim(),
+        beam_type: quickForm.beam_type,
+        beam_dia: Number(quickForm.beam_dia) || '',
+        beam_width: Number(quickForm.beam_width) || '',
+        total_ends: Number(quickForm.total_ends) || '',
+        warp_meter: Number(quickForm.warp_meter),
+        age_of_beam: 0,
+        location: quickForm.location,
+        beam_status: 'Available',
+        remarks: quickForm.remarks || `Added for Order ${quickAddOrderModal.ibpo}`
+      };
+
+      setRows(prev => [
+        newRow,
+        ...prev.filter(r => (r.beam_no || '').trim().toUpperCase() !== quickForm.beam_no.trim().toUpperCase() && !String(r.id).startsWith('blank-'))
+      ]);
+
+      // Automatically switch to Tab 1 (Physical Beam Stock) so user immediately sees their created beam!
+      setActiveTab('STOCK');
+
+      setSuccessMsg(`🎉 Beam #${quickForm.beam_no} created and added to Physical Beam Stock!`);
       setQuickAddOrderModal(null);
       await fetchData();
       if (refreshData) {
@@ -605,6 +652,96 @@ export default function BeamStock() {
       setErrorMsg(`Save Error: ${e.message}`);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Direct Physical Beam Allocation Handler
+  const handleAllocateBeamSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!allocatingBeam) return;
+
+    setIsAllocating(true);
+    setErrorMsg(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/beam-stock/allocate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          beam_id: allocatingBeam.id,
+          beam_no: allocatingBeam.beam_no,
+          order_no: allocForm.order_no.trim() || allocatingBeam.order_no || allocatingBeam.ibpo,
+          ibpo: allocForm.order_no.trim() || allocatingBeam.ibpo || allocatingBeam.order_no,
+          design_no: allocatingBeam.design_no,
+          warp_meter: Number(allocForm.warp_meter) || Number(allocatingBeam.warp_meter),
+          loom_no: allocForm.loom_no ? Number(allocForm.loom_no) : null,
+          remarks: allocForm.remarks || `Allocated from Physical Beam Stock`,
+          planner_name: 'Planner'
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to allocate beam');
+      }
+
+      // Optimistically remove from Physical Stock (disappears from Tab 1 as requested!)
+      setRows(prev => prev.filter(r => r.id !== allocatingBeam.id && (r.beam_no || '').trim().toUpperCase() !== (allocatingBeam.beam_no || '').trim().toUpperCase()));
+
+      setSuccessMsg(`🎉 Beam #${allocatingBeam.beam_no} allocated! Moved from Physical Stock to Allocated Stock.`);
+      setAllocatingBeam(null);
+      setActiveTab('ALLOCATED');
+
+      await fetchData();
+      if (refreshData) {
+        try { await refreshData(); } catch (e) { }
+      }
+      setTimeout(() => setSuccessMsg(null), 5000);
+    } catch (err: any) {
+      setErrorMsg(`Allocation Error: ${err.message}`);
+    } finally {
+      setIsAllocating(false);
+    }
+  };
+
+  // Direct Allocated Beam Confirmation Handler
+  const handleConfirmBeam = async (beam: any) => {
+    if (!window.confirm(`Confirm Beam #${beam.beam_no} for production / loom allocation?\n\nOnce confirmed, it will move to production and leave Allocated Stock.`)) return;
+
+    setConfirmingBeamId(beam.id || beam.beam_no);
+    setErrorMsg(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/beam-stock/confirm-beam`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          beam_id: beam.id,
+          beam_no: beam.beam_no,
+          confirmed_by: 'Planner',
+          remarks: `Confirmed from Allocated Stock`
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to confirm beam');
+      }
+
+      // Optimistically remove from allocatedStockRows immediately (leaves Allocated Stock as requested!)
+      setAllocatedStockRows(prev => prev.filter(r => r.beam_no !== beam.beam_no && r.id !== beam.id));
+      setSuccessMsg(`✅ Beam #${beam.beam_no} confirmed for production! Removed from Allocated Stock.`);
+      setTimeout(() => setSuccessMsg(null), 5000);
+
+      await fetchData();
+      if (refreshData) {
+        try { await refreshData(); } catch (e) { }
+      }
+    } catch (err: any) {
+      setErrorMsg(`Confirmation Error: ${err.message}`);
+      setTimeout(() => setErrorMsg(null), 5000);
+    } finally {
+      setConfirmingBeamId(null);
     }
   };
 
@@ -1019,18 +1156,21 @@ export default function BeamStock() {
     // Blank template rows (e.g. for Excel paste) stay visible in ALL view
     if (!bNo) return statusFilter === 'ALL';
 
+    const isAvailable = normSt === 'AVAILABLE' || normSt === 'READY';
+
     const isLoomRunning =
       normSt === 'RUNNING' || normSt === 'IN USE' || normSt === 'ON LOOM' ||
-      runningBeamNos.has(bNo) ||
-      (rId !== null && runningBeamIds.has(rId)) ||
-      (Boolean(r.loom_no_assigned) && Number(r.loom_no_assigned) > 0 && activeLoomNos.has(Number(r.loom_no_assigned)));
+      (Boolean(r.loom_no_assigned) && Number(r.loom_no_assigned) > 0 && activeLoomNos.has(Number(r.loom_no_assigned))) ||
+      (!isAvailable && (runningBeamNos.has(bNo) || (rId !== null && runningBeamIds.has(rId))));
 
     const isAllocated =
       normSt === 'ALLOCATED' || normSt === 'RESERVED' || normSt === 'ASSIGNED' ||
-      planAllocatedBeamNos.has(bNo) ||
-      (rId !== null && planAllocatedBeamIds.has(rId)) ||
-      Boolean(r.loom_no_assigned && Number(r.loom_no_assigned) > 0) ||
-      Boolean(r.reserved_for && String(r.reserved_for).trim() !== '' && String(r.reserved_for).trim().toUpperCase() !== 'NULL');
+      (!isAvailable && (
+        planAllocatedBeamNos.has(bNo) ||
+        (rId !== null && planAllocatedBeamIds.has(rId)) ||
+        Boolean(r.loom_no_assigned && Number(r.loom_no_assigned) > 0) ||
+        Boolean(r.reserved_for && String(r.reserved_for).trim() !== '' && String(r.reserved_for).trim().toUpperCase() !== 'NULL')
+      ));
 
     const isCompleted = normSt === 'COMPLETED' || normSt === 'EMPTY' || normSt === 'SCRAP' || normSt === 'ARCHIVED';
 
@@ -1066,6 +1206,15 @@ export default function BeamStock() {
 
     return matchesSearch && matchesStatus;
   });
+
+  // Active Allocated Stock Beams (EXCLUDES Confirmed Beams — Once confirmed, beam leaves allocated stock!)
+  const activeAllocatedStockRows = useMemo(() => {
+    return (allocatedStockRows || []).filter(b => {
+      const norm = (b.status || '').trim().toUpperCase();
+      const planNorm = (b.plan_status || '').trim().toUpperCase();
+      return norm !== 'CONFIRMED' && planNorm !== 'CONFIRMED' && norm !== 'RUNNING' && norm !== 'IN USE';
+    });
+  }, [allocatedStockRows]);
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto pb-24">
@@ -1185,7 +1334,7 @@ export default function BeamStock() {
           }`}
         >
           <CheckCircle className="w-4 h-4" />
-          3. ALLOCATED STOCK ({allocatedStockRows.length} Beams)
+          3. ALLOCATED STOCK ({activeAllocatedStockRows.length} Beams)
         </button>
       </div>
 
@@ -1674,13 +1823,16 @@ export default function BeamStock() {
                     <td className="p-1.5 text-center print:hidden">
                       <button
                         onClick={() => {
-                          const beamNoEncoded = encodeURIComponent(row.beam_no || '');
-                          const designEncoded = encodeURIComponent(row.design_no || '');
-                          const ibpoEncoded = encodeURIComponent(row.party_beam_no || row.ibpo || row.order_no || '');
-                          navigate(`/plan?beamId=${row.id}&beamNo=${beamNoEncoded}&designNo=${designEncoded}&ibpo=${ibpoEncoded}`);
+                          setAllocatingBeam(row);
+                          setAllocForm({
+                            order_no: row.party_beam_no || row.ibpo || row.order_no || '',
+                            loom_no: row.loom_no_assigned ? String(row.loom_no_assigned) : '',
+                            warp_meter: String(row.warp_meter || ''),
+                            remarks: row.remarks || `Allocated from Physical Beam Stock`
+                          });
                         }}
                         className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] rounded-lg shadow-sm transition-all flex items-center justify-center mx-auto gap-1"
-                        title={`Allocate Beam #${row.beam_no} to Loom Plan`}
+                        title={`Allocate Beam #${row.beam_no} to Order / Loom`}
                       >
                         ALLOCATE <ArrowRight className="w-3 h-3" />
                       </button>
@@ -1709,10 +1861,10 @@ export default function BeamStock() {
           <div className="flex items-center space-x-3">
             <h3 className="font-black text-slate-900 text-sm uppercase flex items-center">
               <CheckCircle className="w-4 h-4 mr-2 text-purple-700" />
-              ALLOCATED BEAM STOCK & CONFIRMATION ({allocatedStockRows.length} Allocated Beams)
+              ALLOCATED BEAM STOCK & CONFIRMATION ({activeAllocatedStockRows.length} Allocated Beams)
             </h3>
             <span className="text-xs text-slate-500 font-semibold">
-              (Age-wise real-time physical beam allocations linked to Orders & Loom Planning)
+              (Age-wise real-time physical beam allocations. When confirmed, beams transition to production and leave allocated stock)
             </span>
           </div>
 
@@ -1744,18 +1896,18 @@ export default function BeamStock() {
                 <th className="p-2.5 min-w-[90px] text-center text-purple-300">Age (Days)</th>
                 <th className="p-2.5 min-w-[110px] text-center">Status</th>
                 <th className="p-2.5 min-w-[120px] text-center">Confirmation</th>
-                <th className="p-2.5 min-w-[130px] text-center print:hidden">Action</th>
+                <th className="p-2.5 min-w-[160px] text-center print:hidden">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {allocatedStockRows.length === 0 ? (
+              {activeAllocatedStockRows.length === 0 ? (
                 <tr>
                   <td colSpan={12} className="py-12 text-center text-slate-400 font-medium text-xs">
-                    No physical beams currently allocated. Allocate available beams from Tab 1 or Tab 2.
+                    No physical beams currently allocated. Allocate available beams from Tab 1 (Physical Beam Stock) or Tab 2 (Order Against Requirement).
                   </td>
                 </tr>
               ) : (
-                allocatedStockRows.map((b: any, idx: number) => {
+                activeAllocatedStockRows.map((b: any, idx: number) => {
                   let formattedDate = '—';
                   let ageDays = 0;
                   try {
@@ -1820,18 +1972,28 @@ export default function BeamStock() {
                         )}
                       </td>
                       <td className="p-2 text-center print:hidden">
-                        <button
-                          onClick={() => {
-                            const beamNoEnc = encodeURIComponent(b.beam_no || '');
-                            const designEnc = encodeURIComponent(b.design_no || '');
-                            const ibpoEnc = encodeURIComponent(b.ibpo || b.order_no || '');
-                            navigate(`/planned-looms?loomNo=${b.loom_no_assigned || ''}&beamNo=${beamNoEnc}&designNo=${designEnc}&ibpo=${ibpoEnc}`);
-                          }}
-                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] rounded-lg shadow-sm transition-all flex items-center justify-center mx-auto gap-1"
-                          title={`Go to Next Planned Looms & Confirmation Control to confirm Loom ${b.loom_no_assigned ? b.loom_no_assigned : ''}`}
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" /> GO TO CONFIRMATION
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => handleConfirmBeam(b)}
+                            disabled={confirmingBeamId === (b.id || b.beam_no)}
+                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] rounded-lg shadow-sm transition-all flex items-center gap-1 disabled:opacity-50"
+                            title={`Confirm Beam #${b.beam_no} for production (leaves Allocated Stock)`}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" /> CONFIRM
+                          </button>
+                          <button
+                            onClick={() => {
+                              const beamNoEnc = encodeURIComponent(b.beam_no || '');
+                              const designEnc = encodeURIComponent(b.design_no || '');
+                              const ibpoEnc = encodeURIComponent(b.ibpo || b.order_no || '');
+                              navigate(`/planned-looms?loomNo=${b.loom_no_assigned || ''}&beamNo=${beamNoEnc}&designNo=${designEnc}&ibpo=${ibpoEnc}`);
+                            }}
+                            className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] rounded-lg shadow-sm transition-all flex items-center gap-1"
+                            title={`Go to Next Planned Looms to configure loom schedule`}
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" /> PLAN
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -2098,6 +2260,159 @@ export default function BeamStock() {
                 >
                   <Save className="w-4 h-4 mr-2" /> SAVE BEAM PRODUCTION
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ALLOCATE BEAM MODAL (Physical Stock -> Allocated Stock) */}
+      {allocatingBeam && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full my-8 overflow-hidden border border-slate-200 animate-in fade-in zoom-in duration-150">
+            <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+              <h3 className="font-bold text-sm flex items-center">
+                <CheckCircle className="w-4 h-4 mr-2 text-purple-400" /> ALLOCATE BEAM #{allocatingBeam.beam_no}
+              </h3>
+              <button onClick={() => setAllocatingBeam(null)} className="text-slate-400 hover:text-white font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleAllocateBeamSubmit} className="p-5 space-y-4 text-xs font-medium">
+              {/* Beam Details Card */}
+              <div className="p-3 bg-purple-50/60 border border-purple-200 rounded-xl space-y-2">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold block uppercase">Beam No</span>
+                    <span className="font-black text-amber-700 text-xs mt-0.5 block">{allocatingBeam.beam_no}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold block uppercase">Design No</span>
+                    <span className="font-black text-slate-900 text-xs mt-0.5 block">{allocatingBeam.design_no || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold block uppercase">Available Warp</span>
+                    <span className="font-black text-emerald-700 text-xs mt-0.5 block">
+                      {Number(allocatingBeam.warp_meter || 0).toLocaleString()} M
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Allocation Destination Fields */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Target Order / IBPO *</label>
+                  <input
+                    type="text"
+                    required
+                    value={allocForm.order_no}
+                    onChange={e => setAllocForm(prev => ({ ...prev, order_no: e.target.value }))}
+                    placeholder="e.g. 24344 or select below"
+                    className="w-full p-2.5 border border-slate-300 rounded-xl font-bold text-blue-900 outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  {orders && orders.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1 max-h-20 overflow-y-auto custom-scrollbar p-1 bg-slate-50 rounded-lg border border-slate-200">
+                      {orders
+                        .filter(o => {
+                          const st = (o.status || '').toUpperCase();
+                          return st !== 'COMPLETED' && st !== 'ORDER COMPLETED';
+                        })
+                        .slice(0, 8)
+                        .map(o => {
+                          const ib = o.ibpo_no || o.order_no;
+                          return (
+                            <button
+                              key={o.id}
+                              type="button"
+                              onClick={() => setAllocForm(prev => ({ ...prev, order_no: ib }))}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
+                                allocForm.order_no === ib
+                                  ? 'bg-purple-600 text-white border-purple-600'
+                                  : 'bg-white text-slate-700 border-slate-300 hover:border-purple-400'
+                              }`}
+                            >
+                              {ib} ({o.design_no_sp_no})
+                            </button>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Assign to Loom No (Optional)</label>
+                    <select
+                      value={allocForm.loom_no}
+                      onChange={e => setAllocForm(prev => ({ ...prev, loom_no: e.target.value }))}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                    >
+                      <option value="">Unassigned (Order Stock)</option>
+                      {looms && looms.map(l => (
+                        <option key={l.loom_no} value={l.loom_no}>
+                          Loom {l.loom_no} ({l.status || 'Active'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Allocated Warp Mtr</label>
+                    <input
+                      type="number"
+                      value={allocForm.warp_meter}
+                      onChange={e => setAllocForm(prev => ({ ...prev, warp_meter: e.target.value }))}
+                      placeholder={String(allocatingBeam.warp_meter || '')}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl text-right font-black text-emerald-900 outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Planner Remarks</label>
+                  <input
+                    type="text"
+                    value={allocForm.remarks}
+                    onChange={e => setAllocForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    placeholder="e.g. Allocated for upcoming batch"
+                    className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-3 border-t border-slate-200 flex flex-wrap justify-between items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const beamNoEnc = encodeURIComponent(allocatingBeam.beam_no || '');
+                    const designEnc = encodeURIComponent(allocatingBeam.design_no || '');
+                    const ibpoEnc = encodeURIComponent(allocForm.order_no || allocatingBeam.party_beam_no || allocatingBeam.ibpo || '');
+                    navigate(`/plan?beamId=${allocatingBeam.id}&beamNo=${beamNoEnc}&designNo=${designEnc}&ibpo=${ibpoEnc}`);
+                  }}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1"
+                  title="Open full Loom Planning Setup page"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Full Loom Plan Setup
+                </button>
+
+                <div className="flex space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setAllocatingBeam(null)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isAllocating || !allocForm.order_no.trim()}
+                    className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-black rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    {isAllocating ? 'Allocating...' : 'ALLOCATE BEAM NOW'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

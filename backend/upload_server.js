@@ -2405,6 +2405,7 @@ app.get('/api/capacity/planning', async (req, res) => {
 
 app.get('/api/beam-stock', async (req, res) => {
   try {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const beams = await prisma.beamStockMaster.findMany({
       orderBy: { id: 'desc' }
     });
@@ -2416,6 +2417,7 @@ app.get('/api/beam-stock', async (req, res) => {
 
 app.get('/api/beams/available', async (req, res) => {
   try {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const beams = await prisma.beamStockMaster.findMany({
       where: {
         status: { in: ['Available', 'AVAILABLE', 'Ready', 'READY'] },
@@ -2469,7 +2471,7 @@ app.post('/api/beam-stock', async (req, res) => {
         total_warped_meter: Number(b.warp_meter) || Number(b.total_warped_meter) || null,
         available_meter: Number(b.balance_meter) || Number(b.warp_meter) || Number(b.available_meter) || 0,
         location: b.location || '',
-        status: b.beam_status || b.status || 'Available',
+        status: isStatusAvailable ? 'Available' : (b.beam_status || b.status || 'Available'),
         remarks: b.remarks || '',
         net_wt: b.net_wt !== null && b.net_wt !== undefined && b.net_wt !== '' ? Number(b.net_wt) : null,
         tare: b.tare !== null && b.tare !== undefined && b.tare !== '' ? Number(b.tare) : null,
@@ -2479,6 +2481,23 @@ app.post('/api/beam-stock', async (req, res) => {
         loom_no_assigned: isStatusAvailable && !b.loom_no_assigned ? null : (b.loom_no_assigned || null),
         reserved_for: isStatusAvailable && !b.reserved_for ? null : (b.reserved_for || null)
       };
+
+      if (isStatusAvailable && existing) {
+        // If resetting to Available, release any previous reservation in plannedAssignment
+        await prisma.plannedAssignment.updateMany({
+          where: {
+            OR: [
+              { reserved_beam_id: existing.id },
+              { reserved_beam_no: existing.beam_no }
+            ]
+          },
+          data: {
+            reserved_beam_id: null,
+            reserved_beam_no: null,
+            beam_status: 'BEAM REQUIRED'
+          }
+        }).catch(() => {});
+      }
 
       let record;
       if (existing) {
@@ -2504,6 +2523,8 @@ app.post('/api/beam-stock', async (req, res) => {
 
 app.get('/api/beam-stock/allocated', async (req, res) => {
   try {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
     // 1. Get currently running beams to exclude any beam already running on a loom
     const activeRuns = await prisma.loomRunEntry.findMany({
       select: { loom_no: true, current_beam_no: true, beam_id: true }
@@ -2546,7 +2567,7 @@ app.get('/api/beam-stock/allocated', async (req, res) => {
       orderBy: { id: 'desc' }
     });
 
-    // 4. Filter: only beams that are actively allocated to a loom plan but NOT currently running
+    // 4. Filter: Beams actively allocated but NOT currently running and NOT yet confirmed
     const result = beams
       .map(b => {
         const bNo = (b.beam_no || '').trim().toUpperCase();
@@ -2559,17 +2580,26 @@ app.get('/api/beam-stock/allocated', async (req, res) => {
           ibpo: plan?.order_no || b.ibpo || b.order_no,
           design_no: plan?.next_design || b.design_no,
           reserved_for: plan ? `Loom ${plan.loom_no} - Plan #${plan.id}` : b.reserved_for,
-          plan_status: plan?.status || 'ALLOCATED',
+          plan_status: plan?.status || (b.status ? b.status.toUpperCase() : 'ALLOCATED'),
           plan_id: plan?.id || null
         };
       })
       .filter(b => {
         const bNo = (b.beam_no || '').trim().toUpperCase();
-        const bSt = (b.status || '').toUpperCase();
+        const bSt = (b.status || '').trim().toUpperCase();
+        const planSt = (b.plan_status || '').trim().toUpperCase();
+
+        // If beam is currently running in Main Entry, exclude from allocated
         if (runningBeamNos.has(bNo) || (b.id && runningBeamIds.has(b.id))) return false;
         if (bSt === 'RUNNING' || bSt === 'IN USE') return false;
-        // Strictly require an assigned loom (Loom must be allocated, not Unassigned)
-        return !!(b.loom_no_assigned && b.loom_no_assigned > 0);
+
+        // CRITICAL RULE: When confirmed, beam MUST leave allocated stock!
+        if (bSt === 'CONFIRMED' || planSt === 'CONFIRMED') return false;
+
+        // Must be allocated/reserved: either status is Allocated/Reserved OR attached to an active plan OR assigned to a loom
+        const plan = planByBeamId.get(b.id) || planByBeamNo.get(bNo);
+        const isAllocated = bSt === 'ALLOCATED' || bSt === 'RESERVED' || bSt === 'ASSIGNED' || !!plan || !!(b.loom_no_assigned && b.loom_no_assigned > 0) || !!(b.reserved_for && b.reserved_for.trim());
+        return isAllocated;
       });
 
     res.json(result);
@@ -2649,6 +2679,22 @@ app.post('/api/beam-stock/confirm-beam', async (req, res) => {
         remarks: remarks || `Confirmed for production by ${confirmed_by || 'Planner'}`
       }
     });
+
+    // Also update any active plannedAssignment for this beam to CONFIRMED
+    await prisma.plannedAssignment.updateMany({
+      where: {
+        OR: [
+          { reserved_beam_id: beam.id },
+          { reserved_beam_no: beam.beam_no }
+        ],
+        status: { notIn: ['COMPLETED', 'CANCELLED'] }
+      },
+      data: {
+        status: 'CONFIRMED',
+        confirmation_status: 'CONFIRMED',
+        readiness_status: 'CONFIRMED FOR PRODUCTION'
+      }
+    }).catch(() => {});
 
     try {
       await prisma.systemAuditLog.create({
