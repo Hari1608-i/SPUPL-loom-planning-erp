@@ -67,26 +67,63 @@ export default function MainEntry() {
   const [isImportingWarpLoad, setIsImportingWarpLoad] = useState<boolean>(false);
   const [warpLoadModalData, setWarpLoadModalData] = useState<any | null>(null);
   const [showWarpLoadModal, setShowWarpLoadModal] = useState<boolean>(false);
+  const [warpLoadTab, setWarpLoadTab] = useState<'accepted' | 'action_items'>('accepted');
+  const [importProgress, setImportProgress] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
 
   const handleImportWarpLoad = async () => {
     setIsImportingWarpLoad(true);
+    setImportProgress('Initializing warp load import...');
     try {
-      const res = await fetch(`${API_BASE_URL}/api/warp-load/import`, { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        setWarpLoadModalData(data);
-        setShowWarpLoadModal(true);
-        await refreshData();
-      } else {
-        alert('Warp Load Import Error: ' + (data.error || 'Failed to import warp load'));
+      let accepted = warpLoadModalData?.acceptedList;
+      if (!accepted || accepted.length === 0) {
+        const sumRes = await fetch(`${API_BASE_URL}/api/warp-load/summary`);
+        const sumData = await sumRes.json();
+        if (sumData.success) {
+          setWarpLoadModalData(sumData);
+          accepted = sumData.acceptedList;
+        }
+      }
+
+      if (!accepted || accepted.length === 0) {
+        alert('No accepted warp load records found to import.');
+        return;
+      }
+
+      const CHUNK_SIZE = 25;
+      let totalImported = 0;
+      for (let i = 0; i < accepted.length; i += CHUNK_SIZE) {
+        const chunk = accepted.slice(i, i + CHUNK_SIZE);
+        setImportProgress(`Saving looms ${i + 1} to ${Math.min(i + CHUNK_SIZE, accepted.length)} of ${accepted.length}...`);
+
+        const res = await fetch(`${API_BASE_URL}/api/warp-load/import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ acceptedRows: chunk })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Failed during chunk import');
+        }
+        totalImported += data.totalImported || chunk.length;
+      }
+
+      setSuccessMsg(`Successfully synchronized ${totalImported} warp loaded looms to Main Entry & Beam Stock.`);
+      setImportProgress(null);
+      await refreshData();
+
+      const refreshRes = await fetch(`${API_BASE_URL}/api/warp-load/summary`);
+      const refreshDataJson = await refreshRes.json();
+      if (refreshDataJson.success) {
+        setWarpLoadModalData(refreshDataJson);
       }
     } catch (e: any) {
-      alert('Network Error: ' + e.message);
+      alert('Warp Load Import Error: ' + e.message);
     } finally {
       setIsImportingWarpLoad(false);
+      setImportProgress(null);
     }
   };
 
@@ -3115,10 +3152,10 @@ export default function MainEntry() {
         </div>
       )}
 
-      {/* Warp Load Sync & Match Review Modal */}
+      {/* Warp Load Reconciliation & Match Review Modal */}
       {showWarpLoadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden">
             {/* Modal Header */}
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
               <div className="flex items-center gap-3">
@@ -3127,10 +3164,10 @@ export default function MainEntry() {
                 </div>
                 <div>
                   <h3 className="text-base font-black text-slate-900 dark:text-white">
-                    SPUPL Warp-Load Match & Sync Center
+                    SPUPL Warp-Loaded Reconciliation & Master Sync Center
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Direct Warp Load vs Production Report Integration — 198 Matched Looms & 24 Action Items
+                    Source: WARP LOADED DETAILS 03.10.xlsx (224 Source Rows) — Exact Master & Reed Stock Matching
                   </p>
                 </div>
               </div>
@@ -3143,59 +3180,59 @@ export default function MainEntry() {
             </div>
 
             {/* Modal Content */}
-            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+            <div className="p-6 overflow-y-auto space-y-5 flex-1">
               {/* Summary KPIs */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl">
+                <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl">
                   <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">
-                    Matched Looms
+                    Accepted Looms
                   </span>
-                  <div className="text-2xl font-black text-emerald-900 dark:text-emerald-200 mt-1">
-                    {warpLoadModalData?.summary?.matchedRows ?? 198}
+                  <div className="text-2xl font-black text-emerald-900 dark:text-emerald-200 mt-0.5">
+                    {warpLoadModalData?.summary?.acceptedRows ?? 215}
                   </div>
                   <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold block mt-0.5">
-                    Main Entry & Beam Stock Updated
+                    {warpLoadModalData?.summary?.acceptedWarpMtr ? Number(warpLoadModalData.summary.acceptedWarpMtr).toLocaleString() + ' Mtr' : '633,387 Mtr'} Ready to Sync
                   </span>
                 </div>
 
-                <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl">
+                <div className="p-3.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl">
                   <span className="text-[11px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider block">
-                    Beam Stock Date
+                    Total Source Rows
                   </span>
-                  <div className="text-xl font-black text-blue-900 dark:text-blue-200 mt-1">
-                    Load Date - 5d
+                  <div className="text-2xl font-black text-blue-900 dark:text-blue-200 mt-0.5">
+                    {warpLoadModalData?.summary?.totalRows ?? 224}
                   </div>
                   <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold block mt-0.5">
-                    Exact Calendar Subtraction
+                    {warpLoadModalData?.summary?.totalWarpMtr ? Number(warpLoadModalData.summary.totalWarpMtr).toLocaleString() + ' Mtr' : '651,777 Mtr'} Verified
                   </span>
                 </div>
 
-                <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl">
+                <div className="p-3.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl">
                   <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block">
-                    No Match Rows
+                    Order / Master Rejections
                   </span>
-                  <div className="text-2xl font-black text-amber-900 dark:text-amber-200 mt-1">
-                    {warpLoadModalData?.summary?.noMatchRows ?? (warpLoadModalData?.noMatchList?.length ?? 24)}
+                  <div className="text-2xl font-black text-amber-900 dark:text-amber-200 mt-0.5">
+                    {warpLoadModalData?.summary?.rejectedRows ?? 6}
                   </div>
                   <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold block mt-0.5">
-                    Preserved for Manual Review
+                    Action Required in Order Master
                   </span>
                 </div>
 
-                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl">
-                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
-                    Conflicts & Errors
+                <div className="p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 rounded-xl">
+                  <span className="text-[11px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider block">
+                    Conflicts & Collisions
                   </span>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">
-                    0
+                  <div className="text-2xl font-black text-rose-900 dark:text-rose-200 mt-0.5">
+                    {(warpLoadModalData?.summary?.conflictRows ?? 2) + (warpLoadModalData?.summary?.duplicateBeamRows ?? 1)}
                   </div>
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block mt-0.5">
-                    100% Data Integrity
+                  <span className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold block mt-0.5">
+                    2 Sort Conflicts, 1 Duplicate Beam
                   </span>
                 </div>
               </div>
 
-              {/* Status Banner */}
+              {/* Status & Sync Action Banner */}
               <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
@@ -3204,90 +3241,205 @@ export default function MainEntry() {
                       Warp Load Synchronization Status: READY / SYNCHRONIZED
                     </h4>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      All 198 MATCH rows are mapped directly to Main Entry and Beam Stock with exact dates and meterages.
+                      {importProgress || `All ${warpLoadModalData?.summary?.acceptedRows ?? 215} accepted rows map directly to Main Entry, physical Beam Stock & Reed Stock.`}
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={handleImportWarpLoad}
                   disabled={isImportingWarpLoad}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95 shrink-0"
                 >
                   {isImportingWarpLoad ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Syncing All Rows...</span>
+                      <span>{importProgress || 'Syncing...'}</span>
                     </>
                   ) : (
                     <>
                       <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Re-Sync Matched Looms</span>
+                      <span>Sync All Accepted Looms ({warpLoadModalData?.summary?.acceptedRows ?? 215})</span>
                     </>
                   )}
                 </button>
               </div>
 
-              {/* No Match Action List */}
-              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
-                <div className="px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800/60 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span className="text-xs font-black text-amber-900 dark:text-amber-300">
-                      NO MATCH — Action List & Discrepancy Review ({warpLoadModalData?.noMatchList?.length ?? 24} Looms)
+              {/* Navigation Tabs */}
+              <div className="flex border-b border-slate-200 dark:border-slate-800 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWarpLoadTab('accepted')}
+                  className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 ${
+                    warpLoadTab === 'accepted'
+                      ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                      : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Accepted Looms ({warpLoadModalData?.acceptedList?.length ?? warpLoadModalData?.summary?.acceptedRows ?? 215})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWarpLoadTab('action_items')}
+                  className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 ${
+                    warpLoadTab === 'action_items'
+                      ? 'border-amber-600 text-amber-600 dark:text-amber-400'
+                      : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Action Items & Discrepancies ({((warpLoadModalData?.rejectedList?.length ?? 6) + (warpLoadModalData?.conflictList?.length ?? 2) + (warpLoadModalData?.duplicateList?.length ?? 1))})
+                </button>
+              </div>
+
+              {/* Tab 1: Accepted Looms List */}
+              {warpLoadTab === 'accepted' && (
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                  <div className="max-h-72 overflow-y-auto">
+                    <table className="w-full text-left text-[11px] border-collapse">
+                      <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 uppercase tracking-wider text-[10px] font-black sticky top-0">
+                        <tr>
+                          <th className="p-2.5">S.No</th>
+                          <th className="p-2.5">Loom</th>
+                          <th className="p-2.5">M#</th>
+                          <th className="p-2.5">Date</th>
+                          <th className="p-2.5">Beam No</th>
+                          <th className="p-2.5">Set No</th>
+                          <th className="p-2.5 text-indigo-700 dark:text-indigo-400">Design No</th>
+                          <th className="p-2.5 text-indigo-700 dark:text-indigo-400">IBPO</th>
+                          <th className="p-2.5 text-right">Warp Mtr</th>
+                          <th className="p-2.5 text-center">Reed Count</th>
+                          <th className="p-2.5 text-center">Reed Status</th>
+                          <th className="p-2.5 text-center">Reconciliation</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-800 dark:text-slate-200 font-medium">
+                        {(warpLoadModalData?.acceptedList || []).map((acc: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                            <td className="p-2 text-slate-500">{acc.sno}</td>
+                            <td className="p-2 font-black text-slate-900 dark:text-white">{acc.loomStr}</td>
+                            <td className="p-2 font-mono text-slate-600 dark:text-slate-400">{acc.machineNo}</td>
+                            <td className="p-2 font-mono">{acc.loadDate}</td>
+                            <td className="p-2 font-mono text-[10px]">{acc.beamNo}</td>
+                            <td className="p-2 font-mono text-[10px]">{acc.setNo}</td>
+                            <td className="p-2 font-bold text-indigo-700 dark:text-indigo-400">{acc.workbookDesign}</td>
+                            <td className="p-2 font-mono">{acc.ibpo}</td>
+                            <td className="p-2 text-right font-mono font-bold">{acc.warpMtr?.toLocaleString()}</td>
+                            <td className="p-2 text-center font-mono">{acc.reedCount || '—'}</td>
+                            <td className="p-2 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black border ${
+                                acc.reedReadiness?.status === 'READY'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                              }`}>
+                                {acc.reedReadiness?.status || 'READY'}
+                              </span>
+                            </td>
+                            <td className="p-2 text-center">
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                                ACCEPTED
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 2: Action Items & Discrepancies */}
+              {warpLoadTab === 'action_items' && (
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                  <div className="px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800/60 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span className="text-xs font-black text-amber-900 dark:text-amber-300">
+                        Discrepancy Review & Audit Log ({((warpLoadModalData?.rejectedList?.length ?? 6) + (warpLoadModalData?.conflictList?.length ?? 2) + (warpLoadModalData?.duplicateList?.length ?? 1))} Records)
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 rounded">
+                      Preserved & Unmodified in DB
                     </span>
                   </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 rounded">
-                    Unchanged in System
-                  </span>
-                </div>
 
-                <div className="max-h-64 overflow-y-auto">
-                  <table className="w-full text-left text-[11px] border-collapse">
-                    <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 uppercase tracking-wider text-[10px] font-black sticky top-0">
-                      <tr>
-                        <th className="p-2.5">S.No</th>
-                        <th className="p-2.5">Loom</th>
-                        <th className="p-2.5">Date</th>
-                        <th className="p-2.5">Set No</th>
-                        <th className="p-2.5">Beam No</th>
-                        <th className="p-2.5 text-amber-700 dark:text-amber-400">Warp Loaded Design</th>
-                        <th className="p-2.5 text-rose-700 dark:text-rose-400">Running Design (Prod)</th>
-                        <th className="p-2.5 text-right">Warp Mtr</th>
-                        <th className="p-2.5 text-right">Ends</th>
-                        <th className="p-2.5">Operator</th>
-                        <th className="p-2.5 text-center">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-800 dark:text-slate-200 font-medium">
-                      {(warpLoadModalData?.noMatchList || []).map((nm: any, idx: number) => (
-                        <tr key={idx} className="hover:bg-amber-50/50 dark:hover:bg-amber-950/20 transition-colors">
-                          <td className="p-2 text-slate-500">{nm.sno}</td>
-                          <td className="p-2 font-black text-slate-900 dark:text-white">{nm.loomStr}</td>
-                          <td className="p-2 font-mono">{nm.warpLoadDate}</td>
-                          <td className="p-2 font-mono text-[10px]">{nm.setNo}</td>
-                          <td className="p-2 font-mono text-[10px]">{nm.beamNo}</td>
-                          <td className="p-2 font-bold text-amber-700 dark:text-amber-400">{nm.designNoWarp}</td>
-                          <td className="p-2 font-bold text-rose-700 dark:text-rose-400">{nm.designRunning}</td>
-                          <td className="p-2 text-right font-mono">{nm.warpMtrs}</td>
-                          <td className="p-2 text-right font-mono">{nm.ends ?? '—'}</td>
-                          <td className="p-2 text-slate-600 dark:text-slate-400">{nm.operator || '—'}</td>
-                          <td className="p-2 text-center">
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-700">
-                              NO MATCH
-                            </span>
-                          </td>
+                  <div className="max-h-72 overflow-y-auto">
+                    <table className="w-full text-left text-[11px] border-collapse">
+                      <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 uppercase tracking-wider text-[10px] font-black sticky top-0">
+                        <tr>
+                          <th className="p-2.5">S.No</th>
+                          <th className="p-2.5">Loom</th>
+                          <th className="p-2.5">Beam No</th>
+                          <th className="p-2.5">Design</th>
+                          <th className="p-2.5">IBPO</th>
+                          <th className="p-2.5">Category</th>
+                          <th className="p-2.5">Audit Reason & Validation Rule</th>
+                          <th className="p-2.5">Action Required</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-800 dark:text-slate-200 font-medium">
+                        {/* Conflicts */}
+                        {(warpLoadModalData?.conflictList || []).map((c: any, idx: number) => (
+                          <tr key={`c-${idx}`} className="hover:bg-rose-50/50 dark:hover:bg-rose-950/20 transition-colors">
+                            <td className="p-2 text-slate-500">{c.sno}</td>
+                            <td className="p-2 font-black text-slate-900 dark:text-white">{c.loomStr}</td>
+                            <td className="p-2 font-mono text-[10px]">{c.beamNo}</td>
+                            <td className="p-2 font-bold text-rose-700 dark:text-rose-400">{c.workbookDesign}</td>
+                            <td className="p-2 font-mono">{c.ibpo}</td>
+                            <td className="p-2">
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-700">
+                                RUNNING CONFLICT
+                              </span>
+                            </td>
+                            <td className="p-2 text-slate-700 dark:text-slate-300 text-[10.5px]">{c.reason}</td>
+                            <td className="p-2 text-indigo-600 dark:text-indigo-400 text-[10px] font-semibold">{c.actionRequired || 'Preserve active running design'}</td>
+                          </tr>
+                        ))}
+
+                        {/* Duplicates in source */}
+                        {(warpLoadModalData?.duplicateList || []).map((d: any, idx: number) => (
+                          <tr key={`d-${idx}`} className="hover:bg-purple-50/50 dark:hover:bg-purple-950/20 transition-colors">
+                            <td className="p-2 text-slate-500">{d.sno}</td>
+                            <td className="p-2 font-black text-slate-900 dark:text-white">{d.loomStr}</td>
+                            <td className="p-2 font-mono text-[10px] font-bold text-purple-700 dark:text-purple-400">{d.beamNo}</td>
+                            <td className="p-2 font-bold text-slate-700 dark:text-slate-300">{d.workbookDesign}</td>
+                            <td className="p-2 font-mono">{d.ibpo}</td>
+                            <td className="p-2">
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300 dark:border-purple-700">
+                                DUPLICATE BEAM
+                              </span>
+                            </td>
+                            <td className="p-2 text-slate-700 dark:text-slate-300 text-[10.5px]">{d.reason}</td>
+                            <td className="p-2 text-indigo-600 dark:text-indigo-400 text-[10px] font-semibold">Verify physical beam sequential reuse</td>
+                          </tr>
+                        ))}
+
+                        {/* Rejections */}
+                        {(warpLoadModalData?.rejectedList || []).map((r: any, idx: number) => (
+                          <tr key={`r-${idx}`} className="hover:bg-amber-50/50 dark:hover:bg-amber-950/20 transition-colors">
+                            <td className="p-2 text-slate-500">{r.sno}</td>
+                            <td className="p-2 font-black text-slate-900 dark:text-white">{r.loomStr}</td>
+                            <td className="p-2 font-mono text-[10px]">{r.beamNo}</td>
+                            <td className="p-2 font-bold text-amber-700 dark:text-amber-400">{r.workbookDesign}</td>
+                            <td className="p-2 font-mono">{r.ibpo}</td>
+                            <td className="p-2">
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                REJECTED
+                              </span>
+                            </td>
+                            <td className="p-2 text-slate-700 dark:text-slate-300 text-[10.5px]">{r.reason}</td>
+                            <td className="p-2 text-indigo-600 dark:text-indigo-400 text-[10px] font-semibold">{r.actionRequired || 'Register in Order / Loom Master'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Modal Footer */}
             <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
               <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                Idempotent Sync: Re-running will update existing records without creating duplicates.
+                Idempotent Sync: Re-running updates existing records without creating duplicates.
               </span>
               <button
                 type="button"

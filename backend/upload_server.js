@@ -4545,286 +4545,89 @@ app.post('/api/next-plans', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// WARP LOAD MATCH → MAIN ENTRY + BEAM STOCK AUTO-IMPORT
+// WARP LOADED RECONCILIATION & IMPORT WORKFLOW
 // ----------------------------------------------------
-let XLSX_MODULE;
-try {
-  XLSX_MODULE = require('../frontend/node_modules/xlsx');
-} catch (e) {
-  try {
-    XLSX_MODULE = require('xlsx');
-  } catch (e2) {}
-}
+const warpLoadReconciliationService = require('./services/warpLoadReconciliationService');
 
-const DEFAULT_WARP_EXCEL_PATH = 'C:/Users/SPUPL-PLANNING/Downloads/Last_Warp_Load_vs_Production_Report.xlsx';
-
-function parseWarpLoadFile(filePath = DEFAULT_WARP_EXCEL_PATH) {
-  if (!XLSX_MODULE) throw new Error('XLSX module is not available');
-  if (!fs.existsSync(filePath)) throw new Error('Warp load file not found at: ' + filePath);
-
-  const wb = XLSX_MODULE.readFile(filePath);
-  const sheet = wb.Sheets['Last Warp Load vs Prod'];
-  if (!sheet) throw new Error('Sheet "Last Warp Load vs Prod" not found in ' + filePath);
-
-  const data = XLSX_MODULE.utils.sheet_to_json(sheet, { header: 1 });
-  let headerIdx = -1;
-  for (let i = 0; i < data.length; i++) {
-    if (data[i] && data[i][1] === 'Loom No') {
-      headerIdx = i;
-      break;
-    }
-  }
-
-  const matchRows = [];
-  const noMatchRows = [];
-
-  for (let i = headerIdx + 1; i < data.length; i++) {
-    const r = data[i];
-    if (!r || !r[1] || typeof r[0] !== 'number') continue;
-
-    const loomStr = String(r[1]).trim();
-    const loomNo = parseInt(loomStr.replace(/\D/g, ''), 10);
-    if (!loomNo || isNaN(loomNo)) continue;
-
-    const warpLoadDateRaw = r[2];
-    let warpLoadDate = '';
-    if (typeof warpLoadDateRaw === 'number') {
-      const dc = XLSX_MODULE.SSF.parse_date_code(warpLoadDateRaw);
-      warpLoadDate = dc.y + '-' + String(dc.m).padStart(2, '0') + '-' + String(dc.d).padStart(2, '0');
-    } else if (typeof warpLoadDateRaw === 'string') {
-      warpLoadDate = warpLoadDateRaw.trim();
-    }
-
-    let beamStockDate = '';
-    if (warpLoadDate) {
-      const parts = warpLoadDate.split('-').map(Number);
-      const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
-      dt.setUTCDate(dt.getUTCDate() - 5);
-      beamStockDate = dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' + String(dt.getUTCDate()).padStart(2, '0');
-    }
-
-    const setNo = r[4] ? String(r[4]).trim() : '';
-    const beamNo = r[5] ? String(r[5]).trim() : '';
-    const count = r[6] ? String(r[6]).trim() : '';
-    const designNoWarp = r[7] ? String(r[7]).trim() : '';
-    const ends = (r[8] !== undefined && r[8] !== null && !isNaN(Number(r[8]))) ? Number(r[8]) : null;
-    const warpMtrs = (r[9] !== undefined && r[9] !== null && !isNaN(Number(r[9]))) ? Number(r[9]) : 0;
-    const expMtrs = (r[10] !== undefined && r[10] !== null && !isNaN(Number(r[10]))) ? Number(r[10]) : warpMtrs;
-    const designRunning = r[11] ? String(r[11]).trim() : '';
-    const operator = r[12] ? String(r[12]).trim() : '';
-    const matchStatus = r[13] ? String(r[13]).trim().toUpperCase() : '';
-
-    const rowObj = {
-      sno: r[0],
-      loomStr,
-      loomNo,
-      warpLoadDate,
-      beamStockDate,
-      refNo: r[3] || '',
-      setNo,
-      beamNo,
-      count,
-      designNoWarp,
-      ends,
-      warpMtrs,
-      expMtrs,
-      designRunning,
-      operator,
-      matchStatus
-    };
-
-    if (matchStatus === 'MATCH') {
-      matchRows.push(rowObj);
-    } else {
-      noMatchRows.push(rowObj);
-    }
-  }
-
-  return { matchRows, noMatchRows };
-}
-
+// GET /api/warp-load/summary
+// Returns live reconciliation summary and breakdowns against OrderMaster, DesignMaster, LoomMaster, BeamStockMaster, ReedStockMaster
 app.get('/api/warp-load/summary', async (req, res) => {
   try {
-    const { matchRows, noMatchRows } = parseWarpLoadFile();
+    const result = await warpLoadReconciliationService.reconcileWarpLoadedData(prisma);
     const activeRunsCount = await prisma.loomRunEntry.count();
     const runningLoomsCount = await prisma.loomMaster.count({ where: { status: 'Running' } });
 
     res.json({
       success: true,
-      totalLooms: matchRows.length + noMatchRows.length,
-      matchedLooms: matchRows.length,
-      noMatchCount: noMatchRows.length,
-      currentlyRunning: runningLoomsCount,
-      activeRunsCount,
-      noMatchList: noMatchRows
+      summary: {
+        ...result.summary,
+        currentlyRunning: runningLoomsCount,
+        activeRunsCount
+      },
+      acceptedList: result.acceptedList,
+      rejectedList: result.rejectedList,
+      conflictList: result.conflictList,
+      duplicateList: result.duplicateList,
+      // For backward compatibility with older UI components
+      matchedLooms: result.summary.acceptedRows,
+      noMatchCount: result.summary.rejectedRows + result.summary.conflictRows,
+      totalLooms: result.summary.totalRows,
+      noMatchList: [...result.rejectedList, ...result.conflictList, ...result.duplicateList]
     });
   } catch (err) {
+    console.error('Warp load summary error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// POST /api/warp-load/reconcile
+// Reconciles either an uploaded workbook buffer (base64) or default workbook
+app.post('/api/warp-load/reconcile', async (req, res) => {
+  try {
+    let bufferOrPath = null;
+    if (req.body && req.body.fileBase64) {
+      bufferOrPath = Buffer.from(req.body.fileBase64, 'base64');
+    }
+    const result = await warpLoadReconciliationService.reconcileWarpLoadedData(prisma, bufferOrPath);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('Warp load reconcile error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/warp-load/import
+// Executes batch import of accepted rows into BeamStockMaster, LoomRunEntry, LoomMaster
 app.post('/api/warp-load/import', async (req, res) => {
   try {
-    const { matchRows, noMatchRows } = parseWarpLoadFile();
-    const existingLooms = await prisma.loomMaster.findMany();
-    const loomMap = new Map();
-    existingLooms.forEach(l => loomMap.set(l.loom_no, l));
+    let rowsToImport = req.body && Array.isArray(req.body.acceptedRows) ? req.body.acceptedRows : null;
+    const startIndex = typeof req.body?.startIndex === 'number' ? req.body.startIndex : 0;
+    const chunkSize = typeof req.body?.chunkSize === 'number' ? req.body.chunkSize : null;
 
-    const existingDesigns = await prisma.designMaster.findMany();
-    const designMap = new Map();
-    existingDesigns.forEach(d => designMap.set(d.design_no_sp_no.toLowerCase(), d));
+    if (!rowsToImport || rowsToImport.length === 0) {
+      const recResult = await warpLoadReconciliationService.reconcileWarpLoadedData(prisma);
+      rowsToImport = recResult.acceptedList;
+    }
 
-    const existingBeams = await prisma.beamStockMaster.findMany();
-    const beamMap = new Map();
-    existingBeams.forEach(b => {
-      if (b.beam_no) beamMap.set(b.beam_no.trim().toLowerCase(), b);
-    });
+    // If chunking is requested, slice the rows
+    let currentSlice = rowsToImport;
+    if (chunkSize && chunkSize > 0) {
+      currentSlice = rowsToImport.slice(startIndex, startIndex + chunkSize);
+    }
 
-    let mainEntryUpdated = 0;
-    let beamStockCreated = 0;
-    let beamStockUpdated = 0;
-    let conflicts = 0;
-
-    await prisma.$transaction(async (tx) => {
-      for (const row of matchRows) {
-        const loom = loomMap.get(row.loomNo);
-        if (!loom) {
-          conflicts++;
-          continue;
-        }
-
-        // 1. Ensure Design exists in DesignMaster
-        const dKey = row.designNoWarp.toLowerCase();
-        if (!designMap.has(dKey)) {
-          const newDesign = await tx.designMaster.create({
-            data: {
-              design_no_sp_no: row.designNoWarp,
-              construction: row.count || 'N/A',
-              weft_colours: 1,
-              frames: 4,
-              reed_space_warp_width: '190CM',
-              weave_type: 'CAM',
-              beam_type: 'SINGLE BEAM',
-              crimp_percent: 7,
-              total_ends: row.ends || null,
-              status: 'ACTIVE'
-            }
-          });
-          designMap.set(dKey, newDesign);
-        }
-
-        // 2. Parse Order No from Design No / IBPO
-        let orderNo = '';
-        if (row.designNoWarp.includes('-')) {
-          const parts = row.designNoWarp.split('-');
-          orderNo = parts[parts.length - 1].trim();
-        }
-
-        // 3. Create or Update BeamStockMaster
-        const bKey = row.beamNo.toLowerCase();
-        let beamRecord = beamMap.get(bKey);
-        const beamDate = new Date(row.beamStockDate + 'T00:00:00.000Z');
-
-        if (beamRecord) {
-          beamRecord = await tx.beamStockMaster.update({
-            where: { id: beamRecord.id },
-            data: {
-              date: beamDate,
-              design_no: row.designNoWarp,
-              order_no: orderNo || beamRecord.order_no,
-              ibpo: orderNo || beamRecord.ibpo,
-              count: row.count || beamRecord.count,
-              ends: row.ends !== null ? row.ends : beamRecord.ends,
-              beam_no: row.beamNo,
-              set_no: row.setNo || beamRecord.set_no,
-              available_meter: row.warpMtrs,
-              current_balance_meter: row.warpMtrs,
-              total_warped_meter: row.warpMtrs,
-              status: 'Running',
-              sizing_status: 'COMPLETED',
-              loom_no_assigned: row.loomNo,
-              unit: loom.unit || beamRecord.unit,
-              remarks: row.operator ? `Operator: ${row.operator}` : beamRecord.remarks
-            }
-          });
-          beamStockUpdated++;
-        } else {
-          beamRecord = await tx.beamStockMaster.create({
-            data: {
-              date: beamDate,
-              design_no: row.designNoWarp,
-              order_no: orderNo || null,
-              ibpo: orderNo || null,
-              count: row.count || null,
-              ends: row.ends,
-              beam_no: row.beamNo,
-              set_no: row.setNo,
-              available_meter: row.warpMtrs,
-              current_balance_meter: row.warpMtrs,
-              total_warped_meter: row.warpMtrs,
-              status: 'Running',
-              sizing_status: 'COMPLETED',
-              loom_no_assigned: row.loomNo,
-              unit: loom.unit || null,
-              remarks: row.operator ? `Operator: ${row.operator}` : 'Warp Loaded via Import'
-            }
-          });
-          beamMap.set(bKey, beamRecord);
-          beamStockCreated++;
-        }
-
-        // 4. Create or Update LoomRunEntry
-        const warpDate = new Date(row.warpLoadDate + 'T00:00:00.000Z');
-        await tx.loomRunEntry.upsert({
-          where: { loom_no: row.loomNo },
-          update: {
-            design_no_sp_no: row.designNoWarp,
-            current_beam_no: row.beamNo,
-            set_no: row.setNo,
-            beam_id: beamRecord.id,
-            order_no: orderNo || null,
-            customer_name: orderNo || null,
-            loom_start_date: warpDate,
-            warped_meter: row.warpMtrs,
-            remarks: row.operator ? `Operator: ${row.operator}` : 'Warp Loaded via Import'
-          },
-          create: {
-            loom_no: row.loomNo,
-            design_no_sp_no: row.designNoWarp,
-            current_beam_no: row.beamNo,
-            set_no: row.setNo,
-            beam_id: beamRecord.id,
-            order_no: orderNo || null,
-            customer_name: orderNo || null,
-            loom_start_date: warpDate,
-            warped_meter: row.warpMtrs,
-            daily_production: 0,
-            remarks: row.operator ? `Operator: ${row.operator}` : 'Warp Loaded via Import'
-          }
-        });
-        mainEntryUpdated++;
-
-        // 5. Update LoomMaster status to 'Running'
-        await tx.loomMaster.update({
-          where: { loom_no: row.loomNo },
-          data: { status: 'Running' }
-        });
-      }
-    });
+    const adminUser = req.headers['x-user'] || req.body?.adminUser || 'Admin User';
+    const importResult = await warpLoadReconciliationService.executeWarpLoadImport(prisma, currentSlice, adminUser);
 
     res.json({
       success: true,
-      message: 'WARP LOAD IMPORT COMPLETED',
-      matchedRows: matchRows.length,
-      mainEntryUpdated,
-      beamStockCreated,
-      beamStockUpdated,
-      noMatch: noMatchRows.length,
-      conflicts,
-      errors: 0,
-      noMatchList: noMatchRows
+      ...importResult,
+      totalRowsToImport: rowsToImport.length,
+      processedIndex: startIndex + currentSlice.length,
+      isComplete: startIndex + currentSlice.length >= rowsToImport.length,
+      message: `WARP LOAD IMPORT: ${importResult.totalImported} looms synchronized.`
     });
   } catch (err) {
+    console.error('Warp load import error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -9509,321 +9312,7 @@ app.post('/api/sizing/requests/:id/ready', async (req, res) => {
   }
 });
 
-// ============================================================
-// DIRECT WARP-LOAD MATCH -> MAIN ENTRY + BEAM STOCK AUTO UPDATE
-// ============================================================
-
-const defaultWarpLoadExcelPath = 'C:/Users/SPUPL-PLANNING/Downloads/Last_Warp_Load_vs_Production_Report.xlsx';
-
-function parseWarpLoadExcel(customPath) {
-  let XLSXModule;
-  try {
-    XLSXModule = require('xlsx');
-  } catch (e) {
-    XLSXModule = require('../frontend/node_modules/xlsx');
-  }
-
-  const targetPath = customPath || defaultWarpLoadExcelPath;
-  if (!fs.existsSync(targetPath)) {
-    throw new Error('Warp load excel report not found at: ' + targetPath);
-  }
-
-  const wb = XLSXModule.readFile(targetPath);
-  const sheet = wb.Sheets['Last Warp Load vs Prod'] || wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) {
-    throw new Error('Sheet "Last Warp Load vs Prod" not found in report');
-  }
-
-  const data = XLSXModule.utils.sheet_to_json(sheet, { header: 1 });
-  let headerIdx = -1;
-  for (let i = 0; i < data.length; i++) {
-    if (data[i] && data[i][1] === 'Loom No') {
-      headerIdx = i;
-      break;
-    }
-  }
-
-  const matchRows = [];
-  const noMatchRows = [];
-
-  for (let i = headerIdx + 1; i < data.length; i++) {
-    const r = data[i];
-    if (!r || !r[1] || typeof r[0] !== 'number') continue;
-
-    const loomStr = String(r[1]).trim();
-    const loomNo = parseInt(loomStr.replace(/\D/g, ''), 10);
-    if (!loomNo || isNaN(loomNo)) continue;
-
-    const warpLoadDateRaw = r[2];
-    let warpLoadDate = '';
-    if (typeof warpLoadDateRaw === 'number') {
-      const dc = XLSXModule.SSF.parse_date_code(warpLoadDateRaw);
-      warpLoadDate = dc.y + '-' + String(dc.m).padStart(2, '0') + '-' + String(dc.d).padStart(2, '0');
-    } else if (typeof warpLoadDateRaw === 'string') {
-      warpLoadDate = warpLoadDateRaw.trim();
-    }
-
-    // Beam Stock Date = Warp Load Date - 5 calendar days
-    let beamStockDate = '';
-    if (warpLoadDate) {
-      const parts = warpLoadDate.split('-').map(Number);
-      const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
-      dt.setUTCDate(dt.getUTCDate() - 5);
-      beamStockDate = dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' + String(dt.getUTCDate()).padStart(2, '0');
-    }
-
-    const setNo = r[4] ? String(r[4]).trim() : '';
-    const beamNo = r[5] ? String(r[5]).trim() : '';
-    const count = r[6] ? String(r[6]).trim() : '';
-    const designNoWarp = r[7] ? String(r[7]).trim() : '';
-    const ends = (r[8] !== undefined && r[8] !== null && !isNaN(Number(r[8]))) ? Number(r[8]) : null;
-    const warpMtrs = (r[9] !== undefined && r[9] !== null && !isNaN(Number(r[9]))) ? Number(r[9]) : 0;
-    const expMtrs = (r[10] !== undefined && r[10] !== null && !isNaN(Number(r[10]))) ? Number(r[10]) : warpMtrs;
-    const designRunning = r[11] ? String(r[11]).trim() : '';
-    const operator = r[12] ? String(r[12]).trim() : '';
-    const matchStatus = r[13] ? String(r[13]).trim().toUpperCase() : '';
-
-    const rowObj = {
-      sno: r[0],
-      loomStr,
-      loomNo,
-      warpLoadDate,
-      beamStockDate,
-      refNo: r[3] || '',
-      setNo,
-      beamNo,
-      count,
-      designNoWarp,
-      ends,
-      warpMtrs,
-      expMtrs,
-      designRunning,
-      operator,
-      matchStatus
-    };
-
-    if (matchStatus === 'MATCH') {
-      matchRows.push(rowObj);
-    } else {
-      noMatchRows.push(rowObj);
-    }
-  }
-
-  return { matchRows, noMatchRows };
-}
-
-app.get('/api/warp-load/summary', async (req, res) => {
-  try {
-    const { matchRows, noMatchRows } = parseWarpLoadExcel();
-    
-    // Check how many are currently in active runs
-    const activeRuns = await prisma.loomRunEntry.findMany();
-    const activeLoomMap = new Map();
-    activeRuns.forEach(r => activeLoomMap.set(r.loom_no, r));
-
-    const looms = await prisma.loomMaster.findMany();
-    const runningCount = looms.filter(l => l.status === 'Running' || l.status === 'RUNNING').length;
-
-    let matchedSyncedCount = 0;
-    matchRows.forEach(m => {
-      const run = activeLoomMap.get(m.loomNo);
-      if (run && run.design_no_sp_no === m.designNoWarp && run.current_beam_no === m.beamNo) {
-        matchedSyncedCount++;
-      }
-    });
-
-    res.json({
-      success: true,
-      summary: {
-        totalRows: matchRows.length + noMatchRows.length,
-        matchedRows: matchRows.length,
-        noMatchRows: noMatchRows.length,
-        matchedSynced: matchedSyncedCount,
-        runningLooms: runningCount,
-        availableLooms: looms.length - runningCount,
-        totalLooms: looms.length
-      },
-      noMatchList: noMatchRows,
-      matchedList: matchRows.slice(0, 10)
-    });
-  } catch (error) {
-    console.error('Warp load summary error:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.post('/api/warp-load/import', async (req, res) => {
-  try {
-    const { matchRows, noMatchRows } = parseWarpLoadExcel();
-
-    // 1. Pre-backup database
-    const dbPath = path.join(__dirname, 'prisma', 'dev.db');
-    if (fs.existsSync(dbPath)) {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const backupPath = dbPath + '.backup_warp_load_' + timestamp;
-      fs.copyFileSync(dbPath, backupPath);
-    }
-
-    const existingLooms = await prisma.loomMaster.findMany();
-    const loomMap = new Map();
-    existingLooms.forEach(l => loomMap.set(l.loom_no, l));
-
-    const existingDesigns = await prisma.designMaster.findMany();
-    const designMap = new Map();
-    existingDesigns.forEach(d => designMap.set(d.design_no_sp_no.toLowerCase(), d));
-
-    const existingBeams = await prisma.beamStockMaster.findMany();
-    const beamMap = new Map();
-    existingBeams.forEach(b => {
-      if (b.beam_no) beamMap.set(b.beam_no.trim().toLowerCase(), b);
-    });
-
-    let mainEntryUpdated = 0;
-    let beamStockCreated = 0;
-    let beamStockUpdated = 0;
-    let conflicts = 0;
-
-    await prisma.$transaction(async (tx) => {
-      for (const row of matchRows) {
-        const loom = loomMap.get(row.loomNo);
-        if (!loom) {
-          conflicts++;
-          continue;
-        }
-
-        // Ensure design exists
-        const dKey = row.designNoWarp.toLowerCase();
-        if (!designMap.has(dKey)) {
-          const newDesign = await tx.designMaster.create({
-            data: {
-              design_no_sp_no: row.designNoWarp,
-              construction: row.count || 'N/A',
-              weft_colours: 1,
-              frames: 4,
-              reed_space_warp_width: '190CM',
-              weave_type: 'CAM',
-              beam_type: 'SINGLE BEAM',
-              crimp_percent: 7,
-              total_ends: row.ends || null,
-              status: 'ACTIVE'
-            }
-          });
-          designMap.set(dKey, newDesign);
-        }
-
-        let orderNo = '';
-        if (row.designNoWarp.includes('-')) {
-          const parts = row.designNoWarp.split('-');
-          orderNo = parts[parts.length - 1].trim();
-        }
-
-        const bKey = row.beamNo.toLowerCase();
-        let beamRecord = beamMap.get(bKey);
-        const beamDate = new Date(row.beamStockDate + 'T00:00:00.000Z');
-
-        if (beamRecord) {
-          beamRecord = await tx.beamStockMaster.update({
-            where: { id: beamRecord.id },
-            data: {
-              date: beamDate,
-              design_no: row.designNoWarp,
-              order_no: orderNo || beamRecord.order_no,
-              ibpo: orderNo || beamRecord.ibpo,
-              count: row.count || beamRecord.count,
-              ends: row.ends !== null ? row.ends : beamRecord.ends,
-              beam_no: row.beamNo,
-              set_no: row.setNo || beamRecord.set_no,
-              available_meter: row.warpMtrs,
-              current_balance_meter: row.warpMtrs,
-              total_warped_meter: row.warpMtrs,
-              status: 'Running',
-              sizing_status: 'COMPLETED',
-              loom_no_assigned: row.loomNo,
-              unit: loom.unit || beamRecord.unit,
-              remarks: row.operator ? `Operator: ${row.operator}` : beamRecord.remarks
-            }
-          });
-          beamStockUpdated++;
-        } else {
-          beamRecord = await tx.beamStockMaster.create({
-            data: {
-              date: beamDate,
-              design_no: row.designNoWarp,
-              order_no: orderNo || null,
-              ibpo: orderNo || null,
-              count: row.count || null,
-              ends: row.ends,
-              beam_no: row.beamNo,
-              set_no: row.setNo,
-              available_meter: row.warpMtrs,
-              current_balance_meter: row.warpMtrs,
-              total_warped_meter: row.warpMtrs,
-              status: 'Running',
-              sizing_status: 'COMPLETED',
-              loom_no_assigned: row.loomNo,
-              unit: loom.unit || null,
-              remarks: row.operator ? `Operator: ${row.operator}` : 'Warp Loaded via Import'
-            }
-          });
-          beamMap.set(bKey, beamRecord);
-          beamStockCreated++;
-        }
-
-        const warpDate = new Date(row.warpLoadDate + 'T00:00:00.000Z');
-        await tx.loomRunEntry.upsert({
-          where: { loom_no: row.loomNo },
-          update: {
-            design_no_sp_no: row.designNoWarp,
-            current_beam_no: row.beamNo,
-            set_no: row.setNo,
-            beam_id: beamRecord.id,
-            order_no: orderNo || null,
-            customer_name: orderNo || null,
-            loom_start_date: warpDate,
-            warped_meter: row.warpMtrs,
-            remarks: row.operator ? `Operator: ${row.operator}` : 'Warp Loaded via Import'
-          },
-          create: {
-            loom_no: row.loomNo,
-            design_no_sp_no: row.designNoWarp,
-            current_beam_no: row.beamNo,
-            set_no: row.setNo,
-            beam_id: beamRecord.id,
-            order_no: orderNo || null,
-            customer_name: orderNo || null,
-            loom_start_date: warpDate,
-            warped_meter: row.warpMtrs,
-            daily_production: 0,
-            remarks: row.operator ? `Operator: ${row.operator}` : 'Warp Loaded via Import'
-          }
-        });
-        mainEntryUpdated++;
-
-        await tx.loomMaster.update({
-          where: { loom_no: row.loomNo },
-          data: { status: 'Running' }
-        });
-      }
-    });
-
-    res.json({
-      success: true,
-      summary: {
-        matchedLooms: matchRows.length,
-        mainEntryUpdated,
-        beamStockCreated,
-        beamStockUpdated,
-        noMatchCount: noMatchRows.length,
-        conflicts,
-        errors: 0
-      },
-      message: 'WARP LOAD IMPORT COMPLETED'
-    });
-  } catch (error) {
-    console.error('Warp load import error:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+// (Warp load reconciliation routes registered above at lines 4550)
 
 // =============================================================================
 // WARP PREPARATION (KNOTTING / KNOTTING SORT CHANGE / GAITING) API ROUTES
