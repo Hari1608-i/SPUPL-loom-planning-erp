@@ -638,6 +638,86 @@ app.delete('/api/users/:id', async (req, res) => {
 });
 
 
+// Update User by ID (PUT)
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const authUser = authenticateUser(req);
+    if (authUser) {
+      const roleUpper = (authUser.role || '').toUpperCase();
+      if (!['ADMINISTRATOR', 'ADMIN', 'SYSTEM ADMINISTRATOR'].includes(roleUpper)) {
+        const fullUser = await prisma.user.findUnique({ where: { id: authUser.id } });
+        let allowed = false;
+        if (fullUser && fullUser.permissions) {
+          try {
+            const p = JSON.parse(fullUser.permissions);
+            if (p['User Management']?.edit) allowed = true;
+          } catch (e) { }
+        }
+        if (!allowed) {
+          return res.status(403).json({ error: 'You do not have permission to edit users.' });
+        }
+      }
+    }
+
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid user ID.' });
+
+    const existing = await prisma.user.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: 'User not found.' });
+
+    const { username, password, employeeName, employeeId, role, department, designation, email, mobile, status, permissions, adminUser } = req.body;
+
+    const data = {};
+    if (employeeName !== undefined) data.employeeName = String(employeeName || existing.employeeName || '').trim();
+    if (employeeId !== undefined) data.employeeId = String(employeeId || existing.employeeId || '').trim();
+    if (role !== undefined) data.role = role || existing.role;
+    if (department !== undefined) data.department = department;
+    if (designation !== undefined) data.designation = designation;
+    if (email !== undefined) data.email = email;
+    if (mobile !== undefined) data.mobile = mobile;
+    if (status !== undefined) {
+      data.status = status;
+      if (status === 'ACTIVE') data.failedAttempts = 0; // unlock account
+    }
+    if (permissions !== undefined) {
+      data.permissions = typeof permissions === 'object' ? JSON.stringify(permissions) : permissions;
+    }
+
+    // Username change: check uniqueness
+    if (username && username.trim() !== existing.username) {
+      const cleanUsername = username.trim();
+      const duplicate = await prisma.user.findUnique({ where: { username: cleanUsername } });
+      if (duplicate && duplicate.id !== id) {
+        return res.status(400).json({ error: `Username "${cleanUsername}" is already taken by another user.` });
+      }
+      data.username = cleanUsername;
+    }
+
+    // Password change
+    if (password) {
+      data.password_hash = await bcrypt.hash(password, 10);
+    }
+
+    const updatedUser = await prisma.user.update({ where: { id }, data });
+
+    await prisma.systemAuditLog.create({
+      data: {
+        username: adminUser || 'System',
+        screen: 'User Management',
+        action: 'EDIT_USER',
+        oldValue: JSON.stringify({ role: existing.role, status: existing.status }),
+        newValue: JSON.stringify({ role: updatedUser.role, status: updatedUser.status })
+      }
+    }).catch(() => {});
+
+    res.json({ success: true, user: updatedUser });
+  } catch (error) {
+    console.error('PUT /api/users/:id error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 // Admin ONLY: Bulk Import
 app.post('/api/users/bulk', async (req, res) => {
   try {
@@ -1333,7 +1413,16 @@ app.post('/api/orders/bulk', async (req, res) => {
       return res.status(400).json({ error: 'No orders provided for bulk insertion.' });
     }
 
-    // 1. Deduplicate within payload — keep first occurrence
+    // 1. Validate required fields early before any DB call
+    for (let i = 0; i < orders.length; i++) {
+      const body = orders[i];
+      const designNo = String(body.design_no_sp_no || '').trim();
+      if (!designNo || !body.order_qty) {
+        return res.status(400).json({ error: `Row ${i + 1}: Design Number and Order Quantity are required.` });
+      }
+    }
+
+    // 2. Deduplicate within payload — keep first occurrence per IBPO
     const ibpoMap = new Map();
     const uniqueOrders = [];
     for (let i = 0; i < orders.length; i++) {
@@ -1346,12 +1435,12 @@ app.post('/api/orders/bulk', async (req, res) => {
         }
         // else: silent skip batch duplicate
       } else {
-        uniqueOrders.push(o); // no ibpo — still try to create
+        uniqueOrders.push(o);
       }
     }
 
-    // 2. Find which IBPOs already exist as active in DB and skip them
-    const activeDbOrders = await prisma.orderMaster.findMany({
+    // 3. Check which IBPOs already exist as active in DB — single query
+    const activeDbOrders = ibpoMap.size > 0 ? await prisma.orderMaster.findMany({
       where: {
         ibpo_no: { in: Array.from(ibpoMap.keys()) },
         NOT: {
@@ -1362,10 +1451,10 @@ app.post('/api/orders/bulk', async (req, res) => {
         }
       },
       select: { ibpo_no: true }
-    });
+    }) : [];
     const activeIbpoSet = new Set(activeDbOrders.map(d => String(d.ibpo_no).trim().toUpperCase()));
 
-    // 3. Filter to only non-active orders
+    // 4. Filter to only non-active orders
     const ordersToCreate = uniqueOrders.filter(o => {
       if (!o.ibpo_no) return true;
       return !activeIbpoSet.has(String(o.ibpo_no).trim().toUpperCase());
@@ -1379,132 +1468,138 @@ app.post('/api/orders/bulk', async (req, res) => {
       });
     }
 
-    const createdOrders = [];
-    for (let i = 0; i < ordersToCreate.length; i++) {
-      const body = ordersToCreate[i];
+    // 5. Build prepared data for each order (pure computation, no DB calls)
+    const preparedOrders = ordersToCreate.map((body, i) => {
       const ibpoNo = body.ibpo_no ? String(body.ibpo_no).trim().toUpperCase() : null;
       const designNo = String(body.design_no_sp_no || '').trim();
-      if (!designNo || !body.order_qty) {
-        return res.status(400).json({ error: `Row ${i + 1}: Design Number and Order Quantity are required.` });
-      }
-
-
-      // Upsert Design Master
       const parsedSpecs = parseConstructionSpecsServer(body.construction);
       const resolvedPick = body.pick ? String(body.pick) : (body.ppi ? String(body.ppi) : (parsedSpecs.pick || ''));
       const resolvedWidth = body.greige_width ? String(body.greige_width) : (body.width ? String(body.width) : (parsedSpecs.greigeWidth || ''));
-      const resolvedReedSpace = body.reed_space || body.reed_space_warp_width ? String(body.reed_space || body.reed_space_warp_width) : (parsedSpecs.reedSpace || (resolvedWidth ? String(parseFloat(resolvedWidth) + 1.5) : ''));
+      const resolvedReedSpace = body.reed_space || body.reed_space_warp_width
+        ? String(body.reed_space || body.reed_space_warp_width)
+        : (parsedSpecs.reedSpace || (resolvedWidth ? String(parseFloat(resolvedWidth) + 1.5) : ''));
 
-      await prisma.designMaster.upsert({
-        where: { design_no_sp_no: designNo },
-        update: {
-          construction: body.construction || '',
-          weft_colours: Number(body.weft_colours || body.no_of_clr_weft) || 0,
-          frames: Number(body.frames) || 0,
-          reed_count: body.reed_count ? String(body.reed_count) : '',
-          pick: resolvedPick,
-          greige_width: resolvedWidth,
-          total_ends: Number(body.total_ends) || null,
-          reed_space_warp_width: resolvedReedSpace,
-          crimp_percent: body.crimp_percent ? Number(body.crimp_percent) / 100 : 0,
-          weave_type: body.weave_type || '',
-          beam_type: body.beam_type || '',
-          no_of_clr_warp: Number(body.no_of_clr_warp) || null,
-          no_of_clr_weft: Number(body.no_of_clr_weft || body.weft_colours) || null
-        },
-        create: {
-          design_no_sp_no: designNo,
-          construction: body.construction || '',
-          weft_colours: Number(body.weft_colours || body.no_of_clr_weft) || 0,
-          frames: Number(body.frames) || 0,
-          reed_count: body.reed_count ? String(body.reed_count) : '',
-          pick: resolvedPick,
-          greige_width: resolvedWidth,
-          total_ends: Number(body.total_ends) || null,
-          reed_space_warp_width: resolvedReedSpace,
-          crimp_percent: body.crimp_percent ? Number(body.crimp_percent) / 100 : 0,
-          weave_type: body.weave_type || '',
-          beam_type: body.beam_type || '',
-          no_of_clr_warp: Number(body.no_of_clr_warp) || null,
-          no_of_clr_weft: Number(body.no_of_clr_weft || body.weft_colours) || null,
-          status: 'ACTIVE'
+      // Compute expected completion date
+      let expectedCompletionDate = null;
+      if (body.expected_completion_date) {
+        expectedCompletionDate = new Date(body.expected_completion_date);
+      } else if (body.weaving_completion_date) {
+        expectedCompletionDate = new Date(body.weaving_completion_date);
+      } else {
+        const looms = Number(body.planned_loom_count) || 0;
+        const avgProd = Number(body.avg_production_per_loom) || 0;
+        const qty = Number(body.order_qty) || 0;
+        const wvDate = body.weaving_planned_date || body.weaving_start_date;
+        if (looms > 0 && avgProd > 0 && qty > 0 && wvDate) {
+          const days = Math.ceil(qty / (looms * avgProd));
+          const d = new Date(wvDate);
+          d.setDate(d.getDate() + days - 1);
+          expectedCompletionDate = d;
         }
-      });
-
+      }
 
       const orderNo = body.order_no || `ORD-${Date.now().toString().slice(-6)}-${i + 1}`;
-      const newOrder = await prisma.orderMaster.create({
-        data: {
-          order_no: orderNo,
-          ibpo_no: ibpoNo,
-          customer_name: body.customer_name || body.ibpo_no || 'STANDARD',
-          buyer_name: body.buyer_name || null,
-          order_type: body.order_type || 'GREY',
-          combo_pattern: body.combo_pattern || null,
-          finish: body.finish || null,
-          design_no_sp_no: designNo,
-          construction: body.construction || null,
-          reed_count: body.reed_count ? String(body.reed_count) : null,
-          weave_type: body.weave_type || null,
-          epi: body.epi ? Number(body.epi) : null,
-          ppi: body.ppi ? Number(body.ppi) : null,
-          total_ends: body.total_ends ? Number(body.total_ends) : null,
-          beam_type: body.beam_type || null,
-          frames: body.frames ? Number(body.frames) : null,
-          no_of_clr_warp: body.no_of_clr_warp ? Number(body.no_of_clr_warp) : null,
-          no_of_clr_weft: body.no_of_clr_weft || body.weft_colours ? Number(body.no_of_clr_weft || body.weft_colours) : null,
-          uom: body.uom || 'Meters',
-          order_qty: Number(body.order_qty),
-          grey_qty: Number(body.grey_qty) || Number(body.order_qty) || null,
-          warp_qty: Number(body.warp_qty) || Number(body.order_qty) || null,
-          planned_loom_count: Number(body.planned_loom_count) || null,
-          avg_production_per_loom: Number(body.avg_production_per_loom) || null,
-          estimated_production_days: Number(body.estimated_production_days) || null,
-          expected_completion_date: (() => {
-            if (body.expected_completion_date) return new Date(body.expected_completion_date);
-            if (body.weaving_completion_date) return new Date(body.weaving_completion_date);
-            const looms = Number(body.planned_loom_count) || 0;
-            const avgProd = Number(body.avg_production_per_loom) || 0;
-            const qty = Number(body.order_qty) || 0;
-            const wvDate = body.weaving_planned_date || body.weaving_start_date;
-            if (looms > 0 && avgProd > 0 && qty > 0 && wvDate) {
-              const days = Math.ceil(qty / (looms * avgProd));
-              const d = new Date(wvDate);
-              d.setDate(d.getDate() + days - 1);
-              return d;
-            }
-            return null;
-          })(),
-          sizing_planned_date: body.sizing_planned_date ? new Date(body.sizing_planned_date) : null,
-          sizing_completed_date: body.sizing_completion_date || body.sizing_completed_date ? new Date(body.sizing_completion_date || body.sizing_completed_date) : null,
-          weaving_planned_date: body.weaving_planned_date || body.weaving_start_date ? new Date(body.weaving_planned_date || body.weaving_start_date) : null,
-          weaving_start_date: body.weaving_start_date ? new Date(body.weaving_start_date) : null,
-          weaving_completion_date: body.weaving_completion_date ? new Date(body.weaving_completion_date) : null,
-          target_delivery_date: body.target_delivery_date ? new Date(body.target_delivery_date) : null,
-          priority: body.priority || 'NORMAL',
-          planning_status: body.planning_status || 'Planning Pending',
-          status: body.status || 'ORDER RECEIVED',
-          remarks: body.remarks || null
-        }
-      });
-      createdOrders.push(newOrder);
-    }
 
+      return {
+        ibpoNo, designNo, resolvedPick, resolvedWidth, resolvedReedSpace, expectedCompletionDate, orderNo, body
+      };
+    });
+
+    // 6. Run all design upserts in parallel (concurrent, not sequential)
+    const uniqueDesignNos = [...new Set(preparedOrders.map(p => p.designNo))];
+    await Promise.all(uniqueDesignNos.map(designNo => {
+      const bodyForDesign = preparedOrders.find(p => p.designNo === designNo)?.body || {};
+      const parsedSpecs = parseConstructionSpecsServer(bodyForDesign.construction);
+      const rPick = bodyForDesign.pick ? String(bodyForDesign.pick) : (bodyForDesign.ppi ? String(bodyForDesign.ppi) : (parsedSpecs.pick || ''));
+      const rWidth = bodyForDesign.greige_width ? String(bodyForDesign.greige_width) : (parsedSpecs.greigeWidth || '');
+      const rReedSpace = bodyForDesign.reed_space || bodyForDesign.reed_space_warp_width
+        ? String(bodyForDesign.reed_space || bodyForDesign.reed_space_warp_width)
+        : (parsedSpecs.reedSpace || (rWidth ? String(parseFloat(rWidth) + 1.5) : ''));
+      const designData = {
+        construction: bodyForDesign.construction || '',
+        weft_colours: Number(bodyForDesign.weft_colours || bodyForDesign.no_of_clr_weft) || 0,
+        frames: Number(bodyForDesign.frames) || 0,
+        reed_count: bodyForDesign.reed_count ? String(bodyForDesign.reed_count) : '',
+        pick: rPick,
+        greige_width: rWidth,
+        total_ends: Number(bodyForDesign.total_ends) || null,
+        reed_space_warp_width: rReedSpace,
+        crimp_percent: bodyForDesign.crimp_percent ? Number(bodyForDesign.crimp_percent) / 100 : 0,
+        weave_type: bodyForDesign.weave_type || '',
+        beam_type: bodyForDesign.beam_type || '',
+        no_of_clr_warp: Number(bodyForDesign.no_of_clr_warp) || null,
+        no_of_clr_weft: Number(bodyForDesign.no_of_clr_weft || bodyForDesign.weft_colours) || null
+      };
+      return prisma.designMaster.upsert({
+        where: { design_no_sp_no: designNo },
+        update: designData,
+        create: { design_no_sp_no: designNo, ...designData, status: 'ACTIVE' }
+      });
+    }));
+
+    // 7. Create all orders in one createMany call (single DB round trip)
+    const orderDataList = preparedOrders.map(({ ibpoNo, designNo, expectedCompletionDate, orderNo, body }) => ({
+      order_no: orderNo,
+      ibpo_no: ibpoNo,
+      customer_name: body.customer_name || body.ibpo_no || 'STANDARD',
+      buyer_name: body.buyer_name || null,
+      order_type: body.order_type || 'GREY',
+      combo_pattern: body.combo_pattern || null,
+      finish: body.finish || null,
+      design_no_sp_no: designNo,
+      construction: body.construction || null,
+      reed_count: body.reed_count ? String(body.reed_count) : null,
+      weave_type: body.weave_type || null,
+      epi: body.epi ? Number(body.epi) : null,
+      ppi: body.ppi ? Number(body.ppi) : null,
+      total_ends: body.total_ends ? Number(body.total_ends) : null,
+      beam_type: body.beam_type || null,
+      frames: body.frames ? Number(body.frames) : null,
+      no_of_clr_warp: body.no_of_clr_warp ? Number(body.no_of_clr_warp) : null,
+      no_of_clr_weft: body.no_of_clr_weft || body.weft_colours ? Number(body.no_of_clr_weft || body.weft_colours) : null,
+      uom: body.uom || 'Meters',
+      order_qty: Number(body.order_qty),
+      grey_qty: Number(body.grey_qty) || Number(body.order_qty) || null,
+      warp_qty: Number(body.warp_qty) || Number(body.order_qty) || null,
+      planned_loom_count: Number(body.planned_loom_count) || null,
+      avg_production_per_loom: Number(body.avg_production_per_loom) || null,
+      estimated_production_days: Number(body.estimated_production_days) || null,
+      expected_completion_date: expectedCompletionDate,
+      sizing_planned_date: body.sizing_planned_date ? new Date(body.sizing_planned_date) : null,
+      sizing_completed_date: body.sizing_completion_date || body.sizing_completed_date ? new Date(body.sizing_completion_date || body.sizing_completed_date) : null,
+      weaving_planned_date: body.weaving_planned_date || body.weaving_start_date ? new Date(body.weaving_planned_date || body.weaving_start_date) : null,
+      weaving_start_date: body.weaving_start_date ? new Date(body.weaving_start_date) : null,
+      weaving_completion_date: body.weaving_completion_date ? new Date(body.weaving_completion_date) : null,
+      target_delivery_date: body.target_delivery_date ? new Date(body.target_delivery_date) : null,
+      priority: body.priority || 'NORMAL',
+      planning_status: body.planning_status || 'Planning Pending',
+      status: body.status || 'ORDER RECEIVED',
+      remarks: body.remarks || null
+    }));
+
+    // createMany in one shot — massively faster than N individual creates
+    const createResult = await prisma.orderMaster.createMany({
+      data: orderDataList,
+      skipDuplicates: true
+    });
+
+    // Audit log (single entry for batch)
     await prisma.systemAuditLog.create({
       data: {
         username: req.body.adminUser || 'System',
         screen: 'Order Management',
         action: 'MULTI_CREATE_ORDERS',
-        newValue: `${createdOrders.length} orders created`
+        newValue: `${createResult.count} orders created (${skippedCount} skipped)`
       }
-    });
+    }).catch(() => {}); // non-blocking audit
 
-    res.json({ success: true, count: createdOrders.length, skippedCount, orders: createdOrders });
+    res.json({ success: true, count: createResult.count, skippedCount });
   } catch (error) {
     console.error('Bulk Order Save Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
+
 
 // Bulk Orders Edit Endpoint (Multi Edit)
 app.put('/api/orders/bulk', async (req, res) => {

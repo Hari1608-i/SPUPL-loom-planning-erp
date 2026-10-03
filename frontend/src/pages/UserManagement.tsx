@@ -198,15 +198,28 @@ export default function UserManagement() {
   }, [page, limit, search, roleFilter]);
 
   const handleSaveUser = async () => {
+    const isEdit = !!(formData.id);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/users`, {
-        method: 'POST',
+      const url = isEdit
+        ? `${API_BASE_URL}/api/users/${formData.id}`
+        : `${API_BASE_URL}/api/users`;
+      const method = isEdit ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ ...formData, permissions: JSON.stringify(formData.permissions), adminUser: currentUser?.username })
+        body: JSON.stringify({
+          ...formData,
+          permissions: typeof formData.permissions === 'object'
+            ? JSON.stringify(formData.permissions)
+            : formData.permissions,
+          adminUser: currentUser?.username
+        })
       });
-      const data = await res.json();
+      const contentType = res.headers.get('content-type') || '';
+      const data = contentType.includes('application/json') ? await res.json() : { error: await res.text() };
       if (!res.ok) {
-        alert(data.error || 'Failed to save user.');
+        alert(data.error || `Failed to ${isEdit ? 'update' : 'create'} user.`);
         return;
       }
       setIsWizardOpen(false);
@@ -218,15 +231,22 @@ export default function UserManagement() {
   };
 
   const handleDeleteUser = async (id: number, username: string) => {
-    if (!window.confirm(`Are you sure you want to delete user ${username}?`)) return;
+    if (!window.confirm(`Are you sure you want to delete user "${username}"?`)) return;
     try {
-      await fetch(`${API_BASE_URL}/api/users/${id}?adminUser=${currentUser?.username || ''}`, {
+      const res = await fetch(`${API_BASE_URL}/api/users/${id}?adminUser=${encodeURIComponent(currentUser?.username || '')}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (!res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        const data = contentType.includes('application/json') ? await res.json() : { error: await res.text() };
+        alert(data.error || 'Failed to delete user.');
+        return;
+      }
       fetchUsers();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert('Error deleting user: ' + err.message);
     }
   };
 
