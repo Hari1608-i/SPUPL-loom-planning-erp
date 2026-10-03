@@ -2525,24 +2525,13 @@ app.get('/api/beam-stock/allocated', async (req, res) => {
   try {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 
-    // 1. Get currently running beams to exclude any beam already running on a loom
-    const activeRuns = await prisma.loomRunEntry.findMany({
-      select: { loom_no: true, current_beam_no: true, beam_id: true }
-    });
-    const runningBeamNos = new Set(
-      activeRuns.map(r => (r.current_beam_no || '').trim().toUpperCase()).filter(Boolean)
-    );
-    const runningBeamIds = new Set(
-      activeRuns.map(r => r.beam_id).filter(Boolean)
-    );
-
-    // 2. Fetch all planned assignments that have allocated beams
+    // 1. Fetch all planned assignments that have allocated beams
     const allocatedPlans = await prisma.plannedAssignment.findMany({
       where: {
         OR: [
           { reserved_beam_id: { not: null } },
           { reserved_beam_no: { not: null } },
-          { beam_status: 'BEAM ALLOCATED' }
+          { beam_status: { in: ['BEAM ALLOCATED', 'ALLOCATED', 'CONFIRMED'] } }
         ],
         status: { notIn: ['COMPLETED', 'CANCELLED'] }
       }
@@ -2553,21 +2542,27 @@ app.get('/api/beam-stock/allocated', async (req, res) => {
     const planByBeamId = new Map(allocatedPlans.filter(p => p.reserved_beam_id).map(p => [p.reserved_beam_id, p]));
     const planByBeamNo = new Map(allocatedPlans.filter(p => p.reserved_beam_no).map(p => [(p.reserved_beam_no || '').trim().toUpperCase(), p]));
 
+    // 2. Get currently running beams to exclude any beam already running on its assigned loom
+    const activeRuns = await prisma.loomRunEntry.findMany({
+      select: { loom_no: true, current_beam_no: true, beam_id: true }
+    });
+
     // 3. Find physical beams in beamStockMaster
     const beams = await prisma.beamStockMaster.findMany({
       where: {
         OR: [
           { id: { in: Array.from(planBeamIds) } },
           { beam_no: { in: Array.from(planBeamNos) } },
-          { status: { in: ['ALLOCATED', 'Allocated', 'RESERVED', 'Reserved', 'ASSIGNED', 'Assigned'] } },
-          { loom_no_assigned: { not: null, gt: 0 } },
-          { reserved_for: { not: null } }
+          {
+            status: { in: ['ALLOCATED', 'Allocated', 'RESERVED', 'Reserved', 'ASSIGNED', 'Assigned'] },
+            loom_no_assigned: { not: null, gt: 0 }
+          }
         ]
       },
       orderBy: { id: 'desc' }
     });
 
-    // 4. Filter: Beams actively allocated but NOT currently running and NOT yet confirmed
+    // 4. Map and filter: Beams actively allocated to a loom/plan, not running on that loom, and not yet confirmed out of allocation
     const result = beams
       .map(b => {
         const bNo = (b.beam_no || '').trim().toUpperCase();
@@ -2581,7 +2576,8 @@ app.get('/api/beam-stock/allocated', async (req, res) => {
           design_no: plan?.next_design || b.design_no,
           reserved_for: plan ? `Loom ${plan.loom_no} - Plan #${plan.id}` : b.reserved_for,
           plan_status: plan?.status || (b.status ? b.status.toUpperCase() : 'ALLOCATED'),
-          plan_id: plan?.id || null
+          plan_id: plan?.id || null,
+          available_meter: b.available_meter || b.total_warped_meter || plan?.planned_warp_meter || 0
         };
       })
       .filter(b => {
@@ -2589,17 +2585,19 @@ app.get('/api/beam-stock/allocated', async (req, res) => {
         const bSt = (b.status || '').trim().toUpperCase();
         const planSt = (b.plan_status || '').trim().toUpperCase();
 
-        // If beam is currently running in Main Entry, exclude from allocated
-        if (runningBeamNos.has(bNo) || (b.id && runningBeamIds.has(b.id))) return false;
-        if (bSt === 'RUNNING' || bSt === 'IN USE') return false;
-
-        // CRITICAL RULE: When confirmed, beam MUST leave allocated stock!
+        // If completed or confirmed running in main entry, exclude from allocated stock
         if (bSt === 'CONFIRMED' || planSt === 'CONFIRMED') return false;
 
-        // Must be allocated/reserved: either status is Allocated/Reserved OR attached to an active plan OR assigned to a loom
-        const plan = planByBeamId.get(b.id) || planByBeamNo.get(bNo);
-        const isAllocated = bSt === 'ALLOCATED' || bSt === 'RESERVED' || bSt === 'ASSIGNED' || !!plan || !!(b.loom_no_assigned && b.loom_no_assigned > 0) || !!(b.reserved_for && b.reserved_for.trim());
-        return isAllocated;
+        // Check if currently running on the assigned loom in Main Entry
+        if (b.loom_no_assigned && Number(b.loom_no_assigned) > 0) {
+          const isRunningOnAssignedLoom = activeRuns.some(r =>
+            Number(r.loom_no) === Number(b.loom_no_assigned) &&
+            ((r.beam_id && r.beam_id === b.id) || (r.current_beam_no && r.current_beam_no.trim().toUpperCase() === bNo))
+          );
+          if (isRunningOnAssignedLoom) return false;
+        }
+
+        return true;
       });
 
     res.json(result);

@@ -206,7 +206,10 @@ export default function PlannedLooms() {
               setSortChangeSelections(prev => ({ ...prev, [p.id]: pType as any }));
             }
           }
-          fetchEvaluationForPlan(p.id);
+          // Only evaluate if not already fetched in state to prevent choking server
+          if (!sortChangeEvaluations[p.id]) {
+            fetchEvaluationForPlan(p.id);
+          }
         });
       }
     } catch (error) {
@@ -223,7 +226,7 @@ export default function PlannedLooms() {
     const interval = setInterval(() => {
       fetchAssignments();
       refreshData();
-    }, 5000);
+    }, 12000);
     return () => clearInterval(interval);
   }, []);
 
@@ -242,6 +245,7 @@ export default function PlannedLooms() {
     setBeamSearchTerm('');
     setBeamFilterTab('COMPATIBLE');
     fetchLiveBeams();
+    fetchEvaluationForPlan(plan.id);
   };
 
   // STEP 1: Confirm Reed Allocation (User selects physical Reed from stock)

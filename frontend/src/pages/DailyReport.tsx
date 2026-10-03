@@ -1792,22 +1792,24 @@ export default function DailyReport() {
       const hasAnyMendU = (totW_u !== null || totY_u !== null || sIn_u !== null || sVen_u !== null || p_u !== null);
       const grand_u = hasAnyMendU ? ((totW_u || 0) + (totY_u || 0) + (sIn_u || 0) + (sVen_u || 0) + (p_u || 0)) : null;
 
-      const calcMendPctExcel = (val: number | null, base: number | null): string => {
-        if (val === null || base === null || base <= 0) return '';
-        return ((val / base) * 100).toFixed(2) + '%';
+      const safePercentage = (val: number | null | undefined, base: number | null | undefined): string => {
+        const n = Number(val) || 0;
+        const d = Number(base) || 0;
+        if (d <= 0) return '0.00%';
+        return ((n / d) * 100).toFixed(2) + '%';
       };
 
       const mendingRows = [
-        { label: 'WEAVING- (INHOUSE)', asOn: wIn_asOn, upto: wIn_u, pct: calcMendPctExcel(wIn_asOn, inInspAsOn) },
-        { label: 'WEAVING-(VENDOR)', asOn: wVen_asOn, upto: wVen_u, pct: calcMendPctExcel(wVen_asOn, vnInspAsOn) },
-        { label: 'TOTAL', asOn: totW_asOn, upto: totW_u, pct: calcMendPctExcel(totW_asOn, totInspAsOn), isBold: true },
-        { label: 'YARN-(INHOUSE)', asOn: yIn_asOn, upto: yIn_u, pct: calcMendPctExcel(yIn_asOn, inInspAsOn) },
-        { label: 'YARN-(VENDOR)', asOn: yVen_asOn, upto: yVen_u, pct: calcMendPctExcel(yVen_asOn, vnInspAsOn) },
-        { label: 'TOTAL', asOn: totY_asOn, upto: totY_u, pct: calcMendPctExcel(totY_asOn, totInspAsOn), isBold: true },
-        { label: 'SIZING - (INHOUSE)', asOn: sIn_asOn, upto: sIn_u, pct: calcMendPctExcel(sIn_asOn, inInspAsOn) },
-        { label: 'SIZING - (VENDOR)', asOn: sVen_asOn, upto: sVen_u, pct: calcMendPctExcel(sVen_asOn, vnInspAsOn) },
-        { label: 'PROCESSING', asOn: p_asOn, upto: p_u, pct: calcMendPctExcel(p_asOn, finInspAsOn) },
-        { label: 'TOTAL', asOn: grand_asOn, upto: grand_u, pct: calcMendPctExcel(grand_asOn, totInspAsOn), isBold: true }
+        { label: 'WEAVING- (INHOUSE)', asOn: wIn_asOn, upto: wIn_u, pct: safePercentage(wIn_asOn, wIn_u) },
+        { label: 'WEAVING-(VENDOR)', asOn: wVen_asOn, upto: wVen_u, pct: safePercentage(wVen_asOn, wVen_u) },
+        { label: 'TOTAL', asOn: totW_asOn, upto: totW_u, pct: safePercentage(totW_asOn, totW_u), isBold: true },
+        { label: 'YARN-(INHOUSE)', asOn: yIn_asOn, upto: yIn_u, pct: safePercentage(yIn_asOn, yIn_u) },
+        { label: 'YARN-(VENDOR)', asOn: yVen_asOn, upto: yVen_u, pct: safePercentage(yVen_asOn, yVen_u) },
+        { label: 'TOTAL', asOn: totY_asOn, upto: totY_u, pct: safePercentage(totY_asOn, totY_u), isBold: true },
+        { label: 'SIZING - (INHOUSE)', asOn: sIn_asOn, upto: sIn_u, pct: safePercentage(sIn_asOn, sIn_u) },
+        { label: 'SIZING - (VENDOR)', asOn: sVen_asOn, upto: sVen_u, pct: safePercentage(sVen_asOn, sVen_u) },
+        { label: 'PROCESSING', asOn: p_asOn, upto: p_u, pct: safePercentage(p_asOn, p_u) },
+        { label: 'TOTAL', asOn: grand_asOn, upto: grand_u, pct: safePercentage(grand_asOn, grand_u), isBold: true }
       ];
 
       const getSamplingUpto = (code: string) => {
@@ -3697,10 +3699,10 @@ return (
               const grand_u = hasAnyMendU ? ((totW_u || 0) + (totY_u || 0) + (sIn_u || 0) + (sVen_u || 0) + (p_u || 0)) : null;
 
               const calcMendPct = (val: number | null | undefined, denom: number | null | undefined) => {
-                if (val !== null && val !== undefined && denom && denom > 0) {
-                  return ((val / denom) * 100).toFixed(2) + '%';
-                }
-                return '';
+                const n = Number(val) || 0;
+                const d = Number(denom) || 0;
+                if (d <= 0) return '0.00%';
+                return ((n / d) * 100).toFixed(2) + '%';
               };
 
               const getSamplingVal = (code: string) => {
@@ -3743,7 +3745,7 @@ return (
                     <td className="p-left">WEAVING- (INHOUSE)</td>
                     <td className="p-center">{renderNumCell(wIn_asOn)}</td>
                     <td className="p-center">{renderNumCell(wIn_u)}</td>
-                    <td className="p-center">{calcMendPct(wIn_asOn, inInspAsOn)}</td>
+                    <td className="p-center">{calcMendPct(wIn_asOn, wIn_u)}</td>
                     <td colSpan={4}></td>
                   </tr>
 
@@ -3752,7 +3754,7 @@ return (
                     <td className="p-left">WEAVING-(VENDOR)</td>
                     <td className="p-center">{renderNumCell(wVen_asOn)}</td>
                     <td className="p-center">{renderNumCell(wVen_u)}</td>
-                    <td className="p-center">{calcMendPct(wVen_asOn, vnInspAsOn)}</td>
+                    <td className="p-center">{calcMendPct(wVen_asOn, wVen_u)}</td>
                     <td colSpan={4} style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>SAMPLING DETAILS</td>
                   </tr>
 
@@ -3761,7 +3763,7 @@ return (
                     <td className="p-left p-bold">TOTAL</td>
                     <td className="p-center p-bold">{renderNumCell(totW_asOn)}</td>
                     <td className="p-center p-bold">{renderNumCell(totW_u)}</td>
-                    <td className="p-center p-bold">{calcMendPct(totW_asOn, totInspAsOn)}</td>
+                    <td className="p-center p-bold">{calcMendPct(totW_asOn, totW_u)}</td>
                     <td style={{ backgroundColor: '#fff2cc', textAlign: 'left', fontWeight: 'bold' }}>DETAILS</td>
                     <td style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>TARGET</td>
                     <td style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>ON DATE</td>
@@ -3773,7 +3775,7 @@ return (
                     <td className="p-left">YARN-( INHOUSE)</td>
                     <td className="p-center">{renderNumCell(yIn_asOn)}</td>
                     <td className="p-center">{renderNumCell(yIn_u)}</td>
-                    <td className="p-center">{calcMendPct(yIn_asOn, inInspAsOn)}</td>
+                    <td className="p-center">{calcMendPct(yIn_asOn, yIn_u)}</td>
                     <td className="p-left p-bold">SINGLE END SIZING</td>
                     <td className="p-center">80 KG</td>
                     <td className="p-center">{samplingRows[0].onDate}</td>
@@ -3785,7 +3787,7 @@ return (
                     <td className="p-left">YARN-(VENDOR)</td>
                     <td className="p-center">{renderNumCell(yVen_asOn)}</td>
                     <td className="p-center">{renderNumCell(yVen_u)}</td>
-                    <td className="p-center">{calcMendPct(yVen_asOn, vnInspAsOn)}</td>
+                    <td className="p-center">{calcMendPct(yVen_asOn, yVen_u)}</td>
                     <td className="p-left p-bold">DESK LOOM MTR</td>
                     <td className="p-center"></td>
                     <td className="p-center">{samplingRows[1].onDate}</td>
@@ -3797,7 +3799,7 @@ return (
                     <td className="p-left p-bold">TOTAL</td>
                     <td className="p-center p-bold">{renderNumCell(totY_asOn)}</td>
                     <td className="p-center p-bold">{renderNumCell(totY_u)}</td>
-                    <td className="p-center p-bold">{calcMendPct(totY_asOn, totInspAsOn)}</td>
+                    <td className="p-center p-bold">{calcMendPct(totY_asOn, totY_u)}</td>
                     <td className="p-left p-bold">Sample warping</td>
                     <td className="p-center">8</td>
                     <td className="p-center">{samplingRows[2].onDate}</td>
@@ -3809,7 +3811,7 @@ return (
                     <td className="p-left">SIZING - (INHOUSE)</td>
                     <td className="p-center">{renderNumCell(sIn_asOn)}</td>
                     <td className="p-center">{renderNumCell(sIn_u)}</td>
-                    <td className="p-center">{calcMendPct(sIn_asOn, inInspAsOn)}</td>
+                    <td className="p-center">{calcMendPct(sIn_asOn, sIn_u)}</td>
                     <td className="p-left p-bold">PENDING SAMPLE</td>
                     <td className="p-center"></td>
                     <td className="p-center">{samplingRows[3].onDate}</td>
@@ -3821,7 +3823,7 @@ return (
                     <td className="p-left">SIZING - (VENDOR)</td>
                     <td className="p-center">{renderNumCell(sVen_asOn)}</td>
                     <td className="p-center">{renderNumCell(sVen_u)}</td>
-                    <td className="p-center">{calcMendPct(sVen_asOn, vnInspAsOn)}</td>
+                    <td className="p-center">{calcMendPct(sVen_asOn, sVen_u)}</td>
                     <td colSpan={4} style={{ backgroundColor: '#fff2cc', textAlign: 'center', fontWeight: 'bold' }}>Remarks</td>
                   </tr>
 
@@ -3830,7 +3832,7 @@ return (
                     <td className="p-left">PROCESSING</td>
                     <td className="p-center">{renderNumCell(p_asOn)}</td>
                     <td className="p-center">{renderNumCell(p_u)}</td>
-                    <td className="p-center">{calcMendPct(p_asOn, totInspAsOn)}</td>
+                    <td className="p-center">{calcMendPct(p_asOn, p_u)}</td>
                     <td rowSpan={2} colSpan={4} className="p-left" style={{ verticalAlign: 'top', padding: '1px 3px', whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
                       {samplingRemarks}
                     </td>
@@ -3841,7 +3843,7 @@ return (
                     <td className="p-left p-bold">TOTAL</td>
                     <td className="p-center p-bold">{renderNumCell(grand_asOn)}</td>
                     <td className="p-center p-bold">{renderNumCell(grand_u)}</td>
-                    <td className="p-center p-bold">{calcMendPct(grand_asOn, totInspAsOn)}</td>
+                    <td className="p-center p-bold">{calcMendPct(grand_asOn, grand_u)}</td>
                   </tr>
                 </>
               );
