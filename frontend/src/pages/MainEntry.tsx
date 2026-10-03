@@ -373,6 +373,7 @@ export default function MainEntry() {
           body: JSON.stringify({
             loomNo,
             nextDesign: plan.next_design,
+            promoteNext: true,
             startDate: format(new Date(), 'yyyy-MM-dd'),
             warpMeter: plan.planned_warp_meter || 1000,
             dailyProduction: 0, // NEW DESIGN PRODUCTION RESET TO 0

@@ -4857,7 +4857,9 @@ app.post('/api/confirm-plan', async (req, res) => {
     }
 
     const isClearOnly = req.body.clearOnly === true || req.body.action === 'CLEAR_RUNOUT' || req.body.action === 'DELETE_RUNOUT' || req.body.promoteNext === false;
-    const finalNextDesign = (!isClearOnly && req.body.promoteNext === true && nextDesign && nextDesign !== '—' && nextDesign.trim() !== '') ? nextDesign.trim() : '';
+    const hasNextDesign = !!(nextDesign && nextDesign !== '—' && nextDesign.trim() !== '' && nextDesign !== 'AVAILABLE (No Plan Queued)');
+    const shouldPromote = !isClearOnly && (req.body.promoteNext === true || (req.body.promoteNext === undefined && hasNextDesign));
+    const finalNextDesign = shouldPromote && hasNextDesign ? nextDesign.trim() : '';
     const finalBeamNo = finalNextDesign ? (beamNo || planEntry?.reserved_beam_no || null) : null;
     const finalSetNo = finalNextDesign ? (setNo || planEntry?.reserved_set_no || null) : null;
     const finalBeamId = finalNextDesign ? (beamId ? parseInt(beamId, 10) : (planEntry?.reserved_beam_id || null)) : null;

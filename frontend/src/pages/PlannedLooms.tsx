@@ -225,8 +225,7 @@ export default function PlannedLooms() {
     fetchLiveBeams();
     const interval = setInterval(() => {
       fetchAssignments();
-      refreshData();
-    }, 12000);
+    }, 15000);
     return () => clearInterval(interval);
   }, []);
 
