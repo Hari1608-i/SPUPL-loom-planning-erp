@@ -172,6 +172,25 @@ export default function PlannedLooms() {
   const [selectedBeamForConfirmation, setSelectedBeamForConfirmation] = useState<number | null>(null);
   const [beamSearchTerm, setBeamSearchTerm] = useState('');
   const [beamFilterTab, setBeamFilterTab] = useState<'COMPATIBLE' | 'ALL_AVAILABLE' | 'INCOMPATIBLE'>('COMPATIBLE');
+  const [liveBeams, setLiveBeams] = useState<any[]>([]);
+  const [isFetchingBeams, setIsFetchingBeams] = useState(false);
+
+  const fetchLiveBeams = async () => {
+    setIsFetchingBeams(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/beam-stock?_t=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setLiveBeams(data);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch live beams:', e);
+    } finally {
+      setIsFetchingBeams(false);
+    }
+  };
 
   const fetchAssignments = async () => {
     try {
@@ -200,6 +219,7 @@ export default function PlannedLooms() {
   useEffect(() => {
     fetchAssignments();
     refreshData();
+    fetchLiveBeams();
     const interval = setInterval(() => {
       fetchAssignments();
       refreshData();
@@ -221,6 +241,7 @@ export default function PlannedLooms() {
     setSelectedBeamForConfirmation(plan.reserved_beam_id || null);
     setBeamSearchTerm('');
     setBeamFilterTab('COMPATIBLE');
+    fetchLiveBeams();
   };
 
   // STEP 1: Confirm Reed Allocation (User selects physical Reed from stock)
@@ -277,16 +298,19 @@ export default function PlannedLooms() {
     }
 
     const targetBeamId = beamIdToAllocate || plan.reserved_beam_id;
-    const targetBeam = beams.find(b => b.id === targetBeamId);
+    const currentBeamsList = liveBeams.length > 0 ? liveBeams : beams;
+    const targetBeam = currentBeamsList.find(b => b.id === targetBeamId);
 
     if (!targetBeam && !plan.reserved_beam_id) {
       setErrorMsg(`❌ BEAM SELECTION ERROR: Selected beam could not be found in Beam Stock.`);
       return;
     }
 
-    if (targetBeam && (targetBeam.status === 'RESERVED' || targetBeam.status === 'Allocated' || targetBeam.status === 'RUNNING')) {
+    const tbStatus = (targetBeam?.status || targetBeam?.beam_status || '').trim().toUpperCase();
+    if (targetBeam && (tbStatus === 'RESERVED' || tbStatus === 'ALLOCATED' || tbStatus === 'RUNNING')) {
       alert(`⚠️ Beam #${targetBeam.beam_no} is no longer available. Stock has been updated. Please select another beam.`);
       await refreshData();
+      await fetchLiveBeams();
       return;
     }
 
@@ -351,13 +375,21 @@ export default function PlannedLooms() {
     if (!targetBeamId) {
       const cleanDesign = (plan.next_design || '').trim().toLowerCase();
       const cleanOrder = (plan.order_no || '').trim().toLowerCase();
-      const mBeam = beams.find(b => {
-        const bDesign = (b.design_no || (b as any).designNo || '').trim().toLowerCase();
+      const normD = (s: string) => (s || '').trim().toLowerCase().replace(/sp026\//gi, 'sp26/').replace(/sp026/gi, 'sp26').replace(/[\s\-_/]/g, '');
+      const normDesign = normD(cleanDesign);
+      const currentBeamsList = liveBeams.length > 0 ? liveBeams : beams;
+
+      const mBeam = currentBeamsList.find(b => {
+        const bDesignRaw = (b.design_no || (b as any).designNo || '').trim().toLowerCase();
+        const bDesignNorm = normD(bDesignRaw);
         const bParty = (b.party_beam_no || b.ibpo || b.order_no || '').trim().toLowerCase();
-        const isMatch = (bDesign && cleanDesign && (bDesign === cleanDesign || bDesign.includes(cleanDesign) || cleanDesign.includes(bDesign))) ||
-                        (bParty && cleanOrder && (bParty === cleanOrder || bParty.includes(cleanOrder) || cleanOrder.includes(bParty)));
-        const st = (b.status || '').trim().toUpperCase();
-        return isMatch && (st === 'AVAILABLE' || st === 'READY' || st === 'CUT BEAM' || st === '') && Number(b.available_meter || 0) > 0;
+        const bRemarks = (b.remarks || '').trim().toLowerCase();
+
+        const isMatch = (bDesignNorm && normDesign && (bDesignNorm === normDesign || bDesignNorm.includes(normDesign) || normDesign.includes(bDesignNorm))) ||
+                        (cleanOrder && (bParty === cleanOrder || bParty.includes(cleanOrder) || bRemarks.includes(cleanOrder) || bDesignRaw.includes(cleanOrder)));
+
+        const st = (b.status || b.beam_status || '').trim().toUpperCase();
+        return isMatch && (st === 'AVAILABLE' || st === 'READY' || st === 'CUT BEAM' || st === '') && Number(b.available_meter || b.total_warped_meter || 0) > 0;
       });
       if (mBeam) {
         targetBeamId = mBeam.id;
@@ -1235,15 +1267,44 @@ export default function PlannedLooms() {
         const modalReed = designMaster?.reedCount || designMaster?.reed_count || orderMaster?.reed_count || orderMaster?.reedCount || '—';
         const modalPick = designMaster?.pick || (orderMaster?.ppi !== undefined && orderMaster?.ppi !== null && orderMaster?.ppi !== '' ? String(orderMaster.ppi) : '') || orderMaster?.pick || '—';
 
+        const normD = (s: string) => (s || '').trim().toLowerCase().replace(/sp026\//gi, 'sp26/').replace(/sp026/gi, 'sp26').replace(/[\s\-_/]/g, '');
+        const normModalDesign = normD(cleanModalDesign);
+        const normModalOrder = (cleanModalOrder || '').trim().toLowerCase();
+
         // Check if a beam record matches current modal plan
         const checkModalBeamMatch = (b: any) => {
-          const bDesign = (b.design_no || b.designNo || '').trim().toLowerCase();
+          const bDesignRaw = (b.design_no || b.designNo || '').trim().toLowerCase();
+          const bDesignNorm = normD(bDesignRaw);
           const bParty = (b.party_beam_no || b.ibpo || b.order_no || '').trim().toLowerCase();
-          return (bDesign && cleanModalDesign && (bDesign === cleanModalDesign || bDesign.includes(cleanModalDesign) || cleanModalDesign.includes(bDesign))) ||
-                 (bParty && cleanModalOrder && (bParty === cleanModalOrder || bParty.includes(cleanModalOrder) || cleanModalOrder.includes(bParty))) ||
-                 (bDesign && cleanModalOrder && (bDesign === cleanModalOrder || bDesign.includes(cleanModalOrder) || cleanModalOrder.includes(bDesign))) ||
-                 (bParty && cleanModalDesign && (bParty === cleanModalDesign || bParty.includes(cleanModalDesign) || cleanModalDesign.includes(bParty)));
+          const bRemarks = (b.remarks || '').trim().toLowerCase();
+          const bSetNo = (b.set_no || '').trim().toLowerCase();
+
+          const matchDesign = Boolean(
+            bDesignNorm && normModalDesign && (
+              bDesignNorm === normModalDesign || 
+              bDesignNorm.includes(normModalDesign) || 
+              normModalDesign.includes(bDesignNorm)
+            )
+          );
+
+          const matchOrder = Boolean(
+            normModalOrder && (
+              (bParty && (bParty === normModalOrder || bParty.includes(normModalOrder) || normModalOrder.includes(bParty))) ||
+              (bRemarks && bRemarks.includes(normModalOrder)) ||
+              (bDesignRaw && bDesignRaw.includes(normModalOrder)) ||
+              (bSetNo && bSetNo.includes(normModalOrder))
+            )
+          );
+
+          const crossMatch = Boolean(
+            (bParty && normModalDesign && (bParty === normModalDesign || normModalDesign.includes(bParty))) ||
+            (bDesignNorm && normModalOrder && bDesignNorm.includes(normModalOrder))
+          );
+
+          return matchDesign || matchOrder || crossMatch;
         };
+
+        const currentBeamsList = liveBeams.length > 0 ? liveBeams : beams;
 
         const isModalBeamAvailable = (b: any) => {
           // If this beam is already reserved for this specific plan, keep it selectable
@@ -1254,25 +1315,29 @@ export default function PlannedLooms() {
             return true;
           }
 
-          const st = (b.status || '').trim().toUpperCase();
+          const st = (b.status || b.beam_status || '').trim().toUpperCase();
           // Never consider Running, In Use, Completed, Reserved or Allocated beams as available
           if (st === 'RUNNING' || st === 'IN USE' || st === 'COMPLETED' || st === 'RESERVED' || st === 'ALLOCATED') {
             return false;
           }
 
-          // If assigned to any loom, verify against actual running status
-          if (b.loom_no_assigned && Number(b.loom_no_assigned) > 0) {
+          const isStatusAvailable = st === 'AVAILABLE' || st === 'READY' || st === 'CUT BEAM' || st === '';
+
+          // If assigned to another loom, verify against actual running status
+          if (b.loom_no_assigned && Number(b.loom_no_assigned) > 0 && Number(b.loom_no_assigned) !== confirmBeamModalPlan.loom_no) {
             const isActuallyRunning = activeRuns[b.loom_no_assigned]?.currentBeamNo === b.beam_no;
             if (isActuallyRunning) return false;
           }
 
-          // Check against active running looms
-          const isCurrentlyRunningOnLoom = Object.values(activeRuns || {}).some((r: any) => {
-            if (!r || !r.designNo || r.designNo === '—') return false;
-            return (r.beamId && r.beamId === b.id) || (r.currentBeamNo && r.currentBeamNo === b.beam_no);
-          });
-          if (isCurrentlyRunningOnLoom) {
-            return false;
+          // If NOT explicitly marked as Available / Ready, check against active running looms
+          if (!isStatusAvailable) {
+            const isCurrentlyRunningOnLoom = Object.values(activeRuns || {}).some((r: any) => {
+              if (!r || !r.designNo || r.designNo === '—') return false;
+              return (r.beamId && r.beamId === b.id) || (r.currentBeamNo && r.currentBeamNo === b.beam_no);
+            });
+            if (isCurrentlyRunningOnLoom) {
+              return false;
+            }
           }
 
           // Must have available warp meters
@@ -1281,14 +1346,14 @@ export default function PlannedLooms() {
             return false;
           }
 
-          return st === 'AVAILABLE' || st === 'READY' || st === 'CUT BEAM' || st === '';
+          return isStatusAvailable;
         };
 
         // System suggested beam
-        const suggestedBeam = beams.find(b => checkModalBeamMatch(b) && isModalBeamAvailable(b));
+        const suggestedBeam = currentBeamsList.find(b => checkModalBeamMatch(b) && isModalBeamAvailable(b));
 
         // Filter physical beams
-        const allAvailableBeams = beams.filter(b => isModalBeamAvailable(b));
+        const allAvailableBeams = currentBeamsList.filter(b => isModalBeamAvailable(b));
         
         const matchBeamSearch = (b: any) => {
           const q = (beamSearchTerm || '').trim().toLowerCase();
@@ -1317,7 +1382,7 @@ export default function PlannedLooms() {
 
         const displayedBeamsInTable = beamFilterTab === 'COMPATIBLE' ? compatibleBeams : (beamFilterTab === 'ALL_AVAILABLE' ? allAvailableBeams : incompatibleBeams);
 
-        const chosenBeamObject = beams.find(b => b.id === selectedBeamForConfirmation);
+        const chosenBeamObject = currentBeamsList.find(b => b.id === selectedBeamForConfirmation);
 
         return (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">

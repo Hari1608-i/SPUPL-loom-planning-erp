@@ -117,7 +117,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         safeFetch(`${API_BASE_URL}/api/reed-stock`),
         safeFetch(`${API_BASE_URL}/api/reed-requirements`),
         safeFetch(`${API_BASE_URL}/api/orders`),
-        safeFetch(`${API_BASE_URL}/api/beam-stock`),
+        safeFetch(`${API_BASE_URL}/api/beam-stock?_t=${Date.now()}`),
         safeFetch(`${API_BASE_URL}/api/production-logs`)
       ]);
 
