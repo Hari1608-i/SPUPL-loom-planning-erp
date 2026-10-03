@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -1704,6 +1704,15 @@ app.post('/api/orders/bulk-delete', async (req, res) => {
       }
     }
 
+    const ordersToDelete = await prisma.orderMaster.findMany({
+      where: { id: { in: numericIds } },
+      select: { order_no: true }
+    });
+    const orderNos = ordersToDelete.map(o => o.order_no).filter(Boolean);
+    if (orderNos.length > 0) {
+      await prisma.orderCompletionHistory.deleteMany({ where: { order_no: { in: orderNos } } }).catch(() => {});
+    }
+
     await prisma.beamRequirement.deleteMany({ where: { order_id: { in: numericIds } } }).catch(() => {});
     await prisma.plannedAssignment.deleteMany({ where: { order_id: { in: numericIds } } }).catch(() => {});
     const deleteResult = await prisma.orderMaster.deleteMany({ where: { id: { in: numericIds } } });
@@ -2337,6 +2346,7 @@ app.delete('/api/orders/:id', async (req, res) => {
       await prisma.sizingConfirmation.deleteMany({ where: { order_no: targetOrder.order_no } }).catch(() => { });
       await prisma.delayRecord.deleteMany({ where: { order_no: targetOrder.order_no } }).catch(() => { });
       await prisma.erpAlert.deleteMany({ where: { order_no: targetOrder.order_no } }).catch(() => { });
+      await prisma.orderCompletionHistory.deleteMany({ where: { order_no: targetOrder.order_no } }).catch(() => { });
     }
 
     await prisma.orderMaster.delete({ where: { id } });
@@ -8241,8 +8251,7 @@ app.get('/api/orders', async (req, res) => {
       }
 
       const orderCompletionRecord = orderCompletions.find(c =>
-        (c.order_no && c.order_no.trim().toLowerCase() === orderNo) ||
-        (c.ibpo_no && c.ibpo_no.trim().toUpperCase() === ibpoNo)
+        c.order_no && orderNo && c.order_no.trim().toLowerCase() === orderNo
       );
       const actualCompletionDate = orderCompletionRecord ? orderCompletionRecord.actual_completion_date : null;
 
@@ -8284,7 +8293,11 @@ app.get('/api/orders', async (req, res) => {
       const targetDate = order.weaving_completion_date ? new Date(order.weaving_completion_date) : (order.target_delivery_date ? new Date(order.target_delivery_date) : null);
       const isOverdue = targetDate && targetDate < today;
 
-      if (orderCompletionRecord || order.order_completion_status === 'COMPLETED' || order.status === 'ORDER COMPLETED') {
+      const isExplicitlyCompleted = order.order_completion_status === 'COMPLETED' || 
+        order.order_completion_status === 'SHORT CLOSED' ||
+        (orderCompletionRecord && (order.order_completion_status === 'COMPLETED' || order.status === 'ORDER COMPLETED'));
+
+      if (isExplicitlyCompleted) {
         cleanStatus = 'ORDER COMPLETED';
       } else if (finalProducedQty >= order.order_qty && order.order_qty > 0) {
         cleanStatus = 'WEAVING COMPLETED';
