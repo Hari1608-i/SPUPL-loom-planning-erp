@@ -191,7 +191,7 @@ export default function MainEntry() {
 
   useEffect(() => {
     fetchPrepRecords();
-    const interval = setInterval(fetchPrepRecords, 8000);
+    const interval = setInterval(fetchPrepRecords, 25000);
     return () => clearInterval(interval);
   }, []);
 
