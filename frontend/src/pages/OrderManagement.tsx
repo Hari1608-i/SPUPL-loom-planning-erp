@@ -691,6 +691,9 @@ export default function OrderManagement() {
     }
 
     const ibpoSet = new Set<string>();
+    const validRows: typeof nonBlankRows = [];
+    const skippedIbpos: string[] = [];
+
     for (let i = 0; i < nonBlankRows.length; i++) {
       const r = nonBlankRows[i];
       if (!r.ibpo_no.trim()) {
@@ -698,24 +701,27 @@ export default function OrderManagement() {
         return;
       }
       const cleanIbpo = r.ibpo_no.trim().toUpperCase();
+
+      // Skip within-batch duplicates
       if (ibpoSet.has(cleanIbpo)) {
-        setMultiErrorMsg(`Row ${i + 1}: Duplicate IBPO "${cleanIbpo}" found in pasted rows.`);
-        return;
+        skippedIbpos.push(cleanIbpo + ' (duplicate in batch)');
+        continue;
       }
       ibpoSet.add(cleanIbpo);
 
+      // Skip if already active in DB — don't block, just skip
       const dupDb = orders.find(o => o.ibpo_no && o.ibpo_no.trim().toUpperCase() === cleanIbpo && o.status !== 'ORDER COMPLETED' && o.order_completion_status !== 'COMPLETED');
       if (dupDb) {
-        setMultiErrorMsg(`Row ${i + 1}: IBPO "${cleanIbpo}" is already active in Order Management.`);
-        return;
+        skippedIbpos.push(cleanIbpo + ' (already active)');
+        continue;
       }
 
       if (!r.design_no_sp_no.trim()) {
-        setMultiErrorMsg(`Row ${i + 1}: Design Number is required.`);
+        setMultiErrorMsg(`Row ${i + 1} (IBPO: ${cleanIbpo}): Design Number is required.`);
         return;
       }
       if (!(Number(r.order_qty) > 0)) {
-        setMultiErrorMsg(`Row ${i + 1}: Order Quantity must be greater than 0.`);
+        setMultiErrorMsg(`Row ${i + 1} (IBPO: ${cleanIbpo}): Order Quantity must be greater than 0.`);
         return;
       }
       if (!r.weaving_start_date) {
@@ -736,13 +742,19 @@ export default function OrderManagement() {
       if (!(Number(r.avg_production_per_loom) > 0)) {
         r.avg_production_per_loom = 250;
       }
+      validRows.push(r);
+    }
+
+    if (validRows.length === 0) {
+      setMultiErrorMsg(`All ${nonBlankRows.length} rows were skipped (already active or duplicates): ${skippedIbpos.join(', ')}`);
+      return;
     }
 
     setIsSubmittingMulti(true);
     setMultiErrorMsg(null);
 
     try {
-      const payload = nonBlankRows.map(r => ({
+      const payload = validRows.map(r => ({
         ...r,
         no_of_clr_warp: parseColorCount(r.no_of_clr_warp),
         no_of_clr_weft: parseColorCount(r.no_of_clr_weft),
@@ -756,12 +768,17 @@ export default function OrderManagement() {
         body: JSON.stringify({ orders: payload, adminUser: user?.username })
       });
 
+      const contentType = res.headers.get('content-type') || '';
+      const data = contentType.includes('application/json') ? await res.json() : { error: await res.text() };
+
       if (res.ok) {
         setShowMultiEntryModal(false);
         await loadData();
         await refreshData();
+        if (skippedIbpos.length > 0) {
+          alert(`✅ Saved ${validRows.length} order(s) successfully.\n\n⚠️ Skipped ${skippedIbpos.length} already-active IBPO(s):\n${skippedIbpos.join('\n')}`);
+        }
       } else {
-        const data = await res.json();
         setMultiErrorMsg(data.error || 'Failed to save bulk orders.');
       }
     } catch (e: unknown) {
@@ -770,6 +787,7 @@ export default function OrderManagement() {
       setIsSubmittingMulti(false);
     }
   };
+
 
   const handleSaveMultiEdit = async () => {
     if (multiRows.length === 0) return;
@@ -1068,9 +1086,21 @@ export default function OrderManagement() {
         })
       });
 
-      const data = await res.json();
+      const contentType = res.headers.get('content-type') || '';
+      const data = contentType.includes('application/json') ? await res.json() : { error: await res.text() };
       if (res.ok) {
         setCompleteBatchResult(data);
+        // Remove successfully completed IBPOs from the textarea immediately
+        const completedIbpos = new Set(
+          (data.results || [])
+            .filter((r: { result: string; ibpo: string }) => r.result === 'COMPLETED' || r.result === 'ALREADY COMPLETED')
+            .map((r: { ibpo: string }) => r.ibpo.trim().toUpperCase())
+        );
+        if (completedIbpos.size > 0) {
+          const remaining = parsedIbpos.filter(ibpo => !completedIbpos.has(ibpo.trim().toUpperCase()));
+          setCompleteIbposText(remaining.join('\n'));
+          setParsedIbpos(remaining);
+        }
         await loadData();
         await refreshData();
       } else {
@@ -1082,6 +1112,7 @@ export default function OrderManagement() {
       setIsProcessingComplete(false);
     }
   };
+
 
   const filteredOrders = orders.filter(o => {
     const q = (searchTerm || '').trim().toLowerCase();

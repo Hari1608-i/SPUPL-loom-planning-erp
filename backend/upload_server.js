@@ -1333,22 +1333,24 @@ app.post('/api/orders/bulk', async (req, res) => {
       return res.status(400).json({ error: 'No orders provided for bulk insertion.' });
     }
 
-    // 1. Check duplicates within payload
+    // 1. Deduplicate within payload — keep first occurrence
     const ibpoMap = new Map();
+    const uniqueOrders = [];
     for (let i = 0; i < orders.length; i++) {
       const o = orders[i];
       if (o.ibpo_no) {
         const cleanIbpo = String(o.ibpo_no).trim().toUpperCase();
-        if (ibpoMap.has(cleanIbpo)) {
-          return res.status(400).json({
-            error: `Duplicate IBPO ${cleanIbpo} found in pasted rows (Row ${ibpoMap.get(cleanIbpo) + 1} & Row ${i + 1}).`
-          });
+        if (!ibpoMap.has(cleanIbpo)) {
+          ibpoMap.set(cleanIbpo, i);
+          uniqueOrders.push(o);
         }
-        ibpoMap.set(cleanIbpo, i);
+        // else: silent skip batch duplicate
+      } else {
+        uniqueOrders.push(o); // no ibpo — still try to create
       }
     }
 
-    // 2. Check duplicates against active orders in DB
+    // 2. Find which IBPOs already exist as active in DB and skip them
     const activeDbOrders = await prisma.orderMaster.findMany({
       where: {
         ibpo_no: { in: Array.from(ibpoMap.keys()) },
@@ -1361,22 +1363,31 @@ app.post('/api/orders/bulk', async (req, res) => {
       },
       select: { ibpo_no: true }
     });
+    const activeIbpoSet = new Set(activeDbOrders.map(d => String(d.ibpo_no).trim().toUpperCase()));
 
-    if (activeDbOrders.length > 0) {
-      const dupList = activeDbOrders.map(d => d.ibpo_no).join(', ');
+    // 3. Filter to only non-active orders
+    const ordersToCreate = uniqueOrders.filter(o => {
+      if (!o.ibpo_no) return true;
+      return !activeIbpoSet.has(String(o.ibpo_no).trim().toUpperCase());
+    });
+    const skippedCount = uniqueOrders.length - ordersToCreate.length;
+
+    if (ordersToCreate.length === 0) {
+      const skippedList = Array.from(activeIbpoSet).join(', ');
       return res.status(400).json({
-        error: `IBPO(s) already exist in active Order Management: ${dupList}. Duplicate active entries are not allowed.`
+        error: `All provided IBPOs already exist as active orders and were skipped: ${skippedList}. No new orders to save.`
       });
     }
 
     const createdOrders = [];
-    for (let i = 0; i < orders.length; i++) {
-      const body = orders[i];
+    for (let i = 0; i < ordersToCreate.length; i++) {
+      const body = ordersToCreate[i];
       const ibpoNo = body.ibpo_no ? String(body.ibpo_no).trim().toUpperCase() : null;
       const designNo = String(body.design_no_sp_no || '').trim();
       if (!designNo || !body.order_qty) {
         return res.status(400).json({ error: `Row ${i + 1}: Design Number and Order Quantity are required.` });
       }
+
 
       // Upsert Design Master
       const parsedSpecs = parseConstructionSpecsServer(body.construction);
@@ -1488,7 +1499,7 @@ app.post('/api/orders/bulk', async (req, res) => {
       }
     });
 
-    res.json({ success: true, count: createdOrders.length, orders: createdOrders });
+    res.json({ success: true, count: createdOrders.length, skippedCount, orders: createdOrders });
   } catch (error) {
     console.error('Bulk Order Save Error:', error);
     res.status(500).json({ error: error.message });
