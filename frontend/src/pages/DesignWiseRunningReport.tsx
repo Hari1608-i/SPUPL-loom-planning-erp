@@ -711,21 +711,21 @@ export default function DesignWiseRunningReport() {
                   </div>
 
                   {/* Unit Table */}
-                  <div className="overflow-x-auto print:overflow-visible">
+                  <div className="overflow-auto max-h-[calc(100vh-280px)] custom-scrollbar rounded-b-2xl print:max-h-none print:overflow-visible">
                     <table className="w-full text-left border-collapse text-xs">
-                      <thead>
+                      <thead className="bg-slate-900 text-white sticky top-0 shadow-md z-20 print:static print:bg-slate-100 print:text-black print:shadow-none">
                         <PrintTableHeaderRow 
                           title="Design-Wise Loom Running Report" 
                           subtitle={`Management Summary View — ${unitName}`} 
                           colSpan={6} 
                         />
-                        <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-black uppercase tracking-wider print:bg-slate-100 print:text-black">
-                          <th className="py-3.5 px-4 w-12 text-center print:w-[5%] print:py-2 print:px-2">#</th>
-                          <th className="py-3.5 px-4 print:w-[17%] print:py-2 print:px-2">Design No / SP No</th>
-                          <th className="py-3.5 px-4 print:w-[38%] print:py-2 print:px-2">Running Loom Numbers</th>
-                          <th className="py-3.5 px-4 text-center print:w-[8%] print:py-2 print:px-2">Total Looms</th>
-                          <th className="py-3.5 px-4 print:w-[18%] print:py-2 print:px-2">Technical Spec</th>
-                          <th className="py-3.5 px-4 text-right print:text-left print:w-[14%] print:py-2 print:px-2">Details</th>
+                        <tr className="bg-slate-900 text-white border-b border-slate-700 font-black uppercase tracking-wider sticky top-0 print:bg-slate-100 print:text-black">
+                          <th className="py-3.5 px-4 w-12 text-center sticky top-0 bg-slate-900 text-white print:w-[5%] print:py-2 print:px-2 print:bg-transparent print:text-black">#</th>
+                          <th className="py-3.5 px-4 sticky top-0 bg-slate-900 text-white print:w-[17%] print:py-2 print:px-2 print:bg-transparent print:text-black">Design No / SP No</th>
+                          <th className="py-3.5 px-4 sticky top-0 bg-slate-900 text-white print:w-[38%] print:py-2 print:px-2 print:bg-transparent print:text-black">Running Loom Numbers</th>
+                          <th className="py-3.5 px-4 text-center sticky top-0 bg-slate-900 text-white print:w-[8%] print:py-2 print:px-2 print:bg-transparent print:text-black">Total Looms</th>
+                          <th className="py-3.5 px-4 sticky top-0 bg-slate-900 text-white print:w-[18%] print:py-2 print:px-2 print:bg-transparent print:text-black">Technical Spec</th>
+                          <th className="py-3.5 px-4 text-right sticky top-0 bg-slate-900 text-white print:text-left print:w-[14%] print:py-2 print:px-2 print:bg-transparent print:text-black">Details</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
@@ -1043,20 +1043,20 @@ export default function DesignWiseRunningReport() {
             </div>
           </div>
 
-          <div className="overflow-x-auto print:overflow-visible">
+          <div className="overflow-auto max-h-[calc(100vh-280px)] custom-scrollbar rounded-b-2xl print:max-h-none print:overflow-visible">
             <table className="w-full border-collapse text-xs text-left">
-              <thead>
+              <thead className="bg-slate-900 text-white sticky top-0 shadow-md z-20 print:static print:bg-slate-100 print:text-black print:shadow-none">
                 <PrintTableHeaderRow 
                   title="Design-Wise Loom Running Report" 
                   subtitle="Visual Matrix View (Design × Unit)" 
                   colSpan={matrixData.unitsList.length + 2} 
                 />
-                <tr className="bg-slate-900 text-white uppercase text-[11px] font-black tracking-wider print:bg-slate-100 print:text-black">
-                  <th className="p-3 border border-slate-700 print:border-slate-300">Design No / SP No</th>
+                <tr className="bg-slate-900 text-white uppercase text-[11px] font-black tracking-wider sticky top-0 print:bg-slate-100 print:text-black">
+                  <th className="p-3 border border-slate-700 sticky top-0 bg-slate-900 text-white print:border-slate-300 print:bg-transparent print:text-black">Design No / SP No</th>
                   {matrixData.unitsList.map(unit => (
-                    <th key={unit} className="p-3 border border-slate-700 print:border-slate-300 text-center">{unit}</th>
+                    <th key={unit} className="p-3 border border-slate-700 text-center sticky top-0 bg-slate-900 text-white print:border-slate-300 print:bg-transparent print:text-black">{unit}</th>
                   ))}
-                  <th className="p-3 border border-slate-700 print:border-slate-300 text-center bg-slate-800 print:bg-slate-200">Total Looms</th>
+                  <th className="p-3 border border-slate-700 text-center bg-slate-800 sticky top-0 text-white print:border-slate-300 print:bg-slate-200 print:text-black">Total Looms</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700 font-semibold">

@@ -1658,6 +1658,7 @@ export default function DailyReport() {
         : '';
 
       const salesRetAsOn = getAsOnNum('SALES_RETURN_MTRS') ?? getAsOnNum('SALES_RETURNS_MTRS');
+      const salesRetU = mSummaries.find((m: any) => m.metric_code === 'SALES_RETURN_MTRS' || m.metric_code === 'SALES_RETURNS_MTRS')?.monthlyTotal;
 
       const giRowPairs = [
         { leftLabel: 'INHOUSE - TOTAL MTRS INSPECTED', leftAsOn: inInspAsOn !== null ? inInspAsOn : '', leftUpto: inInspU !== null ? inInspU : '', rightLabel: 'FINISHED INSPECTION MTRS', rightAsOn: finInspAsOn !== null ? finInspAsOn : '', rightUpto: finInspU !== null ? finInspU : '' },
@@ -1719,7 +1720,7 @@ export default function DailyReport() {
       setCell(ws1, r1, 8, salesRetAsOn !== null ? salesRetAsOn : '', styleCellCenter);
       merges1.push({ s: { r: r1, c: 8 }, e: { r: r1 + 1, c: 9 } });
       applyMergeWithBorders(ws1, r1, 8, r1 + 1, 9, styleCellCenter);
-      setCell(ws1, r1, 10, 'SP26/682 ( SHADE OFF )', styleCellCenter);
+      setCell(ws1, r1, 10, salesRetU !== null && salesRetU !== undefined ? salesRetU : '', styleCellCenter);
       merges1.push({ s: { r: r1, c: 10 }, e: { r: r1 + 1, c: 11 } });
       applyMergeWithBorders(ws1, r1, 10, r1 + 1, 11, styleCellCenter);
       r1++;
@@ -3570,6 +3571,7 @@ return (
                 : '';
 
               const salesRetAsOn = getAsOnMetricNum('SALES_RETURN_MTRS') ?? getAsOnMetricNum('SALES_RETURNS_MTRS');
+              const salesRetU = effectivePrintMonthly.find(m => m.metric_code === 'SALES_RETURN_MTRS' || m.metric_code === 'SALES_RETURNS_MTRS')?.monthlyTotal;
 
               const giRowPairs = [
                 { leftLabel: 'INHOUSE - TOTAL MTRS INSPECTED', leftAsOn: renderNumCell(inInspAsOn), leftUpto: renderNumCell(inInspU), rightLabel: 'FINISHED INSPECTION MTRS', rightAsOn: renderNumCell(finInspAsOn), rightUpto: renderNumCell(finInspU) },
@@ -3624,7 +3626,7 @@ return (
                     <td className="p-center"></td>
                     <td rowSpan={2} className="p-left p-bold">SALES RETURNS</td>
                     <td rowSpan={2} colSpan={2} className="p-center">{renderNumCell(salesRetAsOn)}</td>
-                    <td rowSpan={2} colSpan={2} className="p-center">SP26/682 ( SHADE OFF )</td>
+                    <td rowSpan={2} colSpan={2} className="p-center">{renderNumCell(salesRetU)}</td>
                   </tr>
 
                   {/* Row 35: TOTAL MTRS INSPECTED */}

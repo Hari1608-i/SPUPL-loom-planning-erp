@@ -8,6 +8,7 @@ import { triggerPrint } from '../utils/printManager';
 
 export default function ReedStock() {
   const { reeds, orders = [], designs = [], refreshData } = useAppContext();
+  const [activeTab, setActiveTab] = useState<'STOCK' | 'REQUIREMENTS'>('STOCK');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -590,8 +591,34 @@ export default function ReedStock() {
         </div>
       </div>
 
+      {/* SECTION TABS: SWITCH BETWEEN 1. REED STOCK MASTER, 2. REED REQUIREMENT AGAINST ORDER */}
+      <div className="flex border-b border-slate-200 gap-2 print:hidden bg-slate-100 p-1.5 rounded-2xl">
+        <button
+          onClick={() => setActiveTab('STOCK')}
+          className={`flex-1 py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+            activeTab === 'STOCK'
+              ? 'bg-blue-600 text-white shadow-md'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          1. REED STOCK MASTER ({filteredReeds.length} Reeds)
+        </button>
+        <button
+          onClick={() => setActiveTab('REQUIREMENTS')}
+          className={`flex-1 py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+            activeTab === 'REQUIREMENTS'
+              ? 'bg-indigo-700 text-white shadow-md'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+          }`}
+        >
+          <Box className="w-4 h-4" />
+          2. REED REQUIREMENT AGAINST ORDER ({groupedReedRequirements.length} Reed Counts)
+        </button>
+      </div>
+
       {/* Filter Tabs & Search */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+      <div className={`flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm ${activeTab !== 'STOCK' ? 'hidden print:block' : ''}`}>
         <div className="flex flex-wrap items-center gap-1.5">
           {[
             { key: 'ALL', label: 'All Stock' },
@@ -628,7 +655,7 @@ export default function ReedStock() {
       </div>
 
       {/* SECTION A — ORDER-WISE REED REQUIREMENT */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3">
+      <div className={`bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3 ${activeTab !== 'REQUIREMENTS' ? 'hidden print:block' : ''}`}>
         <div className="flex justify-between items-center border-b border-slate-100 pb-3">
           <div>
             <h2 className="text-base font-bold text-slate-900 flex items-center">
@@ -701,7 +728,7 @@ export default function ReedStock() {
       </div>
 
       {/* Main Grid Table — SECTION B PHYSICAL REED STOCK */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden ${activeTab !== 'STOCK' ? 'hidden print:block' : ''}`}>
         <div className="p-3 bg-slate-100 border-b border-slate-200 font-bold text-slate-800 text-xs flex justify-between items-center">
           <span>SECTION B — PHYSICAL REED STOCK MASTER</span>
           <span className="text-slate-500 font-normal">Physical stock grouped by Reed Count, Dents/Inch & Vendor</span>

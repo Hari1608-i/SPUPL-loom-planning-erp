@@ -148,12 +148,25 @@ export default function NextPlan() {
   useEffect(() => {
     if (activeOrders.length > 0) {
       if (urlIbpo || urlDesignNo) {
-        const matched = activeOrders.find(o =>
-          (urlIbpo && (o.ibpo_no === urlIbpo || o.order_no === urlIbpo)) ||
-          (urlDesignNo && o.design_no_sp_no === urlDesignNo)
-        );
+        const cleanIbpo = (urlIbpo || '').trim().toLowerCase();
+        const cleanDesign = (urlDesignNo || '').trim().toLowerCase();
+        const matched = activeOrders.find(o => {
+          const oIbpo = String(o.ibpo_no || o.order_no || '').trim().toLowerCase();
+          const oDesign = String(o.design_no_sp_no || '').trim().toLowerCase();
+          if (cleanIbpo && (oIbpo === cleanIbpo || oIbpo.includes(cleanIbpo) || cleanIbpo.includes(oIbpo))) {
+            return true;
+          }
+          if (cleanDesign && (oDesign === cleanDesign || oDesign.includes(cleanDesign) || cleanDesign.includes(oDesign))) {
+            return true;
+          }
+          return false;
+        });
         if (matched) {
           setSelectedOrder(matched);
+          setOrderSearchTerm(matched.ibpo_no || matched.order_no || urlIbpo || '');
+          if (searchParams.get('openAssign') === 'true') {
+            setShowAssignModal(true);
+          }
           return;
         }
       }
@@ -161,7 +174,7 @@ export default function NextPlan() {
         setSelectedOrder(activeOrders[0]);
       }
     }
-  }, [activeOrders, selectedOrder, urlIbpo, urlDesignNo]);
+  }, [activeOrders, urlIbpo, urlDesignNo, searchParams]);
 
   // Pre-select Loom No and open assign modal if loomNo is provided in query params
   useEffect(() => {
@@ -200,6 +213,18 @@ export default function NextPlan() {
       (o.beam_type && o.beam_type.toLowerCase().includes(q))
     );
   }, [activeOrders, orderSearchTerm]);
+
+  // Automatically keep selectedOrder synchronized with search filter so details below match search input
+  useEffect(() => {
+    if (orderSearchTerm.trim()) {
+      if (searchedOrders.length > 0) {
+        const isCurrentInSearched = selectedOrder && searchedOrders.some(o => o.id === selectedOrder.id);
+        if (!isCurrentInSearched) {
+          setSelectedOrder(searchedOrders[0]);
+        }
+      }
+    }
+  }, [orderSearchTerm, searchedOrders, selectedOrder]);
 
   // Calculate Order Loom Requirement Metrics for Selected Order
   const requirementSummary = useMemo(() => {
@@ -629,7 +654,7 @@ export default function NextPlan() {
           {/* Active Orders Dropdown */}
           <div className="md:col-span-2">
             <select
-              value={selectedOrder ? selectedOrder.id : ''}
+              value={selectedOrder && searchedOrders.some(o => o.id === selectedOrder.id) ? selectedOrder.id : (searchedOrders[0]?.id || '')}
               onChange={e => {
                 const found = activeOrders.find(o => o.id === Number(e.target.value));
                 if (found) setSelectedOrder(found);

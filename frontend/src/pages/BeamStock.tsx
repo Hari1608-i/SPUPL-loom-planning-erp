@@ -1823,16 +1823,14 @@ export default function BeamStock() {
                     <td className="p-1.5 text-center print:hidden">
                       <button
                         onClick={() => {
-                          setAllocatingBeam(row);
-                          setAllocForm({
-                            order_no: row.party_beam_no || row.ibpo || row.order_no || '',
-                            loom_no: row.loom_no_assigned ? String(row.loom_no_assigned) : '',
-                            warp_meter: String(row.warp_meter || ''),
-                            remarks: row.remarks || `Allocated from Physical Beam Stock`
-                          });
+                          const targetIbpo = (row.party_beam_no || row.ibpo || row.order_no || '').trim();
+                          const targetDesign = (row.design_no || '').trim();
+                          const targetBeamNo = (row.beam_no || '').trim();
+                          const targetBeamId = row.id ? String(row.id).trim() : '';
+                          navigate(`/plan?ibpo=${encodeURIComponent(targetIbpo)}&designNo=${encodeURIComponent(targetDesign)}&beamNo=${encodeURIComponent(targetBeamNo)}&beamId=${encodeURIComponent(targetBeamId)}&openAssign=true`);
                         }}
                         className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] rounded-lg shadow-sm transition-all flex items-center justify-center mx-auto gap-1"
-                        title={`Allocate Beam #${row.beam_no} to Order / Loom`}
+                        title={`Allocate Beam #${row.beam_no} in Loom Planning Setup`}
                       >
                         ALLOCATE <ArrowRight className="w-3 h-3" />
                       </button>

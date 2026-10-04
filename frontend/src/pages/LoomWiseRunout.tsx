@@ -228,28 +228,28 @@ export default function LoomWiseRunout() {
           <div className="text-sm text-industrial-500 font-medium">Running Looms: {filteredData.length}</div>
         </div>
         
-        <div className="overflow-x-auto flex-1 min-h-[500px] print:overflow-visible print:min-h-0">
+        <div className="overflow-auto flex-1 max-h-[calc(100vh-230px)] custom-scrollbar rounded-b-xl print:max-h-none print:overflow-visible">
           <table className="w-full text-left border-collapse whitespace-nowrap text-xs">
-            <thead className="bg-white sticky top-0 shadow-sm z-10 print:static print:shadow-none">
+            <thead className="bg-slate-900 text-white sticky top-0 shadow-md z-20 print:static print:bg-slate-100 print:text-black print:shadow-none">
               <PrintTableHeaderRow 
                 title="Loom-Wise Runout Report" 
                 subtitle="Warp Balance & Runout Schedule Audit Log" 
                 colSpan={13} 
               />
-              <tr className="border-b border-industrial-200 font-bold uppercase text-industrial-500 print:text-black print:bg-slate-100">
-                <th className="py-3 px-4">Loom No</th>
-                <th className="py-3 px-4">Unit</th>
-                <th className="py-3 px-4">Loom Type</th>
-                <th className="py-3 px-4">Current Design</th>
-                <th className="py-3 px-4 text-right">Warped Mtr</th>
-                <th className="py-3 px-4 text-right">Produced Mtr</th>
-                <th className="py-3 px-4 text-right">Net Balance</th>
-                <th className="py-3 px-4 text-right">Effective Prod</th>
-                <th className="py-3 px-4">Runout Source</th>
-                <th className="py-3 px-4">Confidence</th>
-                <th className="py-3 px-4 text-right">Balance Days</th>
-                <th className="py-3 px-4">Expected Runout</th>
-                <th className="py-3 px-4">Next Plan</th>
+              <tr className="border-b border-slate-700 font-bold uppercase text-white bg-slate-900 sticky top-0 print:text-black print:bg-slate-100">
+                <th className="py-3 px-4 sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Loom No</th>
+                <th className="py-3 px-4 sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Unit</th>
+                <th className="py-3 px-4 sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Loom Type</th>
+                <th className="py-3 px-4 sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Current Design</th>
+                <th className="py-3 px-4 text-right sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Warped Mtr</th>
+                <th className="py-3 px-4 text-right sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Produced Mtr</th>
+                <th className="py-3 px-4 text-right sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Net Balance</th>
+                <th className="py-3 px-4 text-right sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Effective Prod</th>
+                <th className="py-3 px-4 sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Runout Source</th>
+                <th className="py-3 px-4 sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Confidence</th>
+                <th className="py-3 px-4 text-right sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Balance Days</th>
+                <th className="py-3 px-4 sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Expected Runout</th>
+                <th className="py-3 px-4 sticky top-0 bg-slate-900 text-white print:bg-transparent print:text-black">Next Plan</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-industrial-100">

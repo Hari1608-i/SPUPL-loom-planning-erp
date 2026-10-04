@@ -253,22 +253,22 @@ export default function DesignRunout() {
           <div className="text-sm text-industrial-500 font-medium">Active Designs: {filteredData.length}</div>
         </div>
         
-        <div className="overflow-x-auto flex-1 min-h-[400px] print:overflow-visible print:min-h-0">
+        <div className="overflow-auto flex-1 max-h-[calc(100vh-230px)] custom-scrollbar rounded-b-xl print:max-h-none print:overflow-visible">
           <table className="w-full text-left border-collapse whitespace-nowrap">
-            <thead className="bg-white sticky top-0 shadow-sm z-10 print:static print:shadow-none">
+            <thead className="bg-slate-900 text-white sticky top-0 shadow-md z-20 print:static print:bg-slate-100 print:text-black print:shadow-none">
               <PrintTableHeaderRow 
                 title="Design-Wise Runout Report" 
                 subtitle="Aggregated Warp Balance & Runout Schedule by Design" 
                 colSpan={7} 
               />
-              <tr className="border-b border-industrial-200 print:border-black print:bg-slate-100 print:text-black">
-                <th className="py-3 px-4 w-10 print:text-black print:py-1 print:px-2">#</th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase print:text-black print:font-black">Design No / SP No</th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right print:text-black print:font-black">Running Looms</th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right print:text-black print:font-black">Total Net Balance</th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right print:text-black print:font-black">Avg Production</th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right print:text-black print:font-black">Earliest Runout</th>
-                <th className="py-3 px-6 text-xs font-semibold text-industrial-500 uppercase text-right print:text-black print:font-black">Latest Runout</th>
+              <tr className="border-b border-slate-700 bg-slate-900 text-white font-bold uppercase sticky top-0 print:border-black print:bg-slate-100 print:text-black">
+                <th className="py-3 px-4 w-10 sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent print:py-1 print:px-2">#</th>
+                <th className="py-3 px-6 text-xs font-bold uppercase sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent">Design No / SP No</th>
+                <th className="py-3 px-6 text-xs font-bold uppercase text-right sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent">Running Looms</th>
+                <th className="py-3 px-6 text-xs font-bold uppercase text-right sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent">Total Net Balance</th>
+                <th className="py-3 px-6 text-xs font-bold uppercase text-right sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent">Avg Production</th>
+                <th className="py-3 px-6 text-xs font-bold uppercase text-right sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent">Earliest Runout</th>
+                <th className="py-3 px-6 text-xs font-bold uppercase text-right sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent">Latest Runout</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-industrial-100">
