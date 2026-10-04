@@ -264,6 +264,28 @@ initSeedData().catch(console.error);
 // AUTHENTICATION & USER MANAGEMENT API
 // ----------------------------------------------------
 
+function parseClientInfo(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = forwarded ? forwarded.split(',')[0].trim() : (req.headers['x-real-ip'] || req.socket?.remoteAddress || 'Unknown IP');
+  const userAgent = req.headers['user-agent'] || '';
+  let browser = 'Chrome';
+  let device = 'Windows Desktop';
+
+  if (/mobile/i.test(userAgent)) device = 'Mobile';
+  else if (/tablet|ipad/i.test(userAgent)) device = 'Tablet';
+  else if (/windows/i.test(userAgent)) device = 'Windows Desktop';
+  else if (/macintosh|mac os x/i.test(userAgent)) device = 'Mac Desktop';
+  else if (/linux/i.test(userAgent)) device = 'Linux Desktop';
+
+  if (/edg/i.test(userAgent)) browser = 'Microsoft Edge';
+  else if (/chrome|crios/i.test(userAgent)) browser = 'Google Chrome';
+  else if (/firefox|fxios/i.test(userAgent)) browser = 'Mozilla Firefox';
+  else if (/safari/i.test(userAgent) && !/chrome/i.test(userAgent)) browser = 'Apple Safari';
+  else if (/opera|opr/i.test(userAgent)) browser = 'Opera';
+
+  return { ip, browser, device, userAgent };
+}
+
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -283,14 +305,23 @@ app.post('/api/auth/login', async (req, res) => {
       }
     });
 
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const clientInfo = parseClientInfo(req);
+    const ip = clientInfo.ip;
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid Username or Password' });
     }
 
     if (user.status === 'LOCKED') {
-      await prisma.loginHistory.create({ data: { username, status: 'LOCKED', ipAddress: ip } });
+      await prisma.loginHistory.create({
+        data: {
+          username: user.username,
+          status: 'LOCKED',
+          ipAddress: ip,
+          browser: clientInfo.browser,
+          device: clientInfo.device
+        }
+      });
       return res.status(403).json({ error: 'Your account has been locked. Please contact Administrator.' });
     }
     if (user.status !== 'ACTIVE') {
@@ -308,7 +339,15 @@ app.post('/api/auth/login', async (req, res) => {
         where: { id: user.id },
         data: { failedAttempts: attempts, status }
       });
-      await prisma.loginHistory.create({ data: { username, status: 'FAILED', ipAddress: ip } });
+      await prisma.loginHistory.create({
+        data: {
+          username: user.username,
+          status: 'FAILED',
+          ipAddress: ip,
+          browser: clientInfo.browser,
+          device: clientInfo.device
+        }
+      });
 
       if (status === 'LOCKED') {
         return res.status(403).json({ error: 'Account locked due to 5 failed attempts. Please contact Administrator.' });
@@ -322,7 +361,27 @@ app.post('/api/auth/login', async (req, res) => {
       data: { failedAttempts: 0, lastLogin: new Date() }
     });
 
-    await prisma.loginHistory.create({ data: { username, status: 'SUCCESS', ipAddress: ip } });
+    await prisma.loginHistory.create({
+      data: {
+        username: user.username,
+        status: 'SUCCESS',
+        ipAddress: ip,
+        browser: clientInfo.browser,
+        device: clientInfo.device
+      }
+    });
+
+    try {
+      await prisma.systemAuditLog.create({
+        data: {
+          username: user.username,
+          screen: 'Authentication',
+          action: 'LOGIN_SUCCESS',
+          oldValue: null,
+          newValue: JSON.stringify({ ip, browser: clientInfo.browser, device: clientInfo.device, role: user.role })
+        }
+      });
+    } catch (e) {}
 
     const token = jwt.sign({ id: user.id, role: user.role, username: user.username }, JWT_SECRET, { expiresIn: '8h' });
 
@@ -471,6 +530,210 @@ app.get('/api/users', async (req, res) => {
     res.json({ users, total, page: pageNum, limit: limitNum });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Logout endpoint with session closing & audit log
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    const authUser = authenticateUser(req);
+    const username = authUser?.username || req.body?.username;
+    const clientInfo = parseClientInfo(req);
+    if (username) {
+      const latestLogin = await prisma.loginHistory.findFirst({
+        where: { username, logoutTime: null },
+        orderBy: { loginTime: 'desc' }
+      });
+      if (latestLogin) {
+        await prisma.loginHistory.update({
+          where: { id: latestLogin.id },
+          data: { logoutTime: new Date() }
+        });
+      }
+      try {
+        await prisma.systemAuditLog.create({
+          data: {
+            username,
+            screen: 'Authentication',
+            action: 'LOGOUT',
+            oldValue: null,
+            newValue: JSON.stringify({ ip: clientInfo.ip, browser: clientInfo.browser, device: clientInfo.device })
+          }
+        });
+      } catch (e) {}
+    }
+    res.json({ success: true, message: 'Logged out successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Record Page Visit (debounced/non-blocking)
+app.post('/api/audit/page-visit', async (req, res) => {
+  try {
+    const authUser = authenticateUser(req);
+    const { screen, route, username } = req.body;
+    const targetUser = authUser?.username || username || 'GUEST';
+    const clientInfo = parseClientInfo(req);
+
+    if (screen) {
+      await prisma.systemAuditLog.create({
+        data: {
+          username: targetUser,
+          screen: String(screen),
+          action: 'PAGE_OPEN',
+          oldValue: route ? String(route) : null,
+          newValue: JSON.stringify({
+            route: route || '',
+            ip: clientInfo.ip,
+            browser: clientInfo.browser,
+            device: clientInfo.device,
+            timestamp: new Date().toISOString()
+          })
+        }
+      });
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// Admin ONLY: Detailed User Activity, Login History, Page History & Last Save
+app.get('/api/users/:id/activity', async (req, res) => {
+  try {
+    const authUser = authenticateUser(req);
+    if (authUser) {
+      const roleUpper = (authUser.role || '').toUpperCase();
+      if (!['ADMINISTRATOR', 'ADMIN', 'SYSTEM ADMINISTRATOR'].includes(roleUpper)) {
+        const fullUser = await prisma.user.findUnique({ where: { id: authUser.id } });
+        let allowed = false;
+        if (fullUser && fullUser.permissions) {
+          try {
+            const p = JSON.parse(fullUser.permissions);
+            if (p['User Management']?.view) allowed = true;
+          } catch (e) {}
+        }
+        if (!allowed) {
+          return res.status(403).json({ error: 'You do not have permission to view User Activity.' });
+        }
+      }
+    }
+
+    const userId = Number(req.params.id);
+    let user = null;
+    if (!isNaN(userId)) {
+      user = await prisma.user.findUnique({ where: { id: userId } });
+    }
+    if (!user && req.params.id) {
+      user = await prisma.user.findUnique({ where: { username: req.params.id } });
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // 1. Fetch Login History
+    const loginHistory = await prisma.loginHistory.findMany({
+      where: { username: user.username },
+      orderBy: { loginTime: 'desc' },
+      take: 50
+    });
+
+    // 2. Fetch System Audit Logs
+    const auditLogs = await prisma.systemAuditLog.findMany({
+      where: { username: user.username },
+      orderBy: { timestamp: 'desc' },
+      take: 100
+    });
+
+    // 3. Compute Summary Metrics
+    const totalLogins = loginHistory.length;
+    const successfulLogins = loginHistory.filter(l => l.status === 'SUCCESS').length;
+    const failedLogins = loginHistory.filter(l => l.status === 'FAILED').length;
+    const lastLogin = loginHistory.find(l => l.status === 'SUCCESS') || (user.lastLogin ? { loginTime: user.lastLogin } : null);
+
+    const pageVisits = auditLogs.filter(a => a.action === 'PAGE_OPEN');
+    const saveActions = auditLogs.filter(a =>
+      /SAVE|CREATE|CONFIRM|ALLOCATE|UPDATE|EDIT|ENTRY|ADD/i.test(a.action) && a.action !== 'PAGE_OPEN'
+    );
+    const updateActions = auditLogs.filter(a => /UPDATE|EDIT|CHANGE|MODIFY/i.test(a.action));
+    const deleteActions = auditLogs.filter(a => /DELETE|REMOVE|CANCEL/i.test(a.action));
+
+    const lastActivity = auditLogs[0] || null;
+    const lastSave = saveActions[0] || null;
+
+    // Current active session check (login within last 8h with no logout)
+    const latestSession = loginHistory[0] || null;
+    const isSessionActive = latestSession && !latestSession.logoutTime &&
+      (new Date().getTime() - new Date(latestSession.loginTime).getTime()) < 8 * 3600 * 1000;
+
+    // Parse last save details safely
+    let parsedLastSave = null;
+    if (lastSave) {
+      let parsedNew = null;
+      try {
+        parsedNew = JSON.parse(lastSave.newValue);
+      } catch (e) {
+        parsedNew = lastSave.newValue;
+      }
+
+      let parsedOld = null;
+      try {
+        parsedOld = JSON.parse(lastSave.oldValue);
+      } catch (e) {
+        parsedOld = lastSave.oldValue;
+      }
+
+      parsedLastSave = {
+        id: lastSave.id,
+        timestamp: lastSave.timestamp,
+        screen: lastSave.screen,
+        action: lastSave.action,
+        oldValue: parsedOld,
+        newValue: parsedNew,
+        rawNew: lastSave.newValue
+      };
+    }
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        employeeId: user.employeeId,
+        employeeName: user.employeeName,
+        username: user.username,
+        role: user.role,
+        department: user.department,
+        designation: user.designation,
+        status: user.status,
+        createdAt: user.createdAt,
+        lastLogin: user.lastLogin
+      },
+      summary: {
+        totalLogins,
+        successfulLogins,
+        failedLogins,
+        totalPageVisits: pageVisits.length,
+        totalSaves: saveActions.length,
+        totalUpdates: updateActions.length,
+        totalDeletes: deleteActions.length,
+        lastLogin: lastLogin ? lastLogin.loginTime : null,
+        lastActivity: lastActivity ? lastActivity.timestamp : null,
+        lastSaveTime: lastSave ? lastSave.timestamp : null,
+        lastIp: latestSession?.ipAddress || null,
+        lastBrowser: latestSession?.browser || null,
+        lastDevice: latestSession?.device || null,
+        isSessionActive
+      },
+      lastSave: parsedLastSave,
+      loginHistory,
+      pageVisits: pageVisits.slice(0, 30),
+      auditLogs
+    });
+  } catch (err) {
+    console.error('Error fetching user activity:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -5784,8 +6047,16 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
         (p.order_no || '').trim().toLowerCase() === cleanIbpo.toLowerCase()
     );
 
-    // Check beam stock availability (for informative status)
-    const beam = await prisma.beamStockMaster.findFirst({
+    // Check beam stock availability (for informative status or explicit selection)
+    const beamIdInput = req.body.beamId || req.body.beam_id;
+    let allocatedBeam = null;
+    if (beamIdInput) {
+      allocatedBeam = await prisma.beamStockMaster.findUnique({
+        where: { id: Number(beamIdInput) }
+      });
+    }
+
+    const beam = allocatedBeam || await prisma.beamStockMaster.findFirst({
       where: { design_no: cleanDesign, status: 'Available' }
     });
 
@@ -5804,16 +6075,16 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
       planned_warp_meter: 10000,
       planned_avg_daily_production: 200,
       status: 'PLANNED',
-      reserved_beam_id: null,
-      reserved_beam_no: null,
+      reserved_beam_id: allocatedBeam ? allocatedBeam.id : null,
+      reserved_beam_no: allocatedBeam ? allocatedBeam.beam_no : null,
       reserved_reed_id: reed ? reed.id : null,
       reserved_reed_no: reed ? reed.reed_no : null,
       reed_status: reed ? 'REED AVAILABLE' : 'REED REQUIRED',
-      beam_status: 'BEAM PENDING',
-      sizing_status: beam ? 'COMPLETED' : 'RUNNING',
-      readiness_status: 'BEAM PENDING',
+      beam_status: allocatedBeam ? 'BEAM ALLOCATED' : 'BEAM PENDING',
+      sizing_status: beam || allocatedBeam ? 'COMPLETED' : 'RUNNING',
+      readiness_status: allocatedBeam ? 'BEAM ALLOCATED' : 'BEAM PENDING',
       planning_score: 75,
-      remarks: remarks || 'Saved as Loom Plan (Beam Allocation Pending)',
+      remarks: remarks || (allocatedBeam ? `Assigned with Beam #${allocatedBeam.beam_no}` : 'Saved as Loom Plan (Beam Allocation Pending)'),
       confirmation_status: 'PLAN CREATED'
     };
 
@@ -5824,6 +6095,23 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
       assignment = await prisma.plannedAssignment.create({ data: assignmentData });
     }
 
+    if (allocatedBeam) {
+      try {
+        await prisma.beamStockMaster.update({
+          where: { id: allocatedBeam.id },
+          data: {
+            status: 'Reserved',
+            reserved_for: `Loom ${loomNum} (Plan #${assignment.id})`,
+            reserved_status: 'ALLOCATED_TO_PLAN',
+            reserved_date: new Date(),
+            loom_no_assigned: loomNum
+          }
+        });
+      } catch (beamUpdateErr) {
+        console.warn('Beam stock reservation warning:', beamUpdateErr.message);
+      }
+    }
+
     // Auto-evaluate Knotting & Warp Preparation details for this plan
     let warpPreparation = null;
     try {
@@ -5832,13 +6120,37 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
       console.error('Error evaluating warp preparation:', e);
     }
 
+    try {
+      await prisma.systemAuditLog.create({
+        data: {
+          username: req.user?.username || 'ADMIN',
+          screen: 'Loom Planning Setup',
+          action: allocatedBeam ? 'ASSIGN_LOOM_WITH_BEAM' : 'ASSIGN_LOOM',
+          oldValue: matchingPlan ? JSON.stringify({ id: matchingPlan.id, loom_no: matchingPlan.loom_no, next_design: matchingPlan.next_design }) : null,
+          newValue: JSON.stringify({
+            planId: assignment.id,
+            loomNo: loomNum,
+            nextDesign: cleanDesign,
+            orderNo: cleanIbpo,
+            beamId: allocatedBeam?.id,
+            beamNo: allocatedBeam?.beam_no,
+            startDate: assignment.planned_start_date
+          })
+        }
+      });
+    } catch (auditErr) {
+      console.warn('Audit log write error:', auditErr.message);
+    }
+
     res.json({
       success: true,
       assignment,
       beamAvailable: !!beam,
       reedAvailable: !!reed,
       warpPreparation,
-      message: `Loom ${loomNum} plan saved successfully! Status: PLANNED (Beam Allocation Pending).`
+      message: allocatedBeam 
+        ? `Loom ${loomNum} plan saved and Beam #${allocatedBeam.beam_no} allocated successfully!`
+        : `Loom ${loomNum} plan saved successfully! Status: PLANNED (Beam Allocation Pending).`
     });
   } catch (error) {
     console.error(error);

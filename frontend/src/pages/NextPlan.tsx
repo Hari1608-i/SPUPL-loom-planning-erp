@@ -138,21 +138,21 @@ export default function NextPlan() {
   }, [orders]);
 
   const [searchParams] = useSearchParams();
+  const cleanUrlIbpo = (searchParams.get('ibpo') || '').trim().replace(/^[-_\s/]+/, '');
+  const cleanUrlDesignNo = (searchParams.get('designNo') || '').trim().replace(/^[-_\s/]+/, '');
   const urlBeamId = searchParams.get('beamId');
-  const urlBeamNo = searchParams.get('beamNo');
-  const urlDesignNo = searchParams.get('designNo');
-  const urlIbpo = searchParams.get('ibpo');
+  const urlBeamNo = (searchParams.get('beamNo') || '').trim().replace(/^[-_\s/]+/, '');
   const urlLoomNo = searchParams.get('loomNo');
 
   // Set selected order if beam/order context is in URL, or default if none selected
   useEffect(() => {
     if (activeOrders.length > 0) {
-      if (urlIbpo || urlDesignNo) {
-        const cleanIbpo = (urlIbpo || '').trim().toLowerCase();
-        const cleanDesign = (urlDesignNo || '').trim().toLowerCase();
+      if (cleanUrlIbpo || cleanUrlDesignNo) {
+        const cleanIbpo = cleanUrlIbpo.toLowerCase();
+        const cleanDesign = cleanUrlDesignNo.toLowerCase();
         const matched = activeOrders.find(o => {
-          const oIbpo = String(o.ibpo_no || o.order_no || '').trim().toLowerCase();
-          const oDesign = String(o.design_no_sp_no || '').trim().toLowerCase();
+          const oIbpo = String(o.ibpo_no || o.order_no || '').trim().replace(/^[-_\s/]+/, '').toLowerCase();
+          const oDesign = String(o.design_no_sp_no || '').trim().replace(/^[-_\s/]+/, '').toLowerCase();
           if (cleanIbpo && (oIbpo === cleanIbpo || oIbpo.includes(cleanIbpo) || cleanIbpo.includes(oIbpo))) {
             return true;
           }
@@ -163,7 +163,7 @@ export default function NextPlan() {
         });
         if (matched) {
           setSelectedOrder(matched);
-          setOrderSearchTerm(matched.ibpo_no || matched.order_no || urlIbpo || '');
+          setOrderSearchTerm(cleanUrlIbpo || matched.ibpo_no || matched.order_no || '');
           if (searchParams.get('openAssign') === 'true') {
             setShowAssignModal(true);
           }
@@ -174,7 +174,7 @@ export default function NextPlan() {
         setSelectedOrder(activeOrders[0]);
       }
     }
-  }, [activeOrders, urlIbpo, urlDesignNo, searchParams]);
+  }, [activeOrders, cleanUrlIbpo, cleanUrlDesignNo, searchParams]);
 
   // Pre-select Loom No and open assign modal if loomNo is provided in query params
   useEffect(() => {
@@ -359,7 +359,8 @@ export default function NextPlan() {
           orderNo: targetIbpo,
           nextDesign: targetDesign,
           expectedStartDate: assignStartDate,
-          remarks: assignRemarks || 'Assigned via Loom Planning Setup',
+          remarks: assignRemarks || (urlBeamNo ? `Assigned with Beam #${urlBeamNo}` : 'Assigned via Loom Planning Setup'),
+          beamId: urlBeamId ? Number(urlBeamId) : undefined,
           allowOverplan: requirementSummary.remainingLooms === 0
         })
       });
@@ -610,7 +611,7 @@ export default function NextPlan() {
           <div className="flex items-center space-x-2">
             <Layers className="w-5 h-5 text-indigo-600 shrink-0" />
             <span className="text-xs font-bold">
-              Allocating Beam <strong>#{urlBeamNo}</strong> {urlDesignNo ? `(Design: ${urlDesignNo})` : ''}. Assign a loom below or allocate to an existing planned loom.
+              Allocating Beam <strong>#{urlBeamNo}</strong> {cleanUrlDesignNo ? `(Design: ${cleanUrlDesignNo})` : ''}. Assign a loom below or allocate to an existing planned loom.
             </span>
           </div>
         </div>
@@ -1088,6 +1089,17 @@ export default function NextPlan() {
                 <div>Planned: <strong>{requirementSummary.plannedLooms}</strong></div>
                 <div>Remaining: <strong className="text-emerald-700">{requirementSummary.remainingLooms}</strong></div>
               </div>
+
+              {/* Allocated Beam Info Banner */}
+              {urlBeamNo && (
+                <div className="p-2.5 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl flex items-center justify-between text-indigo-900 font-bold text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-indigo-600 text-white rounded font-mono text-[10px]">BEAM SELECTED</span>
+                    <span>Allocating Beam #{urlBeamNo} (Design: {cleanUrlDesignNo || selectedOrder.design_no_sp_no})</span>
+                  </div>
+                  <span className="text-emerald-700 text-[11px] font-black">✓ Will be auto-allocated upon saving plan</span>
+                </div>
+              )}
 
               {/* Compatible Available Looms Table */}
               <div className="space-y-2">

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, User } from '../context/AuthContext';
-import { Search, Edit, Trash2, CheckCircle, XCircle, Shield, Key, Users as UsersIcon, UserCheck, Lock, Upload, Plus, CheckSquare, Square } from 'lucide-react';
+import { Search, Edit, Trash2, CheckCircle, XCircle, Shield, Key, Users as UsersIcon, UserCheck, Lock, Upload, Plus, CheckSquare, Square, Activity, Clock, Monitor, Globe, FileText, RefreshCw, X, Laptop, Smartphone, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import KPICard from '../components/ui/KPICard';
 import GradientButton from '../components/ui/GradientButton';
@@ -170,6 +170,47 @@ export default function UserManagement() {
   const [formData, setFormData] = useState<any>({
     username: '', password: '', employeeName: '', employeeId: '', role: 'VIEWER', department: '', status: 'ACTIVE', permissions: {}
   });
+
+  // User Activity & Audit Modal State
+  const [activityUser, setActivityUser] = useState<User | null>(null);
+  const [activityData, setActivityData] = useState<any>(null);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityTab, setActivityTab] = useState<'OVERVIEW' | 'LOGINS' | 'PAGES' | 'ACTIONS'>('OVERVIEW');
+  const [activitySearch, setActivitySearch] = useState('');
+  const [activityActionFilter, setActivityActionFilter] = useState('');
+
+  const handleOpenActivityModal = async (u: User) => {
+    setActivityUser(u);
+    setActivityLoading(true);
+    setActivityData(null);
+    setActivityTab('OVERVIEW');
+    setActivitySearch('');
+    setActivityActionFilter('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/users/${u.id}/activity`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setActivityData(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch user activity:', err);
+    } finally {
+      setActivityLoading(false);
+    }
+  };
+
+  const formatIST = (isoString?: string | null) => {
+    if (!isoString) return 'Not Available';
+    try {
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return 'Not Available';
+      return format(d, 'dd-MMM-yyyy HH:mm:ss') + ' IST';
+    } catch {
+      return 'Not Available';
+    }
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -512,6 +553,12 @@ export default function UserManagement() {
                     {u.lastLogin ? format(new Date(u.lastLogin), 'dd MMM yyyy, HH:mm') : 'Never'}
                   </td>
                   <td className="py-3 px-6 text-right space-x-1">
+                    <button 
+                      onClick={() => handleOpenActivityModal(u)}
+                      className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View User Activity & Audit Trail"
+                    >
+                      <Activity className="w-4 h-4" />
+                    </button>
                     <button 
                       onClick={() => {
                         const parsedPerms = normalizeUserPermissions(u.permissions, u.role);
@@ -886,6 +933,481 @@ export default function UserManagement() {
               )}
             </div>
             
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* USER ACTIVITY & AUDIT TRAIL MODAL                                         */}
+      {/* ========================================================================= */}
+      {activityUser && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full my-6 overflow-hidden border border-slate-200 flex flex-col max-h-[92vh]">
+            
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex flex-wrap items-center justify-between gap-3 border-b border-indigo-900/50">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center font-black text-lg shadow-md border border-white/20">
+                  {activityUser.employeeName ? activityUser.employeeName.charAt(0) : 'U'}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-extrabold text-base tracking-tight text-white">{activityUser.employeeName}</h3>
+                    <span className="px-2 py-0.5 bg-indigo-500/30 text-indigo-200 border border-indigo-400/40 rounded text-[11px] font-mono font-bold">
+                      {activityUser.employeeId || 'NO-ID'}
+                    </span>
+                    <span className="px-2 py-0.5 bg-purple-500/30 text-purple-200 border border-purple-400/40 rounded-full text-[10px] font-black uppercase">
+                      {activityUser.role}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      activityUser.status === 'ACTIVE' ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-400/40' : 'bg-red-500/30 text-red-300 border border-red-400/40'
+                    }`}>
+                      {activityUser.status}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-300 font-medium mt-0.5 flex items-center gap-2">
+                    <span>Username: <strong className="text-indigo-200">@{activityUser.username}</strong></span>
+                    <span>•</span>
+                    <span>Department: <strong>{activityUser.department || 'Planning'}</strong></span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleOpenActivityModal(activityUser)}
+                  className="p-2 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                  title="Refresh Audit Data"
+                >
+                  <RefreshCw className={`w-4 h-4 ${activityLoading ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">Refresh</span>
+                </button>
+                <button
+                  onClick={() => { setActivityUser(null); setActivityData(null); }}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                  title="Close Activity Modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="bg-slate-100/80 px-4 py-2 border-b border-slate-200 flex flex-wrap gap-2 text-xs font-bold">
+              <button
+                onClick={() => setActivityTab('OVERVIEW')}
+                className={`px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
+                  activityTab === 'OVERVIEW'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5" /> 1. Overview & Last Save
+              </button>
+
+              <button
+                onClick={() => setActivityTab('LOGINS')}
+                className={`px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
+                  activityTab === 'LOGINS'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" /> 2. Login History ({activityData?.summary?.totalLogins || 0})
+              </button>
+
+              <button
+                onClick={() => setActivityTab('PAGES')}
+                className={`px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
+                  activityTab === 'PAGES'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Monitor className="w-3.5 h-3.5" /> 3. Screen Visits ({activityData?.pageVisits?.length || 0})
+              </button>
+
+              <button
+                onClick={() => setActivityTab('ACTIONS')}
+                className={`px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
+                  activityTab === 'ACTIONS'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" /> 4. Action Audit Trail ({activityData?.auditLogs?.length || 0})
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto custom-scrollbar flex-1 space-y-5 text-xs bg-slate-50/50">
+              {activityLoading && (
+                <div className="py-16 text-center text-slate-500 font-bold flex flex-col items-center justify-center gap-3">
+                  <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
+                  <span>Loading complete activity history from production audit logs...</span>
+                </div>
+              )}
+
+              {!activityLoading && activityData && (
+                <>
+                  {/* TAB 1: OVERVIEW & LAST SAVE */}
+                  {activityTab === 'OVERVIEW' && (
+                    <div className="space-y-5">
+                      {/* Metric Cards */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm space-y-1">
+                          <div className="text-[11px] font-bold text-slate-500 uppercase flex items-center justify-between">
+                            <span>Total Logins</span>
+                            <UserCheck className="w-4 h-4 text-indigo-600" />
+                          </div>
+                          <div className="text-2xl font-black text-slate-800">{activityData.summary?.totalLogins || 0}</div>
+                          <div className="text-[10px] text-slate-500 font-medium">
+                            <span className="text-emerald-700 font-bold">{activityData.summary?.successfulLogins || 0} Success</span>
+                            {activityData.summary?.failedLogins > 0 && (
+                              <span className="text-red-600 font-bold ml-1.5">• {activityData.summary.failedLogins} Failed</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm space-y-1">
+                          <div className="text-[11px] font-bold text-slate-500 uppercase flex items-center justify-between">
+                            <span>Last Login</span>
+                            <Clock className="w-4 h-4 text-blue-600" />
+                          </div>
+                          <div className="text-xs font-bold text-slate-900 truncate">
+                            {formatIST(activityData.summary?.lastLogin)}
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-mono truncate">
+                            IP: <strong>{activityData.summary?.lastIp || 'Not recorded'}</strong>
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm space-y-1">
+                          <div className="text-[11px] font-bold text-slate-500 uppercase flex items-center justify-between">
+                            <span>Save Operations</span>
+                            <FileText className="w-4 h-4 text-emerald-600" />
+                          </div>
+                          <div className="text-2xl font-black text-emerald-700">{activityData.summary?.totalSaves || 0}</div>
+                          <div className="text-[10px] text-slate-500 font-medium">
+                            {activityData.summary?.totalUpdates || 0} Updates • {activityData.summary?.totalDeletes || 0} Deletes
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm space-y-1">
+                          <div className="text-[11px] font-bold text-slate-500 uppercase flex items-center justify-between">
+                            <span>Session Status</span>
+                            <Globe className="w-4 h-4 text-purple-600" />
+                          </div>
+                          <div>
+                            {activityData.summary?.isSessionActive ? (
+                              <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 font-black text-[10px] uppercase rounded-full inline-flex items-center gap-1">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> ACTIVE SESSION
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 bg-slate-100 text-slate-600 font-bold text-[10px] uppercase rounded-full">
+                                IDLE / LOGGED OUT
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-medium truncate">
+                            {activityData.summary?.lastDevice || 'Desktop'} ({activityData.summary?.lastBrowser || 'Web'})
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* User Profile & Client Metadata Box */}
+                      <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm space-y-3">
+                        <div className="font-black text-slate-800 uppercase tracking-wider text-xs border-b border-slate-100 pb-2 flex items-center gap-2">
+                          <UserCheck className="w-4 h-4 text-indigo-600" /> USER ACCOUNT & CLIENT ACCESS PROFILE
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-slate-600">
+                          <div>Employee ID: <strong className="text-slate-900 block font-mono">{activityData.user?.employeeId || '-'}</strong></div>
+                          <div>Username: <strong className="text-indigo-900 block">@{activityData.user?.username}</strong></div>
+                          <div>Role: <strong className="text-purple-900 block">{activityData.user?.role}</strong></div>
+                          <div>Department: <strong className="text-slate-900 block">{activityData.user?.department || 'Planning'}</strong></div>
+                          <div>Account Created: <strong className="text-slate-800 block">{formatIST(activityData.user?.createdAt)}</strong></div>
+                          <div>Last Recorded IP: <strong className="text-indigo-800 block font-mono">{activityData.summary?.lastIp || 'Not Available'}</strong></div>
+                          <div>Last Browser: <strong className="text-slate-800 block">{activityData.summary?.lastBrowser || 'Not Available'}</strong></div>
+                          <div>Last Device: <strong className="text-slate-800 block">{activityData.summary?.lastDevice || 'Not Available'}</strong></div>
+                        </div>
+                      </div>
+
+                      {/* 🌟 PROMINENT LAST SAVE DETAILS CARD 🌟 */}
+                      <div className="p-5 bg-gradient-to-br from-indigo-950 via-slate-900 to-indigo-950 text-white rounded-2xl shadow-xl border border-indigo-700/60 space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-800/80 pb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30">
+                              <FileText className="w-5 h-5" />
+                            </span>
+                            <div>
+                              <div className="font-black text-sm uppercase tracking-wide text-white flex items-center gap-2">
+                                <span>LAST SAVED DATA / TRANSACTION</span>
+                                {activityData.lastSave && (
+                                  <span className="px-2 py-0.5 bg-emerald-500 text-white text-[10px] font-black rounded-full uppercase">
+                                    {activityData.lastSave.action}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-indigo-300 font-medium">
+                                Exact details of the most recent save, update, or confirmation performed by this user.
+                              </div>
+                            </div>
+                          </div>
+
+                          {activityData.lastSave && (
+                            <div className="text-right">
+                              <div className="text-xs font-mono font-bold text-emerald-300">
+                                {formatIST(activityData.lastSave.timestamp)}
+                              </div>
+                              <div className="text-[10px] text-indigo-300">
+                                Screen: <strong className="text-white">{activityData.lastSave.screen}</strong>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {activityData.lastSave ? (
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-white/5 rounded-xl border border-white/10 text-xs">
+                              <div>Screen: <strong className="text-amber-300 block">{activityData.lastSave.screen}</strong></div>
+                              <div>Action: <strong className="text-emerald-300 block">{activityData.lastSave.action}</strong></div>
+                              <div>
+                                Loom / Unit: <strong className="text-white block">
+                                  {activityData.lastSave.newValue?.loomNo || activityData.lastSave.newValue?.loom_no || '—'}
+                                </strong>
+                              </div>
+                              <div>
+                                Design / Order: <strong className="text-white block truncate">
+                                  {activityData.lastSave.newValue?.nextDesign || activityData.lastSave.newValue?.designNo || activityData.lastSave.newValue?.orderNo || '—'}
+                                </strong>
+                              </div>
+                            </div>
+
+                            {/* Saved Data Payload Inspection */}
+                            <div>
+                              <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 mb-1 flex items-center justify-between">
+                                <span>Complete Saved Payload Details:</span>
+                                <span className="text-[10px] text-slate-400 font-mono">Record ID #{activityData.lastSave.id}</span>
+                              </div>
+                              <div className="p-3 bg-black/40 rounded-xl border border-indigo-900/60 text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-48 custom-scrollbar">
+                                <pre className="whitespace-pre-wrap break-words">
+                                  {typeof activityData.lastSave.newValue === 'object'
+                                    ? JSON.stringify(activityData.lastSave.newValue, null, 2)
+                                    : activityData.lastSave.rawNew || 'No additional payload stored.'}
+                                </pre>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-6 text-center text-slate-400 bg-white/5 rounded-xl border border-dashed border-white/10">
+                            No save operations recorded yet for this user.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 2: LOGIN HISTORY */}
+                  {activityTab === 'LOGINS' && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                      <div className="p-3 bg-slate-100 font-black text-slate-800 text-xs border-b border-slate-200 flex items-center justify-between">
+                        <span>COMPLETE LOGIN SESSIONS ({activityData.loginHistory?.length || 0})</span>
+                        <span className="text-[10px] text-slate-500 font-normal">Recorded from authentication requests</span>
+                      </div>
+                      <div className="overflow-x-auto max-h-96 custom-scrollbar">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 text-slate-600 font-bold">
+                            <tr>
+                              <th className="p-3">Login Date & Time (IST)</th>
+                              <th className="p-3">Status</th>
+                              <th className="p-3">IP Address</th>
+                              <th className="p-3">Browser / Agent</th>
+                              <th className="p-3">Device / OS</th>
+                              <th className="p-3">Logout Time</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {(activityData.loginHistory || []).map((l: any, i: number) => (
+                              <tr key={l.id || i} className="hover:bg-slate-50/60">
+                                <td className="p-3 font-semibold text-slate-800">{formatIST(l.loginTime)}</td>
+                                <td className="p-3">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                    l.status === 'SUCCESS' ? 'bg-emerald-100 text-emerald-800' :
+                                    l.status === 'LOCKED' ? 'bg-amber-100 text-amber-800' :
+                                    'bg-red-100 text-red-800'
+                                  }`}>
+                                    {l.status}
+                                  </span>
+                                </td>
+                                <td className="p-3 font-mono font-medium text-indigo-700">{l.ipAddress || 'Not Recorded'}</td>
+                                <td className="p-3 text-slate-700">{l.browser || 'Web Browser'}</td>
+                                <td className="p-3 text-slate-700">{l.device || 'Desktop'}</td>
+                                <td className="p-3 text-slate-500 font-mono">{l.logoutTime ? formatIST(l.logoutTime) : 'Session Active / Closed by browser'}</td>
+                              </tr>
+                            ))}
+                            {(!activityData.loginHistory || activityData.loginHistory.length === 0) && (
+                              <tr>
+                                <td colSpan={6} className="p-8 text-center text-slate-400">No login history recorded yet for this user.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 3: SCREEN VISITS */}
+                  {activityTab === 'PAGES' && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                      <div className="p-3 bg-slate-100 font-black text-slate-800 text-xs border-b border-slate-200 flex items-center justify-between">
+                        <span>PAGES & SCREENS OPENED BY USER ({activityData.pageVisits?.length || 0})</span>
+                        <span className="text-[10px] text-slate-500 font-normal">Real-time route navigation logs</span>
+                      </div>
+                      <div className="overflow-x-auto max-h-96 custom-scrollbar">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 text-slate-600 font-bold">
+                            <tr>
+                              <th className="p-3">Timestamp (IST)</th>
+                              <th className="p-3">Screen Name</th>
+                              <th className="p-3">Route / URL</th>
+                              <th className="p-3">IP Address</th>
+                              <th className="p-3">Client Device</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {(activityData.pageVisits || []).map((p: any, i: number) => {
+                              let meta: any = {};
+                              try { meta = JSON.parse(p.newValue); } catch(e) {}
+                              return (
+                                <tr key={p.id || i} className="hover:bg-slate-50/60">
+                                  <td className="p-3 font-semibold text-slate-800">{formatIST(p.timestamp)}</td>
+                                  <td className="p-3 font-bold text-indigo-900">{p.screen}</td>
+                                  <td className="p-3 font-mono text-slate-600">{p.oldValue || meta.route || '/'}</td>
+                                  <td className="p-3 font-mono text-slate-600">{meta.ip || '—'}</td>
+                                  <td className="p-3 text-slate-600">{meta.device || 'Desktop'} ({meta.browser || 'Web'})</td>
+                                </tr>
+                              );
+                            })}
+                            {(!activityData.pageVisits || activityData.pageVisits.length === 0) && (
+                              <tr>
+                                <td colSpan={5} className="p-8 text-center text-slate-400">No screen visits recorded yet for this user.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 4: ACTION AUDIT TRAIL */}
+                  {activityTab === 'ACTIONS' && (
+                    <div className="space-y-3">
+                      {/* Search & Filter Bar */}
+                      <div className="flex flex-wrap gap-2 items-center justify-between">
+                        <div className="relative flex-1 min-w-[200px]">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                          <input
+                            type="text"
+                            placeholder="Filter actions by screen, action name, or content..."
+                            value={activitySearch}
+                            onChange={e => setActivitySearch(e.target.value)}
+                            className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <select
+                          value={activityActionFilter}
+                          onChange={e => setActivityActionFilter(e.target.value)}
+                          className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                        >
+                          <option value="">All Actions</option>
+                          <option value="SAVE">Saves & Creations</option>
+                          <option value="UPDATE">Updates & Edits</option>
+                          <option value="DELETE">Deletions</option>
+                          <option value="CONFIRM">Confirmations</option>
+                          <option value="ALLOCATE">Allocations</option>
+                          <option value="PAGE_OPEN">Page Visits</option>
+                        </select>
+                      </div>
+
+                      {/* Audit Log Table */}
+                      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                        <div className="overflow-x-auto max-h-96 custom-scrollbar">
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 text-slate-600 font-bold">
+                              <tr>
+                                <th className="p-3">Timestamp (IST)</th>
+                                <th className="p-3">Screen</th>
+                                <th className="p-3">Action</th>
+                                <th className="p-3">Old Value / Previous</th>
+                                <th className="p-3">New Value / Saved Data</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {(activityData.auditLogs || [])
+                                .filter((a: any) => {
+                                  if (activityActionFilter && !a.action.toUpperCase().includes(activityActionFilter.toUpperCase())) {
+                                    return false;
+                                  }
+                                  if (activitySearch.trim()) {
+                                    const q = activitySearch.toLowerCase();
+                                    const inScreen = (a.screen || '').toLowerCase().includes(q);
+                                    const inAction = (a.action || '').toLowerCase().includes(q);
+                                    const inNew = (a.newValue || '').toLowerCase().includes(q);
+                                    const inOld = (a.oldValue || '').toLowerCase().includes(q);
+                                    return inScreen || inAction || inNew || inOld;
+                                  }
+                                  return true;
+                                })
+                                .map((a: any, i: number) => (
+                                  <tr key={a.id || i} className="hover:bg-slate-50/60">
+                                    <td className="p-3 font-semibold text-slate-800 whitespace-nowrap">{formatIST(a.timestamp)}</td>
+                                    <td className="p-3 font-bold text-slate-800">{a.screen}</td>
+                                    <td className="p-3 whitespace-nowrap">
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                        a.action.includes('SAVE') || a.action.includes('CREATE') || a.action.includes('CONFIRM') ? 'bg-emerald-100 text-emerald-800' :
+                                        a.action.includes('DELETE') ? 'bg-red-100 text-red-800' :
+                                        a.action.includes('PAGE') ? 'bg-slate-100 text-slate-700' :
+                                        'bg-blue-100 text-blue-800'
+                                      }`}>
+                                        {a.action}
+                                      </span>
+                                    </td>
+                                    <td className="p-3 font-mono text-[11px] text-slate-500 max-w-xs truncate" title={a.oldValue}>
+                                      {a.oldValue || '—'}
+                                    </td>
+                                    <td className="p-3 font-mono text-[11px] text-slate-800 max-w-sm truncate" title={a.newValue}>
+                                      {a.newValue || '—'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              {(!activityData.auditLogs || activityData.auditLogs.length === 0) && (
+                                <tr>
+                                  <td colSpan={5} className="p-8 text-center text-slate-400">No actions recorded in audit logs.</td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex justify-between items-center text-xs">
+              <span className="text-slate-500 font-medium">
+                SPUPL ERP Enterprise Audit System • Timestamps displayed in Indian Standard Time (IST)
+              </span>
+              <button
+                onClick={() => { setActivityUser(null); setActivityData(null); }}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl shadow-sm transition-colors"
+              >
+                Close Audit View
+              </button>
+            </div>
+
           </div>
         </div>
       )}

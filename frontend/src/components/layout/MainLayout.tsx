@@ -389,9 +389,43 @@ function NotificationBell() {
 
 /* ─── Main Layout ─────────────────────────────────────────────────── */
 
+const ROUTE_TO_SCREEN_MAP: Record<string, string> = {
+  '/': 'Executive Dashboard',
+  '/analytics': 'Analytics',
+  '/design-wise-running': 'Design-Wise Loom Running',
+  '/loom-runout': 'Loom Runout',
+  '/design-runout': 'Design Runout',
+  '/main-entry': 'Main Entry',
+  '/availability': 'Availability Board',
+  '/recommendation': 'Smart Recommendation',
+  '/orders': 'Order Management',
+  '/order-tracking': 'Order Tracking & Planning Analytics',
+  '/plan': 'Loom Planning Setup',
+  '/alerts': 'Alert Center',
+  '/runout-monitor': 'Runout Monitor',
+  '/planned-looms': 'Next Planned Looms',
+  '/history': 'Order Completion & History',
+  '/completed-warp-history': 'Completed Warp History',
+  '/completed-warp-analysis': 'Completed Warp Analysis',
+  '/looms': 'Loom Master',
+  '/designs': 'Design Master',
+  '/reed-stock': 'Reed Stock',
+  '/beam-stock': 'Beam Stock',
+  '/sizing': 'Sizing Dashboard',
+  '/daily-entry-alert': 'Daily Entry Alert',
+  '/daily-report': 'Daily & Periodic Operational Reports',
+  '/users': 'User Management',
+  '/health': 'System Health'
+};
+
+function pathToScreenName(pathname: string): string {
+  return ROUTE_TO_SCREEN_MAP[pathname] || pathname;
+}
+
 export default function MainLayout({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { activeRuns, designs, orders, beams } = useAppContext();
   const [headerSearch, setHeaderSearch] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -404,6 +438,27 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [openAlertCount, setOpenAlertCount] = useState<number>(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Track page visits for user activity audit
+  const lastRecordedPathRef = useRef<string>('');
+  useEffect(() => {
+    if (user && location.pathname && location.pathname !== lastRecordedPathRef.current) {
+      lastRecordedPathRef.current = location.pathname;
+      const screenName = pathToScreenName(location.pathname);
+      fetch(`${API_BASE_URL}/api/audit/page-visit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          screen: screenName,
+          route: location.pathname,
+          username: user.username
+        })
+      }).catch(() => {});
+    }
+  }, [location.pathname, user, token]);
 
   const searchResults = React.useMemo(() => {
     const q = (headerSearch || '').trim().toLowerCase();

@@ -1823,9 +1823,9 @@ export default function BeamStock() {
                     <td className="p-1.5 text-center print:hidden">
                       <button
                         onClick={() => {
-                          const targetIbpo = (row.party_beam_no || row.ibpo || row.order_no || '').trim();
-                          const targetDesign = (row.design_no || '').trim();
-                          const targetBeamNo = (row.beam_no || '').trim();
+                          const targetIbpo = String(row.party_beam_no || row.ibpo || row.order_no || '').trim().replace(/^[-_\s/]+/, '');
+                          const targetDesign = String(row.design_no || '').trim().replace(/^[-_\s/]+/, '');
+                          const targetBeamNo = String(row.beam_no || '').trim().replace(/^[-_\s/]+/, '');
                           const targetBeamId = row.id ? String(row.id).trim() : '';
                           navigate(`/plan?ibpo=${encodeURIComponent(targetIbpo)}&designNo=${encodeURIComponent(targetDesign)}&beamNo=${encodeURIComponent(targetBeamNo)}&beamId=${encodeURIComponent(targetBeamId)}&openAssign=true`);
                         }}
