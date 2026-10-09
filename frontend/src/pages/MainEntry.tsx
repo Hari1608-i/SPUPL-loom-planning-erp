@@ -595,6 +595,14 @@ export default function MainEntry() {
         }
 
         if (activeRun) {
+          const runDesignClean = (activeRun.designNo || '').trim().toLowerCase();
+          const dObj = designsMap.get(runDesignClean);
+          const oObj = ordersMap.get(runDesignClean);
+          const defReed = (activeRun as any).current_reed_no || (activeRun as any).reed || dObj?.reed_count || dObj?.reedCount || oObj?.reed_count || oObj?.reedCount || '';
+          const defPick = (activeRun as any).current_pick || (activeRun as any).pick || dObj?.pick || (oObj?.ppi !== undefined && oObj?.ppi !== null && oObj?.ppi !== '' ? String(oObj.ppi) : '') || oObj?.pick || '';
+          const pReed = prevEntries[loom.loomNo]?.reed;
+          const pPick = prevEntries[loom.loomNo]?.pick;
+
           nextEntries[loom.loomNo] = {
             designNo: activeRun.designNo || '',
             currentBeamNo: (activeRun as any).currentBeamNo || '',
@@ -605,8 +613,8 @@ export default function MainEntry() {
             rpm: (dateLog && dateLog.rpm !== undefined && dateLog.rpm !== null) ? dateLog.rpm : '',
             efficiency: (dateLog && dateLog.efficiency !== undefined && dateLog.efficiency !== null) ? dateLog.efficiency : '',
             remarks: (activeRun as any).remarks || '',
-            reed: prevEntries[loom.loomNo]?.reed !== undefined ? prevEntries[loom.loomNo].reed : ((activeRun as any).current_reed_no || (activeRun as any).reed || ''),
-            pick: prevEntries[loom.loomNo]?.pick !== undefined ? prevEntries[loom.loomNo].pick : ((activeRun as any).current_pick || (activeRun as any).pick || '')
+            reed: (pReed !== undefined && String(pReed).trim() !== '') ? pReed : defReed,
+            pick: (pPick !== undefined && String(pPick).trim() !== '') ? pPick : defPick
           };
         } else {
           nextEntries[loom.loomNo] = {
@@ -684,6 +692,14 @@ export default function MainEntry() {
         // Only update if not dirty
         if (!dirtyLoomsRef.current.has(loom.loomNo)) {
           if (activeRun) {
+            const runDesignClean = (activeRun.designNo || '').trim().toLowerCase();
+            const dObj = designsMap.get(runDesignClean);
+            const oObj = ordersMap.get(runDesignClean);
+            const defReed = (activeRun as any).current_reed_no || (activeRun as any).reed || dObj?.reed_count || dObj?.reedCount || oObj?.reed_count || oObj?.reedCount || '';
+            const defPick = (activeRun as any).current_pick || (activeRun as any).pick || dObj?.pick || (oObj?.ppi !== undefined && oObj?.ppi !== null && oObj?.ppi !== '' ? String(oObj.ppi) : '') || oObj?.pick || '';
+            const pReed = prevEntries[loom.loomNo]?.reed;
+            const pPick = prevEntries[loom.loomNo]?.pick;
+
             newEntries[loom.loomNo] = {
               designNo: activeRun.designNo || '',
               currentBeamNo: (activeRun as any).currentBeamNo || '',
@@ -693,8 +709,8 @@ export default function MainEntry() {
               rpm: (dateLog && dateLog.rpm !== undefined && dateLog.rpm !== null) ? dateLog.rpm : '',
               efficiency: (dateLog && dateLog.efficiency !== undefined && dateLog.efficiency !== null) ? dateLog.efficiency : '',
               remarks: (activeRun as any).remarks || '',
-              reed: prevEntries[loom.loomNo]?.reed !== undefined ? prevEntries[loom.loomNo].reed : ((activeRun as any).current_reed_no || (activeRun as any).reed || ''),
-              pick: prevEntries[loom.loomNo]?.pick !== undefined ? prevEntries[loom.loomNo].pick : ((activeRun as any).current_pick || (activeRun as any).pick || '')
+              reed: (pReed !== undefined && String(pReed).trim() !== '') ? pReed : defReed,
+              pick: (pPick !== undefined && String(pPick).trim() !== '') ? pPick : defPick
             };
           } else {
             newEntries[loom.loomNo] = {
@@ -1099,8 +1115,8 @@ export default function MainEntry() {
       crimpPercent: design && Number(design.crimpPercent) > 0 ? (design.crimpPercent > 1 ? design.crimpPercent / 100 : design.crimpPercent) : 0.05,
       sortChangeType: (activeRuns[loomNo] as any)?.sortChangeType || (activeRuns[loomNo] as any)?.sort_change_type || prepRecordsByLoom[loomNo]?.confirmed_process || (entry as any).sortChangeType || (entry.currentBeamNo ? 'GAITING' : null),
       prepStatus: prepRecordsByLoom[loomNo]?.status || (activeRuns[loomNo] as any)?.prepStatus || (activeRuns[loomNo] as any)?.prep_status || null,
-      current_reed_no: entry.reed !== undefined ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
-      current_pick: entry.pick !== undefined ? entry.pick : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
+      current_reed_no: (entry.reed !== undefined && String(entry.reed).trim() !== '') ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
+      current_pick: (entry.pick !== undefined && String(entry.pick).trim() !== '') ? String(entry.pick) : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
       user: user?.username || 'ADMIN',
       remarks: entry.remarks
     };
@@ -1183,8 +1199,8 @@ export default function MainEntry() {
           crimpPercent: design && Number(design.crimpPercent) > 0 ? (design.crimpPercent > 1 ? design.crimpPercent / 100 : design.crimpPercent) : 0.05,
           sortChangeType: (activeRuns[loomNo] as any)?.sortChangeType || (activeRuns[loomNo] as any)?.sort_change_type || prepRecordsByLoom[loomNo]?.confirmed_process || (entry as any).sortChangeType || (entry.currentBeamNo ? 'GAITING' : null),
           prepStatus: prepRecordsByLoom[loomNo]?.status || (activeRuns[loomNo] as any)?.prepStatus || (activeRuns[loomNo] as any)?.prep_status || null,
-          current_reed_no: entry.reed !== undefined ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
-          current_pick: entry.pick !== undefined ? entry.pick : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
+          current_reed_no: (entry.reed !== undefined && String(entry.reed).trim() !== '') ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
+          current_pick: (entry.pick !== undefined && String(entry.pick).trim() !== '') ? String(entry.pick) : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
           user: user?.username || 'ADMIN',
           remarks: entry.remarks
         };
@@ -1210,8 +1226,8 @@ export default function MainEntry() {
           crimpPercent: 0.05,
           sortChangeType: (entry.currentBeamNo || (activeRuns[loomNo] as any)?.currentBeamNo) ? 'GAITING' : null,
           prepStatus: null,
-          current_reed_no: entry.reed !== undefined ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
-          current_pick: entry.pick !== undefined ? entry.pick : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
+          current_reed_no: (entry.reed !== undefined && String(entry.reed).trim() !== '') ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
+          current_pick: (entry.pick !== undefined && String(entry.pick).trim() !== '') ? String(entry.pick) : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
           user: user?.username || 'ADMIN',
           remarks: entry.remarks
         };
@@ -2314,8 +2330,8 @@ export default function MainEntry() {
                       {/* 6. Reed Count (Locked by Admin - Unlockable by Admin only) */}
                       <td className="p-3 text-xs font-bold text-slate-950 dark:text-slate-100">
                         {(() => {
-                          const defaultReed = (activeRunObj as any)?.current_reed_no || (activeRunObj as any)?.reed || design?.reedCount || design?.reed_count || matchedOrder?.reed_count || matchedOrder?.reedCount || matchedOrder?.designMaster?.reed_count || '';
-                          const currentReedVal = entry.reed !== undefined ? entry.reed : defaultReed;
+                          const defaultReed = (activeRunObj as any)?.current_reed_no || (activeRunObj as any)?.reed || design?.reed_count || design?.reedCount || matchedOrder?.reed_count || matchedOrder?.reedCount || matchedOrder?.designMaster?.reed_count || '';
+                          const currentReedVal = (entry.reed !== undefined && String(entry.reed).trim() !== '') ? entry.reed : defaultReed;
                           const isUnlocked = !!unlockedLoomSpecs[loom.loomNo];
 
                           if (isUnlocked) {
@@ -2365,7 +2381,7 @@ export default function MainEntry() {
                           const constStr = design?.construction || matchedOrder?.construction || matchedOrder?.designMaster?.construction || '';
                           const parsedPick = constStr.match(/\b\d+\s*x\s*(\d+)\b/i)?.[1] || constStr.match(/\bX\s*(\d+)\b/i)?.[1] || '';
                           const defaultPick = (activeRunObj as any)?.current_pick || (activeRunObj as any)?.pick || design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick || matchedOrder?.designMaster?.pick || parsedPick || '';
-                          const currentPickVal = entry.pick !== undefined ? entry.pick : defaultPick;
+                          const currentPickVal = (entry.pick !== undefined && String(entry.pick).trim() !== '') ? entry.pick : defaultPick;
                           const isUnlocked = !!unlockedLoomSpecs[loom.loomNo];
 
                           if (isUnlocked) {

@@ -102,6 +102,27 @@ export default function BeamStock() {
     remarks: ''
   });
 
+  // Top Beam Modal State (Two Set Nos, Two Beam Nos, Two Ends, One Warp Meter)
+  const [showTopBeamModal, setShowTopBeamModal] = useState<boolean>(false);
+  const [isSavingTopBeam, setIsSavingTopBeam] = useState<boolean>(false);
+  const [topBeamForm, setTopBeamForm] = useState({
+    date: format(new Date(), 'yyyy-MM-dd'),
+    design_no: '',
+    vendor_name: 'In-House Warping',
+    party_beam_no: '',
+    warp_meter: '',
+    bottom_set_no: '',
+    top_set_no: '',
+    bottom_beam_no: '',
+    top_beam_no: '',
+    bottom_ends: '',
+    top_ends: '',
+    beam_width: '68',
+    beam_dia: '800',
+    location: 'At Sizing',
+    remarks: ''
+  });
+
   // Allocate Beam Modal State (Instant physical stock allocation)
   const [allocatingBeam, setAllocatingBeam] = useState<BeamRowState | null>(null);
   const [allocForm, setAllocForm] = useState({
@@ -652,6 +673,188 @@ export default function BeamStock() {
       setErrorMsg(`Save Error: ${e.message}`);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Open Top Beam Set Modal
+  const handleOpenTopBeamModal = () => {
+    setTopBeamForm({
+      date: format(new Date(), 'yyyy-MM-dd'),
+      design_no: '',
+      vendor_name: 'In-House Warping',
+      party_beam_no: '',
+      warp_meter: '',
+      bottom_set_no: '',
+      top_set_no: '',
+      bottom_beam_no: '',
+      top_beam_no: '',
+      bottom_ends: '',
+      top_ends: '',
+      beam_width: '68',
+      beam_dia: '800',
+      location: 'At Sizing',
+      remarks: ''
+    });
+    setShowTopBeamModal(true);
+  };
+
+  const handleTopBeamDesignChange = (selectedDesignNo: string) => {
+    const clean = selectedDesignNo.trim();
+    const d = designs.find((item: any) => (item.designNo || item.design_no_sp_no || '').trim().toLowerCase() === clean.toLowerCase());
+    const matchedOrd = orders.find((item: any) => (item.design_no_sp_no || '').trim().toLowerCase() === clean.toLowerCase());
+
+    setTopBeamForm(prev => ({
+      ...prev,
+      design_no: selectedDesignNo,
+      party_beam_no: prev.party_beam_no || matchedOrd?.ibpo_no || matchedOrd?.order_no || '',
+      beam_width: d?.reed_space_warp_width || d?.greige_width || matchedOrd?.width || prev.beam_width,
+      bottom_ends: prev.bottom_ends || (d?.total_ends ? String(d.total_ends) : ''),
+      vendor_name: prev.vendor_name || 'In-House Warping'
+    }));
+  };
+
+  // Save Top Beam Set (Two Set Nos, Two Beam Nos, Two Ends, One Warp Meter)
+  const handleSaveTopBeamSet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!topBeamForm.design_no.trim()) {
+      alert('Please enter or select a Design No.');
+      return;
+    }
+    if (!(Number(topBeamForm.warp_meter) > 0)) {
+      alert('Validation Error: Warp Meter must be greater than 0.');
+      return;
+    }
+    if (!topBeamForm.bottom_beam_no.trim() || !topBeamForm.top_beam_no.trim()) {
+      alert('Validation Error: Both Bottom Beam No and Top Beam No are required.');
+      return;
+    }
+    if (!topBeamForm.bottom_set_no.trim() || !topBeamForm.top_set_no.trim()) {
+      alert('Validation Error: Both Bottom Set No and Top Set No are required.');
+      return;
+    }
+
+    setIsSavingTopBeam(true);
+    setErrorMsg(null);
+
+    const btmBeamNo = topBeamForm.bottom_beam_no.trim();
+    const topBeamNo = topBeamForm.top_beam_no.trim();
+    const btmSetNo = topBeamForm.bottom_set_no.trim();
+    const topSetNo = topBeamForm.top_set_no.trim();
+    const warpMtr = Number(topBeamForm.warp_meter);
+
+    const bottomPayload = {
+      date: topBeamForm.date,
+      design_no: topBeamForm.design_no.trim(),
+      vendor_name: topBeamForm.vendor_name,
+      party_beam_no: topBeamForm.party_beam_no,
+      order_no: topBeamForm.party_beam_no || null,
+      ibpo: topBeamForm.party_beam_no || null,
+      set_no: btmSetNo,
+      beam_no: btmBeamNo,
+      beam_type: 'BOTTOM BEAM',
+      beam_dia: Number(topBeamForm.beam_dia) || 800,
+      beam_width: Number(topBeamForm.beam_width) || null,
+      total_ends: Number(topBeamForm.bottom_ends) || null,
+      ends: Number(topBeamForm.bottom_ends) || null,
+      warp_meter: warpMtr,
+      available_meter: warpMtr,
+      location: topBeamForm.location,
+      beam_status: 'Available',
+      status: 'Available',
+      reserved_for: null,
+      remarks: topBeamForm.remarks ? `${topBeamForm.remarks} (Bottom Beam)` : `Bottom Beam paired with Top #${topBeamNo}`
+    };
+
+    const topPayload = {
+      date: topBeamForm.date,
+      design_no: topBeamForm.design_no.trim(),
+      vendor_name: topBeamForm.vendor_name,
+      party_beam_no: topBeamForm.party_beam_no,
+      order_no: topBeamForm.party_beam_no || null,
+      ibpo: topBeamForm.party_beam_no || null,
+      set_no: topSetNo,
+      beam_no: topBeamNo,
+      beam_type: 'TOP BEAM',
+      beam_dia: Number(topBeamForm.beam_dia) || 800,
+      beam_width: Number(topBeamForm.beam_width) || null,
+      total_ends: Number(topBeamForm.top_ends) || null,
+      ends: Number(topBeamForm.top_ends) || null,
+      warp_meter: warpMtr,
+      available_meter: warpMtr,
+      location: topBeamForm.location,
+      beam_status: 'Available',
+      status: 'Available',
+      reserved_for: null,
+      remarks: topBeamForm.remarks ? `${topBeamForm.remarks} (Top Beam)` : `Top Beam paired with Bottom #${btmBeamNo}`
+    };
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/beam-stock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify([bottomPayload, topPayload])
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to save Top Beam stock set');
+      }
+
+      const newBottomRow: BeamRowState = {
+        id: `created-btm-${Date.now()}`,
+        date: topBeamForm.date,
+        design_no: topBeamForm.design_no.trim(),
+        vendor_name: topBeamForm.vendor_name,
+        party_beam_no: topBeamForm.party_beam_no,
+        order_no: topBeamForm.party_beam_no,
+        ibpo: topBeamForm.party_beam_no,
+        set_no: btmSetNo,
+        beam_no: btmBeamNo,
+        beam_type: 'BOTTOM BEAM',
+        beam_dia: Number(topBeamForm.beam_dia) || 800,
+        beam_width: Number(topBeamForm.beam_width) || '',
+        total_ends: Number(topBeamForm.bottom_ends) || '',
+        warp_meter: warpMtr,
+        age_of_beam: 0,
+        location: topBeamForm.location,
+        beam_status: 'Available',
+        remarks: bottomPayload.remarks
+      };
+
+      const newTopRow: BeamRowState = {
+        id: `created-top-${Date.now() + 1}`,
+        date: topBeamForm.date,
+        design_no: topBeamForm.design_no.trim(),
+        vendor_name: topBeamForm.vendor_name,
+        party_beam_no: topBeamForm.party_beam_no,
+        order_no: topBeamForm.party_beam_no,
+        ibpo: topBeamForm.party_beam_no,
+        set_no: topSetNo,
+        beam_no: topBeamNo,
+        beam_type: 'TOP BEAM',
+        beam_dia: Number(topBeamForm.beam_dia) || 800,
+        beam_width: Number(topBeamForm.beam_width) || '',
+        total_ends: Number(topBeamForm.top_ends) || '',
+        warp_meter: warpMtr,
+        age_of_beam: 0,
+        location: topBeamForm.location,
+        beam_status: 'Available',
+        remarks: topPayload.remarks
+      };
+
+      setRows(prev => [newBottomRow, newTopRow, ...prev.filter(r => !String(r.id).startsWith('blank-'))]);
+      setActiveTab('STOCK');
+      setShowTopBeamModal(false);
+      setSuccessMsg(`🎉 Top Beam Stock Set created successfully (Bottom: #${btmBeamNo}, Top: #${topBeamNo}, ${warpMtr.toLocaleString()} M)!`);
+      await fetchData();
+      if (refreshData) {
+        try { await refreshData(); } catch (e) { }
+      }
+      setTimeout(() => setSuccessMsg(null), 5000);
+    } catch (err: any) {
+      alert('Error saving Top Beam Set: ' + err.message);
+    } finally {
+      setIsSavingTopBeam(false);
     }
   };
 
@@ -1546,6 +1749,14 @@ export default function BeamStock() {
             </button>
 
             <button
+              onClick={handleOpenTopBeamModal}
+              className="px-3.5 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 font-black text-xs rounded-xl border border-purple-200 transition-all flex items-center shadow-xs cursor-pointer active:scale-95"
+              title="Add Top Beam Set (Two Set Nos, Two Beam Nos, Two Total Ends, One Warp Meter)"
+            >
+              <Layers className="w-3.5 h-3.5 mr-1 text-purple-600" /> + Add Top Beam
+            </button>
+
+            <button
               onClick={() => {
                 const hasUnsaved = rows.some(r => typeof r.id === 'string' && (r.id.startsWith('manual-') || r.id.startsWith('blank-')) && r.beam_no?.trim());
                 if (hasUnsaved && !window.confirm('You have unsaved manual entries. Reload will clear them. Continue?')) return;
@@ -2257,6 +2468,280 @@ export default function BeamStock() {
                   className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-md disabled:opacity-40 flex items-center"
                 >
                   <Save className="w-4 h-4 mr-2" /> SAVE BEAM PRODUCTION
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* TOP BEAM STOCK SET ENTRY MODAL */}
+      {showTopBeamModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full my-8 overflow-hidden border border-slate-200 animate-in fade-in zoom-in duration-150">
+            {/* Modal Header */}
+            <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-purple-500/20 text-purple-300">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-white">ADD TOP BEAM STOCK SET</h3>
+                  <p className="text-[11px] text-slate-400">Two Set Nos, Two Beam Nos, Two Ends & One Common Warp Meter</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowTopBeamModal(false)} 
+                className="text-slate-400 hover:text-white font-bold p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveTopBeamSet} className="p-5 space-y-4 text-xs font-medium max-h-[85vh] overflow-y-auto custom-scrollbar">
+              {/* 1. Common Specification Parameters */}
+              <div className="p-4 bg-purple-50/50 border border-purple-200/70 rounded-xl space-y-3">
+                <h4 className="font-black text-purple-950 text-xs uppercase flex items-center gap-1.5">
+                  <Package className="w-3.5 h-3.5 text-purple-700" /> 1. Common Sizing & Warp Parameters
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Production Date *</label>
+                    <input
+                      type="date"
+                      required
+                      value={topBeamForm.date}
+                      onChange={e => setTopBeamForm(prev => ({ ...prev, date: e.target.value }))}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-semibold bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Design No / SP No *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. SP26/764-23919"
+                      value={topBeamForm.design_no}
+                      onChange={e => handleTopBeamDesignChange(e.target.value)}
+                      list="top-beam-designs-list"
+                      className="w-full p-2.5 border border-purple-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-black text-purple-950 bg-white"
+                    />
+                    <datalist id="top-beam-designs-list">
+                      {designs.slice(0, 100).map((d: any) => (
+                        <option key={d.designNo || d.design_no_sp_no} value={d.designNo || d.design_no_sp_no} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Vendor / Warper Name</label>
+                    <input
+                      type="text"
+                      value={topBeamForm.vendor_name}
+                      onChange={e => setTopBeamForm(prev => ({ ...prev, vendor_name: e.target.value }))}
+                      placeholder="e.g. In-House Warping"
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-semibold bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Party / IBPO No</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 23919"
+                      value={topBeamForm.party_beam_no}
+                      onChange={e => setTopBeamForm(prev => ({ ...prev, party_beam_no: e.target.value }))}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-semibold bg-white"
+                    />
+                  </div>
+
+                  {/* ONE WARP METER (Primary common requirement) */}
+                  <div className="md:col-span-2">
+                    <label className="block text-emerald-900 font-black mb-1">
+                      One Common Warp Meter (M) *
+                      <span className="text-[10px] text-emerald-600 font-normal ml-1.5">(Applied identically to both Bottom & Top Beams)</span>
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      placeholder="e.g. 2200"
+                      value={topBeamForm.warp_meter}
+                      onChange={e => setTopBeamForm(prev => ({ ...prev, warp_meter: e.target.value }))}
+                      className="w-full p-2.5 border-2 border-emerald-500 bg-emerald-50/60 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-black text-emerald-950 text-sm shadow-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Side-by-Side Paired Beams Grid (Two Set Nos, Two Beam Nos, Two Ends) */}
+              <div>
+                <h4 className="font-black text-slate-900 text-xs uppercase mb-2.5 flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-indigo-600" /> 2. Paired Beam Details (Two Set Nos, Two Beam Nos, Two Ends)
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* BOTTOM BEAM CARD */}
+                  <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-blue-200/60">
+                      <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white font-black text-[10px] tracking-wide uppercase">
+                        Bottom Beam (Main)
+                      </span>
+                      <span className="text-[10px] text-blue-800 font-bold">
+                        Warp: {topBeamForm.warp_meter ? `${topBeamForm.warp_meter} M` : '—'}
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-blue-950 font-bold mb-1">Bottom Set No *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 12987"
+                        value={topBeamForm.bottom_set_no}
+                        onChange={e => setTopBeamForm(prev => ({ ...prev, bottom_set_no: e.target.value }))}
+                        className="w-full p-2 border border-blue-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-bold bg-white text-blue-950"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-blue-950 font-bold mb-1">Bottom Beam No *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 11743"
+                        value={topBeamForm.bottom_beam_no}
+                        onChange={e => setTopBeamForm(prev => ({ ...prev, bottom_beam_no: e.target.value }))}
+                        className="w-full p-2 border border-blue-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-black bg-white text-slate-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-blue-950 font-bold mb-1">Bottom Total Ends *</label>
+                      <input
+                        type="number"
+                        required
+                        placeholder="e.g. 4648"
+                        value={topBeamForm.bottom_ends}
+                        onChange={e => setTopBeamForm(prev => ({ ...prev, bottom_ends: e.target.value }))}
+                        className="w-full p-2 border border-blue-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-bold bg-white text-right text-blue-950"
+                      />
+                    </div>
+                  </div>
+
+                  {/* TOP BEAM CARD */}
+                  <div className="p-3.5 bg-purple-50/70 border border-purple-200 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-purple-200/60">
+                      <span className="px-2 py-0.5 rounded-md bg-purple-600 text-white font-black text-[10px] tracking-wide uppercase">
+                        Top Beam (Secondary)
+                      </span>
+                      <span className="text-[10px] text-purple-800 font-bold">
+                        Warp: {topBeamForm.warp_meter ? `${topBeamForm.warp_meter} M` : '—'}
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-purple-950 font-bold mb-1">Top Set No *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 12988"
+                        value={topBeamForm.top_set_no}
+                        onChange={e => setTopBeamForm(prev => ({ ...prev, top_set_no: e.target.value }))}
+                        className="w-full p-2 border border-purple-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 font-bold bg-white text-purple-950"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-purple-950 font-bold mb-1">Top Beam No *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 11744"
+                        value={topBeamForm.top_beam_no}
+                        onChange={e => setTopBeamForm(prev => ({ ...prev, top_beam_no: e.target.value }))}
+                        className="w-full p-2 border border-purple-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 font-black bg-white text-slate-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-purple-950 font-bold mb-1">Top Total Ends *</label>
+                      <input
+                        type="number"
+                        required
+                        placeholder="e.g. 1390"
+                        value={topBeamForm.top_ends}
+                        onChange={e => setTopBeamForm(prev => ({ ...prev, top_ends: e.target.value }))}
+                        className="w-full p-2 border border-purple-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 font-bold bg-white text-right text-purple-950"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Additional Beam Parameters */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Beam Width (in)</label>
+                  <input
+                    type="number"
+                    value={topBeamForm.beam_width}
+                    onChange={e => setTopBeamForm(prev => ({ ...prev, beam_width: e.target.value }))}
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-right bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Stock Location</label>
+                  <input
+                    type="text"
+                    value={topBeamForm.location}
+                    onChange={e => setTopBeamForm(prev => ({ ...prev, location: e.target.value }))}
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Remarks</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Top Beam Sizing Lot"
+                    value={topBeamForm.remarks}
+                    onChange={e => setTopBeamForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-3 border-t border-slate-200 flex justify-end items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowTopBeamModal(false)}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingTopBeam}
+                  className="px-6 py-2.5 bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white font-black rounded-xl shadow-md transition-all flex items-center cursor-pointer active:scale-95"
+                >
+                  {isSavingTopBeam ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      <span>Saving Top Beam Set...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      <span>SAVE TOP BEAM STOCK SET</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

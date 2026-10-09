@@ -16,6 +16,9 @@ export interface EntryState {
   rpm: number | '';
   efficiency: number | '';
   remarks: string;
+  reed?: string;
+  pick?: string;
+  sortChangeType?: string;
 }
 
 export interface ProductionLogItem {
@@ -334,7 +337,7 @@ export const LoomRow = React.memo(function LoomRow({
 
                       {/* 6. Reed Count */}
                       <td className="p-3 text-xs font-bold text-slate-950 dark:text-slate-100">
-                        {design?.reedCount || design?.reed_count || matchedOrder?.reed_count || matchedOrder?.reedCount || matchedOrder?.designMaster?.reed_count || '—'}
+                        {entry.reed || (activeRunObj as any)?.current_reed_no || (activeRunObj as any)?.reed || design?.reed_count || design?.reedCount || matchedOrder?.reed_count || matchedOrder?.reedCount || matchedOrder?.designMaster?.reed_count || '—'}
                       </td>
 
                       {/* 7. Pick */}
@@ -342,7 +345,7 @@ export const LoomRow = React.memo(function LoomRow({
                         {(() => {
                           const constStr = design?.construction || matchedOrder?.construction || matchedOrder?.designMaster?.construction || '';
                           const parsedPick = constStr.match(/\b\d+\s*x\s*(\d+)\b/i)?.[1] || constStr.match(/\bX\s*(\d+)\b/i)?.[1] || '';
-                          return design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick || matchedOrder?.designMaster?.pick || parsedPick || '—';
+                          return entry.pick || (activeRunObj as any)?.current_pick || (activeRunObj as any)?.pick || design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick || matchedOrder?.designMaster?.pick || parsedPick || '—';
                         })()}
                       </td>
 
