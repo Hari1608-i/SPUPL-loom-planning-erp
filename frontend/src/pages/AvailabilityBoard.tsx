@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { calculateLoomRun, calculateNextPlanRunouts, calculateOrderPlanning, getMainEntryLoomRun } from '../utils/calculations';
 
-import { Calendar, Search, ArrowRight, Printer } from 'lucide-react';
+import { Calendar, Search, ArrowRight, Printer, X, Layers, CheckCircle2, AlertTriangle, ArrowUpRight, RotateCcw } from 'lucide-react';
 import { format, addDays } from 'date-fns';
 import { useAppContext } from '../context/AppProvider';
 import { API_BASE_URL } from '../config';
@@ -34,11 +34,26 @@ const getDesignColor = (designNo: string) => {
 
 export default function AvailabilityBoard() {
   const navigate = useNavigate();
-  const { activeRuns, nextPlans, rawNextPlans, orders, looms, designs } = useAppContext();
+  const { activeRuns, nextPlans, rawNextPlans, orders, looms, designs, refreshData } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [timelineScale, setTimelineScale] = useState(90);
   const [beamStock, setBeamStock] = useState<any[]>([]);
   const [productionLogs, setProductionLogs] = useState<any[]>([]);
+
+  // Direct Change Next Design Modal State
+  const [changePlanModal, setChangePlanModal] = useState<{
+    fromLoomNo: number;
+    planId?: number;
+    nextDesign: string;
+    orderNo: string;
+    beamNo: string;
+    setNo: string;
+    warpMeter?: number;
+    construction?: string;
+  } | null>(null);
+  const [targetLoomNo, setTargetLoomNo] = useState<number | null>(null);
+  const [targetLoomSearch, setTargetLoomSearch] = useState<string>('');
+  const [isReassigning, setIsReassigning] = useState<boolean>(false);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/beam-stock`)
@@ -51,6 +66,60 @@ export default function AvailabilityBoard() {
       .then(data => { if (Array.isArray(data)) setProductionLogs(data); })
       .catch(console.error);
   }, []);
+
+  const handleExecuteReassign = async () => {
+    if (!changePlanModal || !targetLoomNo) return;
+    if (targetLoomNo === changePlanModal.fromLoomNo) {
+      alert('Target loom must be different from current loom.');
+      return;
+    }
+
+    const confirmMessage = 
+      `⚠️ CONFIRM NEXT DESIGN REASSIGNMENT\n\n` +
+      `Move Next Design: ${changePlanModal.nextDesign}\n` +
+      `From: Loom ${changePlanModal.fromLoomNo} ➔ To: Loom ${targetLoomNo}\n` +
+      `Order / IBPO No: ${changePlanModal.orderNo}\n` +
+      `Allocated Beam No: ${changePlanModal.beamNo || 'Pending'}\n` +
+      `Set No: ${changePlanModal.setNo || 'Pending'}\n\n` +
+      `IMPORTANT RULES:\n` +
+      `1. Plan on Loom ${changePlanModal.fromLoomNo} will be completely REMOVED.\n` +
+      `2. Next Design will exist ONLY on Loom ${targetLoomNo}.\n` +
+      `3. Beam No, Set No, and Warp Preparation specs will be transferred to Loom ${targetLoomNo}.\n\n` +
+      `Do you want to proceed with this direct change?`;
+
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    setIsReassigning(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/planning/next-plan/reassign-loom`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fromLoomNo: changePlanModal.fromLoomNo,
+          toLoomNo: targetLoomNo,
+          planId: changePlanModal.planId,
+          nextDesign: changePlanModal.nextDesign,
+          orderNo: changePlanModal.orderNo
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(data.error || 'Failed to reassign loom plan.');
+      } else {
+        alert(`✅ SUCCESS!\n\n${data.message || `Next Design ${changePlanModal.nextDesign} successfully transferred to Loom ${targetLoomNo}!`}`);
+        setChangePlanModal(null);
+        setTargetLoomNo(null);
+        await refreshData();
+      }
+    } catch (err: any) {
+      alert('Error reassigning plan: ' + err.message);
+    } finally {
+      setIsReassigning(false);
+    }
+  };
 
   const today = new Date(new Date().toDateString());
   const timelineStart = today;
@@ -185,6 +254,8 @@ export default function AvailabilityBoard() {
             const remarks = rawPlanObj?.remarks || (isUnbeamedSetup ? 'Plan Setup — Beam Confirmation Pending' : 'Beam Confirmed & Ready');
             const matchedDesign = designs.find(d => (d.design_no_sp_no || d.designNo) === np.designNo);
             const construction = matchedDesign?.construction || matchedDesign?.warp_weft_quality || '—';
+            const allocatedSetNo = rawPlanObj?.reserved_set_no || rawPlanObj?.set_no || '—';
+            const allocatedWarpMeter = rawPlanObj?.planned_warp_meter || rawPlanObj?.warp_meter || 0;
 
             nextBars.push({
               sequence: np.sequence,
@@ -197,10 +268,13 @@ export default function AvailabilityBoard() {
               orderNo,
               construction,
               beamNo: np.beamNo,
+              setNo: allocatedSetNo,
+              warpMeter: allocatedWarpMeter,
+              planId: rawPlanObj?.id,
               startDateFormatted: np.startDateFormatted,
               expectedRunoutDateFormatted: np.expectedRunoutDateFormatted,
               remarks,
-              tooltip: `N${np.sequence} PLAN DETAILS:\n• Design: ${np.designNo}\n• Order: ${orderNo}\n• Construction: ${construction}\n• Beam: ${hasConfirmedBeam ? np.beamNo : 'Pending Allocation'}\n• Start: ${np.startDateFormatted}\n• Runout: ${np.expectedRunoutDateFormatted}\n• Remarks: ${remarks}`
+              tooltip: `N${np.sequence} PLAN DETAILS:\n• Design: ${np.designNo}\n• Order: ${orderNo}\n• Construction: ${construction}\n• Beam: ${hasConfirmedBeam ? np.beamNo : 'Pending Allocation'}\n• Set No: ${allocatedSetNo}\n• Start: ${np.startDateFormatted}\n• Runout: ${np.expectedRunoutDateFormatted}\n• Remarks: ${remarks}`
             });
           }
         });
@@ -393,13 +467,24 @@ export default function AvailabilityBoard() {
                     onClick={() => {
                       if (row.nextBars && row.nextBars.length > 0) {
                         const nb = row.nextBars[0];
-                        navigate(`/plan?loomNo=${row.loomNo}&ibpo=${encodeURIComponent(nb.orderNo || '')}&designNo=${encodeURIComponent(nb.designNo || '')}`);
+                        setChangePlanModal({
+                          fromLoomNo: row.loomNo,
+                          planId: nb.planId,
+                          nextDesign: nb.designNo,
+                          orderNo: nb.orderNo,
+                          beamNo: nb.beamNo,
+                          setNo: nb.setNo,
+                          warpMeter: nb.warpMeter,
+                          construction: nb.construction
+                        });
+                        setTargetLoomNo(null);
+                        setTargetLoomSearch('');
                       } else {
                         navigate(`/plan?loomNo=${row.loomNo}`);
                       }
                     }}
                     className="flex-1 p-2 flex flex-col justify-center truncate cursor-pointer hover:bg-indigo-50/40 transition-colors"
-                    title={`Click to Manage Plan on Loom ${row.loomNo}`}
+                    title={row.nextBars && row.nextBars.length > 0 ? `Click to Direct Change / Reassign Next Design (${row.nextBars[0].designNo})` : `Click to Create Plan on Loom ${row.loomNo}`}
                   >
                       <span className={`text-[10px] font-black uppercase ${
                         row.planningStatus === 'AVAILABLE FOR PLANNING' ? 'text-slate-400' :
@@ -407,7 +492,12 @@ export default function AvailabilityBoard() {
                         row.planningStatus === 'WAITING FOR BEAM' ? 'text-yellow-600' :
                         row.planningStatus === 'CONFIRMED - WAITING RUNOUT' ? 'text-blue-600 font-black' : 'text-purple-600'
                       }`}>{row.planningStatus}</span>
-                     {row.nextDesign !== '-' && <span className="text-[11px] font-bold text-slate-700 truncate">» {row.nextDesign}</span>}
+                     {row.nextDesign !== '-' && (
+                       <span className="text-[11px] font-bold text-slate-700 truncate flex items-center gap-1">
+                         » {row.nextDesign}
+                         <span className="text-[9px] px-1 py-0.2 bg-indigo-100 text-indigo-700 rounded font-semibold ml-1">Change</span>
+                       </span>
+                     )}
                   </div>
                 </div>
 
@@ -440,11 +530,18 @@ export default function AvailabilityBoard() {
                      <div 
                        key={nb.sequence || idx}
                        onClick={() => {
-                         if (nb.orderNo && nb.orderNo !== '—') {
-                           navigate(`/plan?loomNo=${row.loomNo}&ibpo=${encodeURIComponent(nb.orderNo)}&designNo=${encodeURIComponent(nb.designNo)}`);
-                         } else {
-                           navigate(`/planned-looms?loomNo=${row.loomNo}`);
-                         }
+                         setChangePlanModal({
+                           fromLoomNo: row.loomNo,
+                           planId: nb.planId,
+                           nextDesign: nb.designNo,
+                           orderNo: nb.orderNo,
+                           beamNo: nb.beamNo,
+                           setNo: nb.setNo,
+                           warpMeter: nb.warpMeter,
+                           construction: nb.construction
+                         });
+                         setTargetLoomNo(null);
+                         setTargetLoomSearch('');
                        }}
                        className={`absolute h-[28px] rounded-[10px] border shadow-sm flex items-center overflow-hidden whitespace-nowrap text-[10px] font-bold px-2.5 transition-all duration-300 z-10 hover:z-30 hover:scale-[1.02] hover:shadow-lg cursor-pointer ${nb.color}`}
                        style={{ 
@@ -454,7 +551,7 @@ export default function AvailabilityBoard() {
                          borderTopLeftRadius: (idx === 0 && row.currentBar && nb.isSameDesign) ? '0px' : '10px',
                          borderBottomLeftRadius: (idx === 0 && row.currentBar && nb.isSameDesign) ? '0px' : '10px',
                        }}
-                       title={`${nb.tooltip}\n\nClick to view/assign or reassign plan in Loom Planning`}
+                       title={`${nb.tooltip}\n\nClick to Direct Change / Reassign this Plan to another Loom`}
                      >
                        <span className="truncate">{nb.label}</span>
                      </div>
@@ -472,6 +569,214 @@ export default function AvailabilityBoard() {
           <div className="flex items-center text-[10px] font-bold text-slate-600"><span className="w-3 h-3 rounded-full bg-slate-200 mr-1.5 border border-slate-300"></span> Available</div>
         </div>
       </div>
+
+      {/* DIRECT CHANGE NEXT DESIGN MODAL */}
+      {changePlanModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 flex items-center justify-between border-b border-indigo-900/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600/30 border border-indigo-400/30 flex items-center justify-center text-indigo-400">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black tracking-tight text-white flex items-center gap-2">
+                    Direct Change / Transfer Next Design
+                  </h3>
+                  <p className="text-xs text-indigo-200">
+                    Reassign plan from <strong className="text-white">Loom {changePlanModal.fromLoomNo}</strong> to a target loom
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setChangePlanModal(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto text-xs">
+              {/* Plan Information Card */}
+              <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-4 space-y-2.5">
+                <div className="flex items-center justify-between pb-2 border-b border-indigo-200/70">
+                  <span className="text-indigo-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-indigo-600" /> Plan to Transfer
+                  </span>
+                  <span className="px-2 py-0.5 bg-indigo-600 text-white font-black text-[11px] rounded">
+                    Current: Loom {changePlanModal.fromLoomNo}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Next Design</span>
+                    <strong className="text-xs font-black text-slate-900">{changePlanModal.nextDesign}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Order / IBPO</span>
+                    <strong className="text-xs font-bold text-slate-800">{changePlanModal.orderNo}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Allocated Beam No</span>
+                    <strong className="text-xs font-bold text-indigo-700">{changePlanModal.beamNo || '—'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Set No</span>
+                    <strong className="text-xs font-bold text-slate-800">{changePlanModal.setNo || '—'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Warp Length</span>
+                    <strong className="text-xs font-bold text-slate-800">{changePlanModal.warpMeter ? `${changePlanModal.warpMeter.toLocaleString()} M` : '—'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Construction</span>
+                    <strong className="text-xs font-bold text-slate-800 truncate block">{changePlanModal.construction || 'Standard'}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Target Loom Selection */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-800 flex items-center gap-1.5">
+                    Select Target Loom <span className="text-red-500">*</span>
+                  </label>
+                  {targetLoomNo && (
+                    <span className="text-emerald-700 font-bold text-[11px] flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Selected: Loom {targetLoomNo}
+                    </span>
+                  )}
+                </div>
+
+                {/* Target Loom Search */}
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search Loom No (e.g. 14, 274) or design..."
+                    value={targetLoomSearch}
+                    onChange={e => setTargetLoomSearch(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {targetLoomSearch && (
+                    <button
+                      onClick={() => setTargetLoomSearch('')}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Looms List */}
+                <div className="border border-slate-200 rounded-xl max-h-56 overflow-y-auto divide-y divide-slate-100 bg-white">
+                  {boardData
+                    .filter(row => {
+                      if (row.loomNo === changePlanModal.fromLoomNo) return false;
+                      const q = targetLoomSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      const cleanLoom = q.replace(/^loom\s*|^l-?\s*/i, '');
+                      return (
+                        (cleanLoom && row.loomNo.toString().includes(cleanLoom)) ||
+                        row.loomNo.toString().includes(q) ||
+                        row.currentDesign.toLowerCase().includes(q) ||
+                        row.planningStatus.toLowerCase().includes(q)
+                      );
+                    })
+                    .slice(0, 50)
+                    .map(row => {
+                      const isSelected = targetLoomNo === row.loomNo;
+                      const isAvail = row.currentDesign === '-';
+                      return (
+                        <div
+                          key={row.loomNo}
+                          onClick={() => setTargetLoomNo(row.loomNo)}
+                          className={`p-2.5 flex items-center justify-between cursor-pointer transition-colors ${
+                            isSelected ? 'bg-indigo-50 border-l-4 border-indigo-600' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <input
+                              type="radio"
+                              name="targetLoomSelect"
+                              checked={isSelected}
+                              onChange={() => setTargetLoomNo(row.loomNo)}
+                              className="text-indigo-600"
+                            />
+                            <div>
+                              <span className="font-black text-slate-900 text-xs">LOOM {row.loomNo}</span>
+                              <span className="text-[11px] text-slate-500 ml-2">({row.loomType || 'Airjet'} - Unit {row.unit})</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {isAvail ? (
+                              <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                                Empty / Available
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold text-[10px]" title={`Current: ${row.currentDesign}`}>
+                                Running: {row.currentDesign}
+                              </span>
+                            )}
+                            <span className="text-[10px] text-slate-500">
+                              {row.nextDesign !== '-' ? `(Next: ${row.nextDesign})` : '(No Next Plan)'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Transfer Notice Box */}
+              {targetLoomNo && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1 text-amber-900">
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-amber-800">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                    Reassignment Impact & Warp Beam Preservation:
+                  </div>
+                  <ul className="list-disc list-inside text-[11px] text-amber-800/90 space-y-0.5 pl-1">
+                    <li>Plan on <strong>Loom {changePlanModal.fromLoomNo}</strong> will be <strong>REMOVED</strong>.</li>
+                    <li>Next Design will only exist on <strong>Loom {targetLoomNo}</strong>.</li>
+                    <li>Beam <strong>#{changePlanModal.beamNo || 'N/A'}</strong> (Set: {changePlanModal.setNo || 'N/A'}) and Warp Preparation specs will be transferred to Loom {targetLoomNo}.</li>
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <button
+                onClick={() => {
+                  navigate(`/plan?loomNo=${changePlanModal.fromLoomNo}&ibpo=${encodeURIComponent(changePlanModal.orderNo)}&designNo=${encodeURIComponent(changePlanModal.nextDesign)}`);
+                }}
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 underline"
+              >
+                Go to Full Loom Planning Setup <ArrowUpRight className="w-3.5 h-3.5" />
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setChangePlanModal(null)}
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleExecuteReassign}
+                  disabled={!targetLoomNo || isReassigning}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-black rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${isReassigning ? 'animate-spin' : ''}`} />
+                  {isReassigning ? 'Reassigning...' : targetLoomNo ? `Confirm Transfer to Loom ${targetLoomNo}` : 'Select a Target Loom'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

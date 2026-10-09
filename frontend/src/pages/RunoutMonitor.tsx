@@ -246,6 +246,7 @@ export default function RunoutMonitor() {
           nextDesign: shouldPromote ? confirmModalData.nextDesign : '',
           clearOnly: !shouldPromote,
           promoteNext: shouldPromote,
+          planId: confirmModalData.plan?.id,
           startDate: format(new Date(), 'yyyy-MM-dd'),
           warpMeter: confirmModalData.plan?.planned_warp_meter || 1800,
           dailyProduction: 0,
@@ -682,9 +683,20 @@ export default function RunoutMonitor() {
               </div>
             </div>
 
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              Confirming runout will close the current design session, archive its complete production history to Completed History, mark the warp beam completed, and clear the loom to Available.
-            </p>
+            <div className="text-[11px] text-slate-600 leading-relaxed bg-amber-50/70 p-3 rounded-xl border border-amber-200/80 space-y-1">
+              <p>
+                <strong>Runout Rule:</strong> Only the current active design (<strong>{confirmModalData.currentDesign}</strong>) will be closed, its beam marked completed, and its production archived to Completed History.
+              </p>
+              {confirmModalData.nextDesign && confirmModalData.nextDesign !== '—' ? (
+                <p className="text-emerald-800 font-semibold">
+                  • Next Design <strong>{confirmModalData.nextDesign}</strong> will be <strong>AUTO-ALLOCATED</strong> as the new running design with its allocated beam & warp specs. Next design is NOT completed.
+                </p>
+              ) : (
+                <p className="text-slate-600">
+                  • Loom {confirmModalData.loomNo} will be cleared and marked Available for new planning.
+                </p>
+              )}
+            </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
               <button
@@ -694,27 +706,37 @@ export default function RunoutMonitor() {
                 CANCEL
               </button>
 
-              {/* COMPLETE & CLEAR RUNOUT (Default: clears the loom, never shows full warp again) */}
+              {/* COMPLETE CURRENT RUN ONLY (clears running design without promoting, preserves queued plans) */}
               <button
                 onClick={() => handleConfirmRunout(false)}
                 disabled={isSubmitting}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                title="Archive production to Completed History and clear this loom to Available"
+                className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                title="Complete and archive ONLY the current running design session"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>{isSubmitting ? 'Processing...' : 'COMPLETE & CLEAR RUNOUT'}</span>
+                <span>{isSubmitting ? 'Processing...' : 'COMPLETE CURRENT RUN ONLY'}</span>
               </button>
 
-              {/* PROMOTE NEXT PLAN (Only if planner specifically wants to load next plan immediately) */}
-              {confirmModalData.nextDesign && confirmModalData.nextDesign !== '—' && (
+              {/* PROMOTE NEXT PLAN (Auto-allocates next plan as active running session) */}
+              {confirmModalData.nextDesign && confirmModalData.nextDesign !== '—' ? (
                 <button
                   onClick={() => handleConfirmRunout(true)}
                   disabled={isSubmitting}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                  title={`Start new session for next planned design: ${confirmModalData.nextDesign}`}
+                  title={`Complete current design and auto-allocate next plan: ${confirmModalData.nextDesign}`}
                 >
                   <ArrowRight className="w-4 h-4" />
-                  <span>{isSubmitting ? 'Processing...' : `PROMOTE ${confirmModalData.nextDesign}`}</span>
+                  <span>{isSubmitting ? 'Processing...' : `PROMOTE & AUTO-ALLOCATE ${confirmModalData.nextDesign}`}</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleConfirmRunout(false)}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  title="Archive production to Completed History and clear this loom to Available"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isSubmitting ? 'Processing...' : 'COMPLETE & CLEAR TO AVAILABLE'}</span>
                 </button>
               )}
             </div>

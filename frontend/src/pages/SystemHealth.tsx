@@ -150,6 +150,16 @@ export default function SystemHealth() {
                     <span className="text-sm font-bold text-slate-900">{data.health.responseTimeMs} ms</span>
                   </div>
                 </div>
+
+                <a
+                  href="http://localhost:5555"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 flex items-center justify-center w-full px-3 py-2 bg-slate-900 text-amber-400 border border-slate-700 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all shadow-sm"
+                >
+                  <Database className="w-3.5 h-3.5 mr-1.5" />
+                  Open Database Studio (Port 5555) ↗
+                </a>
               </div>
             </div>
 

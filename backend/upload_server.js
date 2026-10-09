@@ -5185,8 +5185,32 @@ app.post('/api/confirm-plan', async (req, res) => {
           }
         }).catch(() => { });
       }
+
+      // Complete previous running beam if different from new beam
+      if (currentRun && currentRun.beam_id && currentRun.beam_id !== finalBeamId) {
+        await prisma.beamStockMaster.update({
+          where: { id: currentRun.beam_id },
+          data: { status: 'Completed', loom_no_assigned: null, reserved_for: null }
+        }).catch(() => { });
+      } else if (currentRun && currentRun.current_beam_no && (!finalBeamNo || currentRun.current_beam_no !== finalBeamNo)) {
+        await prisma.beamStockMaster.updateMany({
+          where: { beam_no: currentRun.current_beam_no, loom_no_assigned: loomNum, status: 'Running' },
+          data: { status: 'Completed', loom_no_assigned: null, reserved_for: null }
+        }).catch(() => { });
+      }
+
+      // Archive / remove only the promoted plan from queue
+      if (req.body.planId) {
+        await prisma.plannedAssignment.delete({ where: { id: Number(req.body.planId) } }).catch(() => { });
+      } else if (planEntry) {
+        await prisma.plannedAssignment.delete({ where: { id: planEntry.id } }).catch(() => { });
+      } else {
+        await prisma.plannedAssignment.deleteMany({
+          where: { loom_no: loomNum, next_design: finalNextDesign }
+        }).catch(() => { });
+      }
     } else {
-      // Runout confirmed with no next design: delete active run and free loom
+      // Runout confirmed without next design promotion: clear active run and free loom
       await prisma.loomRunEntry.deleteMany({
         where: { loom_no: loomNum }
       });
@@ -5196,16 +5220,19 @@ app.post('/api/confirm-plan', async (req, res) => {
         data: { status: 'Available' }
       }).catch(() => { });
 
-      await prisma.beamStockMaster.updateMany({
-        where: { loom_no_assigned: loomNum },
-        data: { loom_no_assigned: null, status: 'Completed', reserved_for: null }
-      }).catch(() => { });
+      // Complete ONLY the previous running beam, preserving any reserved next beams
+      if (currentRun && currentRun.beam_id) {
+        await prisma.beamStockMaster.update({
+          where: { id: currentRun.beam_id },
+          data: { status: 'Completed', loom_no_assigned: null, reserved_for: null }
+        }).catch(() => { });
+      } else if (currentRun && currentRun.current_beam_no) {
+        await prisma.beamStockMaster.updateMany({
+          where: { beam_no: currentRun.current_beam_no, loom_no_assigned: loomNum, status: 'Running' },
+          data: { status: 'Completed', loom_no_assigned: null, reserved_for: null }
+        }).catch(() => { });
+      }
     }
-
-    // 4. Delete the planned assignment
-    await prisma.plannedAssignment.deleteMany({
-      where: { loom_no: loomNum }
-    });
 
     res.json({ success: true });
   } catch (error) {
@@ -6047,8 +6074,28 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
         (p.order_no || '').trim().toLowerCase() === cleanIbpo.toLowerCase()
     );
 
+    // If this design/order was planned on another loom, clean it up from that loom and transfer beam
+    const previousOtherPlan = await prisma.plannedAssignment.findFirst({
+      where: {
+        loom_no: { not: loomNum },
+        status: { in: ['PLANNED', 'NOT PLANNED', 'PENDING', 'BEAM ALLOCATED', 'CONFIRMED'] },
+        OR: [
+          { order_no: cleanIbpo },
+          { next_design: cleanDesign }
+        ]
+      }
+    });
+
+    let transferredBeamId = null;
+    if (previousOtherPlan) {
+      if (previousOtherPlan.reserved_beam_id) {
+        transferredBeamId = previousOtherPlan.reserved_beam_id;
+      }
+      await prisma.plannedAssignment.delete({ where: { id: previousOtherPlan.id } }).catch(() => {});
+    }
+
     // Check beam stock availability (for informative status or explicit selection)
-    const beamIdInput = req.body.beamId || req.body.beam_id;
+    const beamIdInput = req.body.beamId || req.body.beam_id || transferredBeamId;
     let allocatedBeam = null;
     if (beamIdInput) {
       allocatedBeam = await prisma.beamStockMaster.findUnique({
@@ -6154,6 +6201,131 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
     });
   } catch (error) {
     console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// DIRECT REASSIGN NEXT PLAN FROM ONE LOOM TO ANOTHER LOOM
+// ----------------------------------------------------
+app.post('/api/planning/next-plan/reassign-loom', async (req, res) => {
+  try {
+    const fromLoom = Number(req.body.fromLoomNo || req.body.from_loom_no || req.body.loomNo);
+    const toLoom = Number(req.body.toLoomNo || req.body.to_loom_no || req.body.targetLoomNo);
+    const planId = req.body.planId ? Number(req.body.planId) : null;
+    const nextDesign = req.body.nextDesign || req.body.next_design;
+    const orderNo = req.body.orderNo || req.body.order_no;
+
+    if (!fromLoom || !toLoom) {
+      return res.status(400).json({ error: 'Source loom (fromLoomNo) and target loom (toLoomNo) are required.' });
+    }
+    if (fromLoom === toLoom) {
+      return res.status(400).json({ error: 'Target loom must be different from source loom.' });
+    }
+
+    // 1. Find the source plan on fromLoom
+    let sourcePlan = null;
+    if (planId) {
+      sourcePlan = await prisma.plannedAssignment.findUnique({
+        where: { id: planId },
+        include: { WarpPreparationProcess: true }
+      });
+    }
+
+    if (!sourcePlan) {
+      sourcePlan = await prisma.plannedAssignment.findFirst({
+        where: {
+          loom_no: fromLoom,
+          status: { notIn: ['CANCELLED', 'COMPLETED'] },
+          confirmation_status: { notIn: ['CANCELLED', 'COMPLETED'] },
+          readiness_status: { not: 'RUNNING IN MAIN ENTRY' },
+          ...(nextDesign ? { next_design: nextDesign } : {})
+        },
+        include: { WarpPreparationProcess: true }
+      });
+    }
+
+    if (!sourcePlan) {
+      return res.status(404).json({ error: `No active plan found on Loom ${fromLoom} to reassign.` });
+    }
+
+    // 2. Check target loom's current running design
+    const targetRun = await prisma.loomRunEntry.findUnique({
+      where: { loom_no: toLoom }
+    });
+    const targetRunningDesign = (targetRun && targetRun.design_no_sp_no && targetRun.design_no_sp_no.trim() !== '')
+      ? targetRun.design_no_sp_no
+      : 'AVAILABLE';
+
+    // 3. Remove any conflicting duplicate plan on target loom
+    await prisma.plannedAssignment.deleteMany({
+      where: {
+        loom_no: toLoom,
+        id: { not: sourcePlan.id },
+        OR: [
+          { next_design: sourcePlan.next_design },
+          { order_no: sourcePlan.order_no }
+        ]
+      }
+    });
+
+    // 4. Atomically move the plan from fromLoom to toLoom (plan is removed from fromLoom!)
+    const updatedPlan = await prisma.plannedAssignment.update({
+      where: { id: sourcePlan.id },
+      data: {
+        loom_no: toLoom,
+        current_design: targetRunningDesign,
+        remarks: `Reassigned from Loom ${fromLoom} to Loom ${toLoom} on ${new Date().toLocaleDateString('en-GB')}`
+      }
+    });
+
+    // 5. Transfer allocated beam to toLoom in BeamStockMaster
+    if (sourcePlan.reserved_beam_id) {
+      await prisma.beamStockMaster.update({
+        where: { id: sourcePlan.reserved_beam_id },
+        data: {
+          loom_no_assigned: toLoom,
+          reserved_for: `Loom ${toLoom} (Plan #${sourcePlan.id})`
+        }
+      }).catch(err => console.warn('Beam reassign update warning:', err.message));
+    } else if (sourcePlan.reserved_beam_no) {
+      await prisma.beamStockMaster.updateMany({
+        where: { beam_no: sourcePlan.reserved_beam_no },
+        data: {
+          loom_no_assigned: toLoom,
+          reserved_for: `Loom ${toLoom} (Plan #${sourcePlan.id})`
+        }
+      }).catch(err => console.warn('Beam reassign update warning:', err.message));
+    }
+
+    // 6. Transfer any WarpPreparationProcess records
+    try {
+      await prisma.warpPreparationProcess.updateMany({
+        where: { plan_id: sourcePlan.id },
+        data: { loom_no: toLoom }
+      });
+    } catch(e) {}
+
+    // 7. System audit log
+    try {
+      await prisma.systemAuditLog.create({
+        data: {
+          username: req.user?.username || 'ADMIN',
+          screen: 'Availability Board',
+          action: 'REASSIGN_LOOM_PLAN',
+          oldValue: JSON.stringify({ loom_no: fromLoom, next_design: sourcePlan.next_design, beam_no: sourcePlan.reserved_beam_no, set_no: sourcePlan.reserved_set_no }),
+          newValue: JSON.stringify({ loom_no: toLoom, next_design: sourcePlan.next_design, beam_no: sourcePlan.reserved_beam_no, set_no: sourcePlan.reserved_set_no })
+        }
+      });
+    } catch(e) {}
+
+    res.json({
+      success: true,
+      message: `Successfully moved Next Design ${sourcePlan.next_design} from Loom ${fromLoom} to Loom ${toLoom}. Beam #${sourcePlan.reserved_beam_no || 'N/A'} and warp details transferred.`,
+      plan: updatedPlan
+    });
+  } catch (error) {
+    console.error('Error reassigning loom plan:', error);
     res.status(500).json({ error: error.message });
   }
 });

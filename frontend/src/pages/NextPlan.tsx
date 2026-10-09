@@ -25,6 +25,7 @@ export default function NextPlan() {
 
   // Form State for Loom Assignment
   const [assignLoomNo, setAssignLoomNo] = useState<number | null>(null);
+  const [assignLoomSearchTerm, setAssignLoomSearchTerm] = useState<string>('');
   const [assignStartDate, setAssignStartDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [assignRemarks, setAssignRemarks] = useState<string>('');
 
@@ -332,6 +333,54 @@ export default function NextPlan() {
       };
     });
   }, [looms, activeRuns, rawNextPlans, selectedOrder]);
+
+  // Filtered Compatible Looms for Assign Modal Search
+  const filteredCompatibleLooms = useMemo(() => {
+    const q = (assignLoomSearchTerm || '').trim().toLowerCase();
+    if (!q) return compatibleAvailableLooms;
+    const cleanLoomNo = q.replace(/^loom\s*|^l-?\s*/i, '').trim();
+    return compatibleAvailableLooms.filter(item => {
+      const lNo = item.loom.loomNo.toString().toLowerCase();
+      if (cleanLoomNo && (lNo === cleanLoomNo || lNo.includes(cleanLoomNo))) return true;
+      if (lNo.includes(q)) return true;
+      const curDes = (item.run?.designNo || '').toLowerCase();
+      if (curDes.includes(q)) return true;
+      const lType = (item.loom.loomType || '').toLowerCase();
+      if (lType.includes(q)) return true;
+      const lUnit = (item.loom.unit || '').toLowerCase();
+      if (lUnit.includes(q)) return true;
+      return false;
+    });
+  }, [compatibleAvailableLooms, assignLoomSearchTerm]);
+
+  // Quick Search & Auto-Select/Allocate Loom
+  const handleSearchAndAllocateLoom = (term?: string) => {
+    const q = (term !== undefined ? term : assignLoomSearchTerm).trim().toLowerCase();
+    if (!q) return;
+    const cleanLoomNo = q.replace(/^loom\s*|^l-?\s*/i, '').trim();
+    const matched = compatibleAvailableLooms.find(item => {
+      const lNo = item.loom.loomNo.toString().toLowerCase();
+      return (cleanLoomNo && lNo === cleanLoomNo) || lNo === q;
+    }) || compatibleAvailableLooms.find(item => {
+      const lNo = item.loom.loomNo.toString().toLowerCase();
+      return lNo.includes(q) || (cleanLoomNo && lNo.includes(cleanLoomNo));
+    });
+
+    if (matched) {
+      if (!matched.isAlreadyAssignedToOrder && matched.isCompatible) {
+        setAssignLoomNo(matched.loom.loomNo);
+        if (matched.run) {
+          try {
+            const rCalc = calculateLoomRun(matched.run as any);
+            if (rCalc && rCalc.expectedRunoutDate && rCalc.balanceDays !== 999999) {
+              setAssignStartDate(format(rCalc.expectedRunoutDate, 'yyyy-MM-dd'));
+              setAssignRemarks(`Planned after runout of current beam (${format(rCalc.expectedRunoutDate, 'dd-MM-yyyy')})`);
+            }
+          } catch (e) {}
+        }
+      }
+    }
+  };
 
   // Handle Loom Plan Setup Save
   const handleSaveLoomAssignment = async (loomNo: number) => {
@@ -1103,7 +1152,55 @@ export default function NextPlan() {
 
               {/* Compatible Available Looms Table */}
               <div className="space-y-2">
-                <label className="block text-slate-700 font-bold">Select Available Compatible Loom *</label>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                  <label className="text-slate-700 font-bold flex items-center gap-1.5">
+                    Select Available Compatible Loom <span className="text-red-500">*</span>
+                    {filteredCompatibleLooms.length !== compatibleAvailableLooms.length && (
+                      <span className="text-[11px] font-semibold text-slate-400">
+                        (Showing {filteredCompatibleLooms.length} of {compatibleAvailableLooms.length})
+                      </span>
+                    )}
+                  </label>
+
+                  {/* Loom No Search Bar with Search & Allocate Button */}
+                  <div className="flex items-center gap-1.5">
+                    <div className="relative flex-1 sm:w-64">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search Loom No (e.g. 14, 274)..."
+                        value={assignLoomSearchTerm}
+                        onChange={e => setAssignLoomSearchTerm(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSearchAndAllocateLoom();
+                          }
+                        }}
+                        className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      {assignLoomSearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setAssignLoomSearchTerm('')}
+                          className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSearchAndAllocateLoom()}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-black shadow-sm transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                      title="Search Loom No and auto-select"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      <span>Search</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="border border-slate-200 rounded-xl overflow-hidden max-h-60 overflow-y-auto custom-scrollbar">
                   <table className="min-w-full text-left border-collapse text-xs">
                     <thead className="bg-slate-100 text-slate-700 font-bold sticky top-0">
@@ -1118,69 +1215,84 @@ export default function NextPlan() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {compatibleAvailableLooms.map(item => {
-                        const isSelected = assignLoomNo === item.loom.loomNo;
-                        const isDisabled = item.isAlreadyAssignedToOrder || !item.isCompatible;
+                      {filteredCompatibleLooms.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-6 text-center text-slate-400 font-semibold">
+                            No compatible looms found matching "{assignLoomSearchTerm}".{' '}
+                            <button
+                              type="button"
+                              onClick={() => setAssignLoomSearchTerm('')}
+                              className="text-blue-600 underline font-bold ml-1 hover:text-blue-800"
+                            >
+                              Clear Search
+                            </button>
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredCompatibleLooms.map(item => {
+                          const isSelected = assignLoomNo === item.loom.loomNo;
+                          const isDisabled = item.isAlreadyAssignedToOrder || !item.isCompatible;
 
-                        let runoutCalc = null;
-                        if (item.run) {
-                          try {
-                            runoutCalc = calculateLoomRun(item.run as any);
-                          } catch(e) {}
-                        }
+                          let runoutCalc = null;
+                          if (item.run) {
+                            try {
+                              runoutCalc = calculateLoomRun(item.run as any);
+                            } catch(e) {}
+                          }
 
-                        const runoutFormatted = runoutCalc && runoutCalc.expectedRunoutDate && runoutCalc.balanceDays !== 999999
-                          ? format(runoutCalc.expectedRunoutDate, 'dd-MM-yyyy')
-                          : null;
+                          const runoutFormatted = runoutCalc && runoutCalc.expectedRunoutDate && runoutCalc.balanceDays !== 999999
+                            ? format(runoutCalc.expectedRunoutDate, 'dd-MM-yyyy')
+                            : null;
 
-                        return (
-                          <tr key={item.loom.loomNo} className={`hover:bg-slate-50 transition-colors ${isSelected ? 'bg-blue-50/60' : ''}`}>
-                            <td className="p-2.5 text-center">
-                              <input
-                                type="radio"
-                                name="assignLoom"
-                                disabled={isDisabled}
-                                checked={isSelected}
-                                onChange={() => {
-                                  setAssignLoomNo(item.loom.loomNo);
-                                  if (runoutCalc && runoutCalc.expectedRunoutDate && runoutCalc.balanceDays !== 999999) {
-                                    setAssignStartDate(format(runoutCalc.expectedRunoutDate, 'yyyy-MM-dd'));
-                                    setAssignRemarks(`Planned after runout of current beam (${format(runoutCalc.expectedRunoutDate, 'dd-MM-yyyy')})`);
-                                  }
-                                }}
-                                className="w-4 h-4 text-blue-600"
-                              />
-                            </td>
-                            <td className="p-2.5 font-black text-slate-900">LOOM {item.loom.loomNo}</td>
-                            <td className="p-2.5 text-slate-600">{item.loom.loomType || 'Ruti C'} ({item.loom.unit || 'Unit 1'})</td>
-                            <td className="p-2.5 font-bold text-slate-700">{item.run ? item.run.designNo : '—'}</td>
-                            <td className="p-2.5 font-bold">{item.loom.status || 'Available'}</td>
-                            <td className="p-2.5">
-                              {runoutFormatted ? (
-                                <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded font-bold text-[11px] flex items-center w-fit">
-                                  <Clock className="w-3 h-3 mr-1" />
-                                  {runoutFormatted} {runoutCalc && runoutCalc.balanceDays > 0 ? `(${Math.ceil(runoutCalc.balanceDays)}d)` : ''}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 font-semibold text-xs">Ready Now</span>
-                              )}
-                            </td>
-                            <td className="p-2.5">
-                              {item.isAlreadyAssignedToOrder ? (
-                                <span className="text-amber-700 font-bold">Already Assigned</span>
-                              ) : item.isCompatible ? (
-                                <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 font-bold text-xs inline-block" title={item.compatibilityReason}>
-                                  ✓ Compatible
-                                </span>
-                              ) : (
-                                <span className="px-2 py-1 rounded bg-red-100 text-red-700 font-bold text-xs inline-block" title={item.compatibilityReason}>
-                                  ✕ {item.reasons.length > 0 ? item.reasons[0] : 'Incompatible'}
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                          return (
+                            <tr key={item.loom.loomNo} className={`hover:bg-slate-50 transition-colors ${isSelected ? 'bg-blue-50/60' : ''}`}>
+                              <td className="p-2.5 text-center">
+                                <input
+                                  type="radio"
+                                  name="assignLoom"
+                                  disabled={isDisabled}
+                                  checked={isSelected}
+                                  onChange={() => {
+                                    setAssignLoomNo(item.loom.loomNo);
+                                    if (runoutCalc && runoutCalc.expectedRunoutDate && runoutCalc.balanceDays !== 999999) {
+                                      setAssignStartDate(format(runoutCalc.expectedRunoutDate, 'yyyy-MM-dd'));
+                                      setAssignRemarks(`Planned after runout of current beam (${format(runoutCalc.expectedRunoutDate, 'dd-MM-yyyy')})`);
+                                    }
+                                  }}
+                                  className="w-4 h-4 text-blue-600"
+                                />
+                              </td>
+                              <td className="p-2.5 font-black text-slate-900">LOOM {item.loom.loomNo}</td>
+                              <td className="p-2.5 text-slate-600">{item.loom.loomType || 'Ruti C'} ({item.loom.unit || 'Unit 1'})</td>
+                              <td className="p-2.5 font-bold text-slate-700">{item.run ? item.run.designNo : '—'}</td>
+                              <td className="p-2.5 font-bold">{item.loom.status || 'Available'}</td>
+                              <td className="p-2.5">
+                                {runoutFormatted ? (
+                                  <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded font-bold text-[11px] flex items-center w-fit">
+                                    <Clock className="w-3 h-3 mr-1" />
+                                    {runoutFormatted} {runoutCalc && runoutCalc.balanceDays > 0 ? `(${Math.ceil(runoutCalc.balanceDays)}d)` : ''}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-semibold text-xs">Ready Now</span>
+                                )}
+                              </td>
+                              <td className="p-2.5">
+                                {item.isAlreadyAssignedToOrder ? (
+                                  <span className="text-amber-700 font-bold">Already Assigned</span>
+                                ) : item.isCompatible ? (
+                                  <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 font-bold text-xs inline-block" title={item.compatibilityReason}>
+                                    ✓ Compatible
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-1 rounded bg-red-100 text-red-700 font-bold text-xs inline-block" title={item.compatibilityReason}>
+                                    ✕ {item.reasons.length > 0 ? item.reasons[0] : 'Incompatible'}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>

@@ -642,6 +642,21 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           <SidebarGroup title="Administration" isCollapsed={isCollapsed}>
             <SidebarItem to="/users"         icon={Users}    label="User Management" menuName="User Management" isCollapsed={isCollapsed} />
             <SidebarItem to="/system-health" icon={Activity} label="System Health"   menuName="System Health"   isCollapsed={isCollapsed} />
+            <a
+              href="http://localhost:5555"
+              target="_blank"
+              rel="noopener noreferrer"
+              title={isCollapsed ? "Database Studio (Port 5555)" : undefined}
+              className="flex items-center px-4 py-3 mb-1 rounded-xl transition-all duration-200 group text-slate-400 hover:bg-slate-800 hover:text-white"
+            >
+              <Database className={`w-5 h-5 flex-shrink-0 ${isCollapsed ? 'mx-auto' : 'mr-3'} text-slate-400 group-hover:text-amber-400`} />
+              {!isCollapsed && (
+                <div className="flex items-center justify-between flex-1">
+                  <span className="font-semibold text-sm truncate">Database Studio</span>
+                  <ArrowUpRight className="w-3.5 h-3.5 ml-1 text-slate-500 group-hover:text-amber-400" />
+                </div>
+              )}
+            </a>
           </SidebarGroup>
         </nav>
 
