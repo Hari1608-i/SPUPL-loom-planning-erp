@@ -1,0 +1,2482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SPUPL - Running Looms & Beam Stock Allocation Report</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 8mm 8mm 8mm 8mm;
+    }
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      padding: 12px;
+      font-size: 8pt;
+    }
+    @media print {
+      body {
+        background-color: #fff;
+        padding: 0;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .page-break {
+        page-break-after: always;
+        break-after: page;
+      }
+    }
+    .header-card {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      color: #fff;
+      padding: 14px 20px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    }
+    .title-area h1 {
+      font-size: 16pt;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #38bdf8;
+      margin-bottom: 2px;
+    }
+    .title-area p {
+      font-size: 8.5pt;
+      color: #94a3b8;
+    }
+    .badge-bar {
+      display: flex;
+      gap: 10px;
+    }
+    .stat-badge {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px;
+      padding: 6px 12px;
+      text-align: right;
+    }
+    .stat-badge .num {
+      font-size: 12pt;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .stat-badge .lbl {
+      font-size: 6.5pt;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #cbd5e1;
+    }
+    .section-title {
+      font-size: 10pt;
+      font-weight: 700;
+      color: #1e293b;
+      margin: 10px 0 6px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 4px;
+    }
+    .section-title .tag {
+      background: #e0f2fe;
+      color: #0369a1;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 7pt;
+      font-weight: 600;
+    }
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 7.5pt;
+      margin-bottom: 14px;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    table.data-table th {
+      background-color: #1e293b;
+      color: #f8fafc;
+      font-weight: 600;
+      text-align: left;
+      padding: 5px 6px;
+      border: 1px solid #334155;
+      text-transform: uppercase;
+      font-size: 6.8pt;
+      letter-spacing: 0.3px;
+    }
+    table.data-table td {
+      padding: 4.5px 6px;
+      border: 1px solid #e2e8f0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #334155;
+    }
+    table.data-table tr:nth-child(even) {
+      background-color: #f8fafc;
+    }
+    table.data-table tr:hover {
+      background-color: #f1f5f9;
+    }
+    .text-center { text-align: center !important; }
+    .text-right { text-align: right !important; }
+    .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .font-bold { font-weight: 700; }
+    .status-running {
+      background-color: #dcfce7;
+      color: #15803d;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 6.5pt;
+      display: inline-block;
+    }
+    .status-available {
+      background-color: #fef9c3;
+      color: #a16207;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 6.5pt;
+      display: inline-block;
+    }
+    .rule-note {
+      background: #f0fdf4;
+      border-left: 4px solid #16a34a;
+      padding: 8px 12px;
+      margin-bottom: 12px;
+      font-size: 7.5pt;
+      color: #166534;
+      line-height: 1.4;
+      border-radius: 0 4px 4px 0;
+    }
+    .rule-note strong {
+      color: #14532d;
+    }
+    .btn-print {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      font-size: 9pt;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      box-shadow: 0 4px 10px rgba(37,99,235,0.3);
+      z-index: 9999;
+    }
+    .btn-print:hover {
+      background: #1d4ed8;
+    }
+  </style>
+</head>
+<body>
+  <button class="btn-print no-print" onclick="window.print()">🖨️ Print / Save as PDF</button>
+
+  <div class="header-card">
+    <div class="title-area">
+      <h1>SRI PARVATHI UDHYOG PRIVATE LIMITED</h1>
+      <p>Loom Planning & ERP System — Master Running Looms & Beam Stock Allocation Report</p>
+      <p style="margin-top: 4px; color: #94a3b8; font-size: 7.5pt;">Source: RUNNING LOOMS - 09.10.2026.xlsx | Export Date: October 9, 2026 | Sizing Date Calculation: Loom Start Date - 4 Days</p>
+    </div>
+    <div class="badge-bar">
+      <div class="stat-badge">
+        <div class="num">150</div>
+        <div class="lbl">Active Running Looms</div>
+      </div>
+      <div class="stat-badge">
+        <div class="num">8</div>
+        <div class="lbl">Future Stock Beams</div>
+      </div>
+      <div class="stat-badge">
+        <div class="num">3,73,810 m</div>
+        <div class="lbl">Running Warp Mtr</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rule-note">
+    <strong>Verification Rules Applied:</strong><br>
+    • <strong>Current Running Looms:</strong> 150 unique looms are set to Active Running status with their exact first-assigned IBPO, Design No, Beam No, Set No, and Warp Meter.<br>
+    • <strong>Multi-IBPO / Repeated Looms:</strong> Looms with repeated occurrences (Looms 12, 56, 156, 220, 235, 300) have their 1st row active in running, and remaining 8 rows preserved in <em>BeamStockMaster</em> with status <em>Available</em> &amp; reserved for future planning.<br>
+    • <strong>Sizing Date Logic:</strong> Automatically calculated as exactly <strong>4 calendar days prior to Loom Start Date</strong> for all entries.<br>
+    • <strong>Order Management Sync:</strong> All corresponding IBPOs set to <em>WEAVING RUNNING</em>.
+  </div>
+
+  <!-- SECTION 1: FUTURE / MULTI-IBPO BEAM STOCK TABLE -->
+  <div class="section-title">
+    <span>1. FUTURE BEAM STOCK ALLOCATIONS (Multi-IBPO Looms: 12, 56, 156, 220, 235, 300)</span>
+    <span class="tag">8 Preserved Stock Entries</span>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width: 60px;" class="text-center">S.No</th>
+        <th style="width: 140px;">Reserved Loom Target</th>
+        <th style="width: 90px;" class="text-center font-mono">Beam No</th>
+        <th style="width: 90px;" class="text-center font-mono">Set No</th>
+        <th style="width: 90px;" class="text-center font-mono">IBPO</th>
+        <th>Design / Sort No</th>
+        <th style="width: 90px;" class="text-right font-mono">Warp Mtr</th>
+        <th style="width: 100px;" class="text-center">Sizing Date (-4d)</th>
+        <th style="width: 140px;">Sizing Vendor</th>
+        <th style="width: 90px;" class="text-center">Stock Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      
+        <tr>
+          <td class="text-center font-mono">1</td>
+          <td class="font-bold" style="color: #0369a1;">Future Plan for Loom 12</td>
+          <td class="text-center font-mono font-bold">11741</td>
+          <td class="text-center font-mono">12986</td>
+          <td class="text-center font-mono font-bold">23290</td>
+          <td class="font-bold">SP26/23290</td>
+          <td class="text-right font-mono font-bold">370</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center"><span class="status-available">Available</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-mono">2</td>
+          <td class="font-bold" style="color: #0369a1;">Future Plan for Loom 12</td>
+          <td class="text-center font-mono font-bold">11742</td>
+          <td class="text-center font-mono">12987</td>
+          <td class="text-center font-mono font-bold">23919</td>
+          <td class="font-bold">SP26/764-23919</td>
+          <td class="text-right font-mono font-bold">320</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center"><span class="status-available">Available</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-mono">3</td>
+          <td class="font-bold" style="color: #0369a1;">Future Plan for Loom 56</td>
+          <td class="text-center font-mono font-bold">12592</td>
+          <td class="text-center font-mono">12968</td>
+          <td class="text-center font-mono font-bold">23607</td>
+          <td class="font-bold">SP26/702-23607</td>
+          <td class="text-right font-mono font-bold">620</td>
+          <td class="text-center font-mono">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center"><span class="status-available">Available</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-mono">4</td>
+          <td class="font-bold" style="color: #0369a1;">Future Plan for Loom 156</td>
+          <td class="text-center font-mono font-bold">12610</td>
+          <td class="text-center font-mono">12980</td>
+          <td class="text-center font-mono font-bold">23473</td>
+          <td class="font-bold">SP26/702-23473</td>
+          <td class="text-right font-mono font-bold">1,990</td>
+          <td class="text-center font-mono">2026-09-28</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center"><span class="status-available">Available</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-mono">5</td>
+          <td class="font-bold" style="color: #0369a1;">Future Plan for Loom 220</td>
+          <td class="text-center font-mono font-bold">12619</td>
+          <td class="text-center font-mono">13004</td>
+          <td class="text-center font-mono font-bold">23615</td>
+          <td class="font-bold">SP26/719-23615</td>
+          <td class="text-right font-mono font-bold">1,660</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center"><span class="status-available">Available</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-mono">6</td>
+          <td class="font-bold" style="color: #0369a1;">Future Plan for Loom 235</td>
+          <td class="text-center font-mono font-bold">11749</td>
+          <td class="text-center font-mono">12992</td>
+          <td class="text-center font-mono font-bold">23170</td>
+          <td class="font-bold">SP26/23170</td>
+          <td class="text-right font-mono font-bold">650</td>
+          <td class="text-center font-mono">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center"><span class="status-available">Available</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-mono">7</td>
+          <td class="font-bold" style="color: #0369a1;">Future Plan for Loom 235</td>
+          <td class="text-center font-mono font-bold">11750</td>
+          <td class="text-center font-mono">12993</td>
+          <td class="text-center font-mono font-bold">22725</td>
+          <td class="font-bold">SP26/623-22725</td>
+          <td class="text-right font-mono font-bold">860</td>
+          <td class="text-center font-mono">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center"><span class="status-available">Available</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-mono">8</td>
+          <td class="font-bold" style="color: #0369a1;">Future Plan for Loom 300</td>
+          <td class="text-center font-mono font-bold">11713</td>
+          <td class="text-center font-mono">12963</td>
+          <td class="text-center font-mono font-bold">23580</td>
+          <td class="font-bold">SP26/663-23580</td>
+          <td class="text-right font-mono font-bold">640</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center"><span class="status-available">Available</span></td>
+        </tr>
+      
+    </tbody>
+  </table>
+
+  <!-- SECTION 2: ALL 150 CURRENT RUNNING LOOMS -->
+  <div class="section-title">
+    <span>2. MASTER ACTIVE RUNNING LOOMS ALLOCATION</span>
+    <span class="tag">150 Unique Looms</span>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width: 50px;" class="text-center">Loom</th>
+        <th style="width: 75px;" class="text-center font-mono">IBPO</th>
+        <th style="width: 130px;">Design No</th>
+        <th style="width: 75px;" class="text-center font-mono">Beam No</th>
+        <th style="width: 75px;" class="text-center font-mono">Set No</th>
+        <th style="width: 75px;" class="text-right font-mono">Warp Mtr</th>
+        <th style="width: 85px;" class="text-center">Start Date</th>
+        <th style="width: 85px;" class="text-center">Sizing Date (-4d)</th>
+        <th>Sizing Vendor</th>
+        <th style="width: 60px;" class="text-center font-mono">RPM</th>
+        <th style="width: 65px;" class="text-center">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">1</td>
+          <td class="text-center font-mono font-bold">23919</td>
+          <td class="font-bold">SP26/764-23919</td>
+          <td class="text-center font-mono font-bold">11743</td>
+          <td class="text-center font-mono">12987</td>
+          <td class="text-right font-mono font-bold">2,200</td>
+          <td class="text-center font-mono">2026-10-04</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-30</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">2</td>
+          <td class="text-center font-mono font-bold">23338</td>
+          <td class="font-bold">SP26/715-23338</td>
+          <td class="text-center font-mono font-bold">12642</td>
+          <td class="text-center font-mono">13014</td>
+          <td class="text-right font-mono font-bold">2,500</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">3</td>
+          <td class="text-center font-mono font-bold">22655</td>
+          <td class="font-bold">SP26/623-22655</td>
+          <td class="text-center font-mono font-bold">11694</td>
+          <td class="text-center font-mono">12945</td>
+          <td class="text-right font-mono font-bold">1,620</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">4</td>
+          <td class="text-center font-mono font-bold">23338</td>
+          <td class="font-bold">SP26/715-23338</td>
+          <td class="text-center font-mono font-bold">12641</td>
+          <td class="text-center font-mono">13014</td>
+          <td class="text-right font-mono font-bold">2,500</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">6</td>
+          <td class="text-center font-mono font-bold">22655</td>
+          <td class="font-bold">SP26/623-22655</td>
+          <td class="text-center font-mono font-bold">11693</td>
+          <td class="text-center font-mono">12945</td>
+          <td class="text-right font-mono font-bold">1,600</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">7</td>
+          <td class="text-center font-mono font-bold">23477</td>
+          <td class="font-bold">SP26/702-23477</td>
+          <td class="text-center font-mono font-bold">12607</td>
+          <td class="text-center font-mono">12979</td>
+          <td class="text-right font-mono font-bold">2,140</td>
+          <td class="text-center font-mono">2026-10-04</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-30</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">8</td>
+          <td class="text-center font-mono font-bold">23918</td>
+          <td class="font-bold">SP26/776-23918</td>
+          <td class="text-center font-mono font-bold">12658</td>
+          <td class="text-center font-mono">13021</td>
+          <td class="text-right font-mono font-bold">2,660</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">9</td>
+          <td class="text-center font-mono font-bold">24032</td>
+          <td class="font-bold">SP26/772-24032</td>
+          <td class="text-center font-mono font-bold">11776</td>
+          <td class="text-center font-mono">13020</td>
+          <td class="text-right font-mono font-bold">2,050</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">10</td>
+          <td class="text-center font-mono font-bold">22649</td>
+          <td class="font-bold">SP26/623-22649</td>
+          <td class="text-center font-mono font-bold">11676</td>
+          <td class="text-center font-mono">12922</td>
+          <td class="text-right font-mono font-bold">2,340</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">11</td>
+          <td class="text-center font-mono font-bold">23872</td>
+          <td class="font-bold">SP26/764-23872</td>
+          <td class="text-center font-mono font-bold">11739</td>
+          <td class="text-center font-mono">12985</td>
+          <td class="text-right font-mono font-bold">2,200</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">12</td>
+          <td class="text-center font-mono font-bold">23872</td>
+          <td class="font-bold">SP26/764-23872</td>
+          <td class="text-center font-mono font-bold">11740</td>
+          <td class="text-center font-mono">12985</td>
+          <td class="text-right font-mono font-bold">1,510</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">13</td>
+          <td class="text-center font-mono font-bold">22397</td>
+          <td class="font-bold">SP26/593-22397</td>
+          <td class="text-center font-mono font-bold">11756</td>
+          <td class="text-center font-mono">13000</td>
+          <td class="text-right font-mono font-bold">2,100</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">15</td>
+          <td class="text-center font-mono font-bold">22397</td>
+          <td class="font-bold">SP26/593-22397</td>
+          <td class="text-center font-mono font-bold">11754</td>
+          <td class="text-center font-mono">13000</td>
+          <td class="text-right font-mono font-bold">2,100</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">16</td>
+          <td class="text-center font-mono font-bold">24031</td>
+          <td class="font-bold">SP26/341-24031</td>
+          <td class="text-center font-mono font-bold">12656</td>
+          <td class="text-center font-mono">13024</td>
+          <td class="text-right font-mono font-bold">2,140</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {AJ-800DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">18</td>
+          <td class="text-center font-mono font-bold">22655</td>
+          <td class="font-bold">SP26/623-22655</td>
+          <td class="text-center font-mono font-bold">11692</td>
+          <td class="text-center font-mono">12944</td>
+          <td class="text-right font-mono font-bold">2,430</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">19</td>
+          <td class="text-center font-mono font-bold">24032</td>
+          <td class="font-bold">SP26/772-24032</td>
+          <td class="text-center font-mono font-bold">11775</td>
+          <td class="text-center font-mono">13020</td>
+          <td class="text-right font-mono font-bold">2,040</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">20</td>
+          <td class="text-center font-mono font-bold">23473</td>
+          <td class="font-bold">SP26/702-23473</td>
+          <td class="text-center font-mono font-bold">12599</td>
+          <td class="text-center font-mono">12969</td>
+          <td class="text-right font-mono font-bold">2,440</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-27</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">21</td>
+          <td class="text-center font-mono font-bold">23601</td>
+          <td class="font-bold">SP26/701-23601</td>
+          <td class="text-center font-mono font-bold">12559</td>
+          <td class="text-center font-mono">12938</td>
+          <td class="text-right font-mono font-bold">2,150</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">22</td>
+          <td class="text-center font-mono font-bold">23918</td>
+          <td class="font-bold">SP26/776-23918</td>
+          <td class="text-center font-mono font-bold">12659</td>
+          <td class="text-center font-mono">13021</td>
+          <td class="text-right font-mono font-bold">2,650</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">23</td>
+          <td class="text-center font-mono font-bold">23403</td>
+          <td class="font-bold">SP26/694-23403</td>
+          <td class="text-center font-mono font-bold">12535</td>
+          <td class="text-center font-mono">12920</td>
+          <td class="text-right font-mono font-bold">2,160</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">24</td>
+          <td class="text-center font-mono font-bold">23554</td>
+          <td class="font-bold">SP26/652-23554</td>
+          <td class="text-center font-mono font-bold">11652</td>
+          <td class="text-center font-mono">12896</td>
+          <td class="text-right font-mono font-bold">2,130</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">25</td>
+          <td class="text-center font-mono font-bold">23554</td>
+          <td class="font-bold">SP26/652-23554</td>
+          <td class="text-center font-mono font-bold">11651</td>
+          <td class="text-center font-mono">12896</td>
+          <td class="text-right font-mono font-bold">2,130</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">26</td>
+          <td class="text-center font-mono font-bold">23607</td>
+          <td class="font-bold">SP26/702-23607</td>
+          <td class="text-center font-mono font-bold">12593</td>
+          <td class="text-center font-mono">12968</td>
+          <td class="text-right font-mono font-bold">2,170</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-27</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">27</td>
+          <td class="text-center font-mono font-bold">23919</td>
+          <td class="font-bold">SP26/764-23919</td>
+          <td class="text-center font-mono font-bold">11744</td>
+          <td class="text-center font-mono">12987</td>
+          <td class="text-right font-mono font-bold">2,400</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">28</td>
+          <td class="text-center font-mono font-bold">23601</td>
+          <td class="font-bold">SP26/701-23601</td>
+          <td class="text-center font-mono font-bold">12557</td>
+          <td class="text-center font-mono">12938</td>
+          <td class="text-right font-mono font-bold">2,150</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">29</td>
+          <td class="text-center font-mono font-bold">23477</td>
+          <td class="font-bold">SP26/702-23477</td>
+          <td class="text-center font-mono font-bold">12602</td>
+          <td class="text-center font-mono">12979</td>
+          <td class="text-right font-mono font-bold">2,140</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">30</td>
+          <td class="text-center font-mono font-bold">23403</td>
+          <td class="font-bold">SP26/694-23403</td>
+          <td class="text-center font-mono font-bold">12538</td>
+          <td class="text-center font-mono">12920</td>
+          <td class="text-right font-mono font-bold">2,160</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">31</td>
+          <td class="text-center font-mono font-bold">23403</td>
+          <td class="font-bold">SP26/694-23403</td>
+          <td class="text-center font-mono font-bold">12539</td>
+          <td class="text-center font-mono">12920</td>
+          <td class="text-right font-mono font-bold">2,170</td>
+          <td class="text-center font-mono">2026-09-27</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-23</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">32</td>
+          <td class="text-center font-mono font-bold">23477</td>
+          <td class="font-bold">SP26/702-23477</td>
+          <td class="text-center font-mono font-bold">12605</td>
+          <td class="text-center font-mono">12979</td>
+          <td class="text-right font-mono font-bold">2,140</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">33</td>
+          <td class="text-center font-mono font-bold">23446</td>
+          <td class="font-bold">SP26/701-23446</td>
+          <td class="text-center font-mono font-bold">12564</td>
+          <td class="text-center font-mono">12939</td>
+          <td class="text-right font-mono font-bold">2,150</td>
+          <td class="text-center font-mono">2026-09-27</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-23</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">34</td>
+          <td class="text-center font-mono font-bold">23601</td>
+          <td class="font-bold">SP26/701-23601</td>
+          <td class="text-center font-mono font-bold">12556</td>
+          <td class="text-center font-mono">12938</td>
+          <td class="text-right font-mono font-bold">2,150</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">36</td>
+          <td class="text-center font-mono font-bold">23446</td>
+          <td class="font-bold">SP26/701-23446</td>
+          <td class="text-center font-mono font-bold">12562</td>
+          <td class="text-center font-mono">12939</td>
+          <td class="text-right font-mono font-bold">2,150</td>
+          <td class="text-center font-mono">2026-09-27</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-23</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">37</td>
+          <td class="text-center font-mono font-bold">23845</td>
+          <td class="font-bold">SP26/116-23845</td>
+          <td class="text-center font-mono font-bold">11709</td>
+          <td class="text-center font-mono">12954</td>
+          <td class="text-right font-mono font-bold">2,760</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">38</td>
+          <td class="text-center font-mono font-bold">22725</td>
+          <td class="font-bold">SP26/623-22725</td>
+          <td class="text-center font-mono font-bold">12577</td>
+          <td class="text-center font-mono">12957</td>
+          <td class="text-right font-mono font-bold">2,540</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">39</td>
+          <td class="text-center font-mono font-bold">23477</td>
+          <td class="font-bold">SP26/702-23477</td>
+          <td class="text-center font-mono font-bold">12606</td>
+          <td class="text-center font-mono">12979</td>
+          <td class="text-right font-mono font-bold">2,140</td>
+          <td class="text-center font-mono">2026-10-04</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-30</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">40</td>
+          <td class="text-center font-mono font-bold">23473</td>
+          <td class="font-bold">SP26/702-23473</td>
+          <td class="text-center font-mono font-bold">12597</td>
+          <td class="text-center font-mono">12969</td>
+          <td class="text-right font-mono font-bold">2,420</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-27</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">42</td>
+          <td class="text-center font-mono font-bold">23543</td>
+          <td class="font-bold">SP26/708-23543</td>
+          <td class="text-center font-mono font-bold">12532</td>
+          <td class="text-center font-mono">12915</td>
+          <td class="text-right font-mono font-bold">2,900</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">43</td>
+          <td class="text-center font-mono font-bold">23473</td>
+          <td class="font-bold">SP26/702-23473</td>
+          <td class="text-center font-mono font-bold">12596</td>
+          <td class="text-center font-mono">12969</td>
+          <td class="text-right font-mono font-bold">2,420</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">46</td>
+          <td class="text-center font-mono font-bold">23919</td>
+          <td class="font-bold">SP26/764-23919</td>
+          <td class="text-center font-mono font-bold">11745</td>
+          <td class="text-center font-mono">12987</td>
+          <td class="text-right font-mono font-bold">2,480</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">47</td>
+          <td class="text-center font-mono font-bold">22649</td>
+          <td class="font-bold">SP26/623-22649</td>
+          <td class="text-center font-mono font-bold">11680</td>
+          <td class="text-center font-mono">12923</td>
+          <td class="text-right font-mono font-bold">2,550</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">48</td>
+          <td class="text-center font-mono font-bold">23608</td>
+          <td class="font-bold">SP26/702-23608</td>
+          <td class="text-center font-mono font-bold">12590</td>
+          <td class="text-center font-mono">12967</td>
+          <td class="text-right font-mono font-bold">2,380</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">49</td>
+          <td class="text-center font-mono font-bold">23446</td>
+          <td class="font-bold">SP26/701-23446</td>
+          <td class="text-center font-mono font-bold">12565</td>
+          <td class="text-center font-mono">12939</td>
+          <td class="text-right font-mono font-bold">2,150</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">50</td>
+          <td class="text-center font-mono font-bold">23473</td>
+          <td class="font-bold">SP26/702-23473</td>
+          <td class="text-center font-mono font-bold">12595</td>
+          <td class="text-center font-mono">12969</td>
+          <td class="text-right font-mono font-bold">2,420</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">51</td>
+          <td class="text-center font-mono font-bold">23000</td>
+          <td class="font-bold">SP26/667-23000</td>
+          <td class="text-center font-mono font-bold">11753</td>
+          <td class="text-center font-mono">13001</td>
+          <td class="text-right font-mono font-bold">3,610</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">52</td>
+          <td class="text-center font-mono font-bold">23601</td>
+          <td class="font-bold">SP26/701-23601</td>
+          <td class="text-center font-mono font-bold">12558</td>
+          <td class="text-center font-mono">12938</td>
+          <td class="text-right font-mono font-bold">2,150</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">53</td>
+          <td class="text-center font-mono font-bold">23845</td>
+          <td class="font-bold">SP26/116-23845</td>
+          <td class="text-center font-mono font-bold">11707</td>
+          <td class="text-center font-mono">12954</td>
+          <td class="text-right font-mono font-bold">2,630</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">54</td>
+          <td class="text-center font-mono font-bold">23446</td>
+          <td class="font-bold">SP26/701-23446</td>
+          <td class="text-center font-mono font-bold">12563</td>
+          <td class="text-center font-mono">12939</td>
+          <td class="text-right font-mono font-bold">2,150</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI SUDOGAMA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">56</td>
+          <td class="text-center font-mono font-bold">23608</td>
+          <td class="font-bold">SP26/702-23608</td>
+          <td class="text-center font-mono font-bold">12591</td>
+          <td class="text-center font-mono">12967</td>
+          <td class="text-right font-mono font-bold">1,760</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">57</td>
+          <td class="text-center font-mono font-bold">23543</td>
+          <td class="font-bold">SP26/708-23543</td>
+          <td class="text-center font-mono font-bold">12531</td>
+          <td class="text-center font-mono">12915</td>
+          <td class="text-right font-mono font-bold">2,870</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-27</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">58</td>
+          <td class="text-center font-mono font-bold">23473</td>
+          <td class="font-bold">SP26/702-23473</td>
+          <td class="text-center font-mono font-bold">12594</td>
+          <td class="text-center font-mono">12969</td>
+          <td class="text-right font-mono font-bold">2,420</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">60</td>
+          <td class="text-center font-mono font-bold">23819</td>
+          <td class="font-bold">SP26/759-23819</td>
+          <td class="text-center font-mono font-bold">12612</td>
+          <td class="text-center font-mono">12995</td>
+          <td class="text-right font-mono font-bold">2,770</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">62</td>
+          <td class="text-center font-mono font-bold">23446</td>
+          <td class="font-bold">SP26/701-23446</td>
+          <td class="text-center font-mono font-bold">12566</td>
+          <td class="text-center font-mono">12939</td>
+          <td class="text-right font-mono font-bold">2,470</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">102</td>
+          <td class="text-center font-mono font-bold">23848</td>
+          <td class="font-bold">SP26/765-23848</td>
+          <td class="text-center font-mono font-bold">12581</td>
+          <td class="text-center font-mono">12960</td>
+          <td class="text-right font-mono font-bold">1,950</td>
+          <td class="text-center font-mono">2026-10-04</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-30</td>
+          <td>SANTHI GAMA-800DIA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">103</td>
+          <td class="text-center font-mono font-bold">23848</td>
+          <td class="font-bold">SP26/765-23848</td>
+          <td class="text-center font-mono font-bold">11720</td>
+          <td class="text-center font-mono">12971</td>
+          <td class="text-right font-mono font-bold">1,800</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI GAMA-800DIA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">104</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11659</td>
+          <td class="text-center font-mono">12900</td>
+          <td class="text-right font-mono font-bold">2,000</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI GAMA-800DIA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">107</td>
+          <td class="text-center font-mono font-bold">23771</td>
+          <td class="font-bold">SP26/747-23771</td>
+          <td class="text-center font-mono font-bold">11789</td>
+          <td class="text-center font-mono">13029</td>
+          <td class="text-right font-mono font-bold">2,400</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI GAMA-800DIA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">108</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11660</td>
+          <td class="text-center font-mono">12900</td>
+          <td class="text-right font-mono font-bold">2,000</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI GAMA-800DIA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">121</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11673</td>
+          <td class="text-center font-mono">12921</td>
+          <td class="text-right font-mono font-bold">2,750</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">122</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">11641</td>
+          <td class="text-center font-mono">12885</td>
+          <td class="text-right font-mono font-bold">3,150</td>
+          <td class="text-center font-mono">2026-09-27</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-23</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">123</td>
+          <td class="text-center font-mono font-bold">23615</td>
+          <td class="font-bold">SP26/719-23615</td>
+          <td class="text-center font-mono font-bold">12622</td>
+          <td class="text-center font-mono">13004</td>
+          <td class="text-right font-mono font-bold">2,350</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">128</td>
+          <td class="text-center font-mono font-bold">23338</td>
+          <td class="font-bold">SP26/715-23338</td>
+          <td class="text-center font-mono font-bold">12639</td>
+          <td class="text-center font-mono">13014</td>
+          <td class="text-right font-mono font-bold">3,000</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">129</td>
+          <td class="text-center font-mono font-bold">23845</td>
+          <td class="font-bold">SP26/116-23845</td>
+          <td class="text-center font-mono font-bold">11704</td>
+          <td class="text-center font-mono">12954</td>
+          <td class="text-right font-mono font-bold">2,630</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">130</td>
+          <td class="text-center font-mono font-bold">23977</td>
+          <td class="font-bold">SP25/336-23977</td>
+          <td class="text-center font-mono font-bold">11767</td>
+          <td class="text-center font-mono">13015</td>
+          <td class="text-right font-mono font-bold">3,000</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">131</td>
+          <td class="text-center font-mono font-bold">23473</td>
+          <td class="font-bold">SP26/702-23473</td>
+          <td class="text-center font-mono font-bold">12598</td>
+          <td class="text-center font-mono">12969</td>
+          <td class="text-right font-mono font-bold">2,420</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-27</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">132</td>
+          <td class="text-center font-mono font-bold">23338</td>
+          <td class="font-bold">SP26/715-23338</td>
+          <td class="text-center font-mono font-bold">12640</td>
+          <td class="text-center font-mono">13014</td>
+          <td class="text-right font-mono font-bold">3,000</td>
+          <td class="text-center font-mono">2026-10-04</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-30</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">134</td>
+          <td class="text-center font-mono font-bold">23845</td>
+          <td class="font-bold">SP26/116-23845</td>
+          <td class="text-center font-mono font-bold">11706</td>
+          <td class="text-center font-mono">12954</td>
+          <td class="text-right font-mono font-bold">2,630</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">135</td>
+          <td class="text-center font-mono font-bold">23977</td>
+          <td class="font-bold">SP25/336-23977</td>
+          <td class="text-center font-mono font-bold">11768</td>
+          <td class="text-center font-mono">13015</td>
+          <td class="text-right font-mono font-bold">3,000</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">136</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12543</td>
+          <td class="text-center font-mono">12916</td>
+          <td class="text-right font-mono font-bold">2,600</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">137</td>
+          <td class="text-center font-mono font-bold">22568</td>
+          <td class="font-bold">SP26/623-22568</td>
+          <td class="text-center font-mono font-bold">11596</td>
+          <td class="text-center font-mono">12846</td>
+          <td class="text-right font-mono font-bold">3,000</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-27</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">140</td>
+          <td class="text-center font-mono font-bold">22649</td>
+          <td class="font-bold">SP26/623-22649</td>
+          <td class="text-center font-mono font-bold">11600</td>
+          <td class="text-center font-mono">12848</td>
+          <td class="text-right font-mono font-bold">1,500</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-27</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">142</td>
+          <td class="text-center font-mono font-bold">23615</td>
+          <td class="font-bold">SP26/719-23615</td>
+          <td class="text-center font-mono font-bold">12623</td>
+          <td class="text-center font-mono">13004</td>
+          <td class="text-right font-mono font-bold">2,500</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">143</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12494</td>
+          <td class="text-center font-mono">12880</td>
+          <td class="text-right font-mono font-bold">3,000</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">144</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12544</td>
+          <td class="text-center font-mono">12916</td>
+          <td class="text-right font-mono font-bold">2,570</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">145</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12553</td>
+          <td class="text-center font-mono">12929</td>
+          <td class="text-right font-mono font-bold">2,750</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">146</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11610</td>
+          <td class="text-center font-mono">12838</td>
+          <td class="text-right font-mono font-bold">3,100</td>
+          <td class="text-center font-mono">2026-09-21</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-17</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">147</td>
+          <td class="text-center font-mono font-bold">23590</td>
+          <td class="font-bold">SP23/164-23590</td>
+          <td class="text-center font-mono font-bold">11568</td>
+          <td class="text-center font-mono">12816</td>
+          <td class="text-right font-mono font-bold">3,200</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">148</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12554</td>
+          <td class="text-center font-mono">12929</td>
+          <td class="text-right font-mono font-bold">2,670</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">149</td>
+          <td class="text-center font-mono font-bold">24032</td>
+          <td class="font-bold">SP26/772-24032</td>
+          <td class="text-center font-mono font-bold">12616</td>
+          <td class="text-center font-mono">12998</td>
+          <td class="text-right font-mono font-bold">2,550</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">150</td>
+          <td class="text-center font-mono font-bold">23592</td>
+          <td class="font-bold">SP23/053-23592</td>
+          <td class="text-center font-mono font-bold">12509</td>
+          <td class="text-center font-mono">12898</td>
+          <td class="text-right font-mono font-bold">5,000</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">151</td>
+          <td class="text-center font-mono font-bold">23845</td>
+          <td class="font-bold">SP26/116-23845</td>
+          <td class="text-center font-mono font-bold">11708</td>
+          <td class="text-center font-mono">12954</td>
+          <td class="text-right font-mono font-bold">2,630</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">152</td>
+          <td class="text-center font-mono font-bold">23592</td>
+          <td class="font-bold">SP23/053-23592</td>
+          <td class="text-center font-mono font-bold">12575</td>
+          <td class="text-center font-mono">12956</td>
+          <td class="text-right font-mono font-bold">4,900</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">153</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12495</td>
+          <td class="text-center font-mono">12880</td>
+          <td class="text-right font-mono font-bold">2,920</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">154</td>
+          <td class="text-center font-mono font-bold">23338</td>
+          <td class="font-bold">SP26/715-23338</td>
+          <td class="text-center font-mono font-bold">12638</td>
+          <td class="text-center font-mono">13014</td>
+          <td class="text-right font-mono font-bold">3,000</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">155</td>
+          <td class="text-center font-mono font-bold">23477</td>
+          <td class="font-bold">SP26/702-23477</td>
+          <td class="text-center font-mono font-bold">12608</td>
+          <td class="text-center font-mono">12979</td>
+          <td class="text-right font-mono font-bold">2,140</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">156</td>
+          <td class="text-center font-mono font-bold">23477</td>
+          <td class="font-bold">SP26/702-23477</td>
+          <td class="text-center font-mono font-bold">12609</td>
+          <td class="text-center font-mono">12979</td>
+          <td class="text-right font-mono font-bold">150</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">157</td>
+          <td class="text-center font-mono font-bold">23789</td>
+          <td class="font-bold">SP26/755-23789</td>
+          <td class="text-center font-mono font-bold">11668</td>
+          <td class="text-center font-mono">12917</td>
+          <td class="text-right font-mono font-bold">3,300</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">158</td>
+          <td class="text-center font-mono font-bold">23789</td>
+          <td class="font-bold">SP26/755-23789</td>
+          <td class="text-center font-mono font-bold">11667</td>
+          <td class="text-center font-mono">12917</td>
+          <td class="text-right font-mono font-bold">3,300</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">159</td>
+          <td class="text-center font-mono font-bold">24032</td>
+          <td class="font-bold">SP26/772-24032</td>
+          <td class="text-center font-mono font-bold">12617</td>
+          <td class="text-center font-mono">12998</td>
+          <td class="text-right font-mono font-bold">2,620</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">161</td>
+          <td class="text-center font-mono font-bold">23977</td>
+          <td class="font-bold">SP25/336-23977</td>
+          <td class="text-center font-mono font-bold">11766</td>
+          <td class="text-center font-mono">13015</td>
+          <td class="text-right font-mono font-bold">3,000</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">162</td>
+          <td class="text-center font-mono font-bold">23592</td>
+          <td class="font-bold">SP23/053-23592</td>
+          <td class="text-center font-mono font-bold">12507</td>
+          <td class="text-center font-mono">12887</td>
+          <td class="text-right font-mono font-bold">5,400</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">163</td>
+          <td class="text-center font-mono font-bold">23977</td>
+          <td class="font-bold">SP25/336-23977</td>
+          <td class="text-center font-mono font-bold">11765</td>
+          <td class="text-center font-mono">13015</td>
+          <td class="text-right font-mono font-bold">3,000</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">164</td>
+          <td class="text-center font-mono font-bold">23845</td>
+          <td class="font-bold">SP26/116-23845</td>
+          <td class="text-center font-mono font-bold">11705</td>
+          <td class="text-center font-mono">12954</td>
+          <td class="text-right font-mono font-bold">2,630</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">165</td>
+          <td class="text-center font-mono font-bold">23204</td>
+          <td class="font-bold">SP26/692-23204</td>
+          <td class="text-center font-mono font-bold">11732</td>
+          <td class="text-center font-mono">12981</td>
+          <td class="text-right font-mono font-bold">3,100</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">167</td>
+          <td class="text-center font-mono font-bold">24344</td>
+          <td class="font-bold">SP26/322-24344</td>
+          <td class="text-center font-mono font-bold">11700</td>
+          <td class="text-center font-mono">12934</td>
+          <td class="text-right font-mono font-bold">2,300</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {AJ-1000DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">203</td>
+          <td class="text-center font-mono font-bold">23916</td>
+          <td class="font-bold">SP26/766-23916</td>
+          <td class="text-center font-mono font-bold">11737</td>
+          <td class="text-center font-mono">12933</td>
+          <td class="text-right font-mono font-bold">2,690</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">204</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12542</td>
+          <td class="text-center font-mono">12916</td>
+          <td class="text-right font-mono font-bold">2,600</td>
+          <td class="text-center font-mono">2026-09-27</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-23</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">205</td>
+          <td class="text-center font-mono font-bold">24016</td>
+          <td class="font-bold">SP26/766-24016</td>
+          <td class="text-center font-mono font-bold">11738</td>
+          <td class="text-center font-mono">12984</td>
+          <td class="text-right font-mono font-bold">2,700</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">207</td>
+          <td class="text-center font-mono font-bold">23916</td>
+          <td class="font-bold">SP26/766-23916</td>
+          <td class="text-center font-mono font-bold">11736</td>
+          <td class="text-center font-mono">12933</td>
+          <td class="text-right font-mono font-bold">2,690</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">208</td>
+          <td class="text-center font-mono font-bold">24032</td>
+          <td class="font-bold">SP26/772-24032</td>
+          <td class="text-center font-mono font-bold">11774</td>
+          <td class="text-center font-mono">13020</td>
+          <td class="text-right font-mono font-bold">2,040</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">209</td>
+          <td class="text-center font-mono font-bold">24156</td>
+          <td class="font-bold">SP25/540-24156</td>
+          <td class="text-center font-mono font-bold">12613</td>
+          <td class="text-center font-mono">12996</td>
+          <td class="text-right font-mono font-bold">660</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI SUDOGAMA-800DIA</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">210</td>
+          <td class="text-center font-mono font-bold">22649</td>
+          <td class="font-bold">SP26/623-22649</td>
+          <td class="text-center font-mono font-bold">12522</td>
+          <td class="text-center font-mono">12905</td>
+          <td class="text-right font-mono font-bold">2,210</td>
+          <td class="text-center font-mono">2026-09-24</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-20</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">212</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11636</td>
+          <td class="text-center font-mono">12884</td>
+          <td class="text-right font-mono font-bold">3,550</td>
+          <td class="text-center font-mono">2026-09-21</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-17</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">214</td>
+          <td class="text-center font-mono font-bold">23590</td>
+          <td class="font-bold">SP23/164-23590</td>
+          <td class="text-center font-mono font-bold">12396</td>
+          <td class="text-center font-mono">12791</td>
+          <td class="text-right font-mono font-bold">3,100</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">217</td>
+          <td class="text-center font-mono font-bold">22649</td>
+          <td class="font-bold">SP26/623-22649</td>
+          <td class="text-center font-mono font-bold">11646</td>
+          <td class="text-center font-mono">12895</td>
+          <td class="text-right font-mono font-bold">2,750</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">218</td>
+          <td class="text-center font-mono font-bold">23615</td>
+          <td class="font-bold">SP26/719-23615</td>
+          <td class="text-center font-mono font-bold">12621</td>
+          <td class="text-center font-mono">13004</td>
+          <td class="text-right font-mono font-bold">2,000</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">219</td>
+          <td class="text-center font-mono font-bold">23590</td>
+          <td class="font-bold">SP23/164-23590</td>
+          <td class="text-center font-mono font-bold">12442</td>
+          <td class="text-center font-mono">12823</td>
+          <td class="text-right font-mono font-bold">3,200</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">220</td>
+          <td class="text-center font-mono font-bold">23616</td>
+          <td class="font-bold">SP26/719-23616</td>
+          <td class="text-center font-mono font-bold">12618</td>
+          <td class="text-center font-mono">13003</td>
+          <td class="text-right font-mono font-bold">340</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">222</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12550</td>
+          <td class="text-center font-mono">12929</td>
+          <td class="text-right font-mono font-bold">2,500</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">227</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11671</td>
+          <td class="text-center font-mono">12921</td>
+          <td class="text-right font-mono font-bold">2,600</td>
+          <td class="text-center font-mono">2026-09-27</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-23</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">229</td>
+          <td class="text-center font-mono font-bold">23204</td>
+          <td class="font-bold">SP26/692-23204</td>
+          <td class="text-center font-mono font-bold">11719</td>
+          <td class="text-center font-mono">12965</td>
+          <td class="text-right font-mono font-bold">2,670</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">230</td>
+          <td class="text-center font-mono font-bold">23204</td>
+          <td class="font-bold">SP26/692-23204</td>
+          <td class="text-center font-mono font-bold">12520</td>
+          <td class="text-center font-mono">12904</td>
+          <td class="text-right font-mono font-bold">2,460</td>
+          <td class="text-center font-mono">2026-09-29</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-25</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">231</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11631</td>
+          <td class="text-center font-mono">12878</td>
+          <td class="text-right font-mono font-bold">3,590</td>
+          <td class="text-center font-mono">2026-09-22</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-18</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">232</td>
+          <td class="text-center font-mono font-bold">23204</td>
+          <td class="font-bold">SP26/692-23204</td>
+          <td class="text-center font-mono font-bold">11718</td>
+          <td class="text-center font-mono">12965</td>
+          <td class="text-right font-mono font-bold">2,700</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">234</td>
+          <td class="text-center font-mono font-bold">22649</td>
+          <td class="font-bold">SP26/623-22649</td>
+          <td class="text-center font-mono font-bold">11679</td>
+          <td class="text-center font-mono">12923</td>
+          <td class="text-right font-mono font-bold">2,500</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">235</td>
+          <td class="text-center font-mono font-bold">23968</td>
+          <td class="font-bold">SP26/623-23968</td>
+          <td class="text-center font-mono font-bold">11748</td>
+          <td class="text-center font-mono">12991</td>
+          <td class="text-right font-mono font-bold">200</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">236</td>
+          <td class="text-center font-mono font-bold">24032</td>
+          <td class="font-bold">SP26/772-24032</td>
+          <td class="text-center font-mono font-bold">12614</td>
+          <td class="text-center font-mono">12998</td>
+          <td class="text-right font-mono font-bold">2,500</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">237</td>
+          <td class="text-center font-mono font-bold">23580</td>
+          <td class="font-bold">SP26/663-23580</td>
+          <td class="text-center font-mono font-bold">11715</td>
+          <td class="text-center font-mono">12963</td>
+          <td class="text-right font-mono font-bold">3,020</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">239</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">11640</td>
+          <td class="text-center font-mono">12885</td>
+          <td class="text-right font-mono font-bold">2,900</td>
+          <td class="text-center font-mono">2026-09-24</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-20</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">240</td>
+          <td class="text-center font-mono font-bold">23215</td>
+          <td class="font-bold">SP26/620-23215</td>
+          <td class="text-center font-mono font-bold">11747</td>
+          <td class="text-center font-mono">12990</td>
+          <td class="text-right font-mono font-bold">2,590</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">242</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">11638</td>
+          <td class="text-center font-mono">12885</td>
+          <td class="text-right font-mono font-bold">2,900</td>
+          <td class="text-center font-mono">2026-09-24</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-20</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">245</td>
+          <td class="text-center font-mono font-bold">22649</td>
+          <td class="font-bold">SP26/623-22649</td>
+          <td class="text-center font-mono font-bold">11675</td>
+          <td class="text-center font-mono">12922</td>
+          <td class="text-right font-mono font-bold">2,400</td>
+          <td class="text-center font-mono">2026-09-27</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-23</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">247</td>
+          <td class="text-center font-mono font-bold">22649</td>
+          <td class="font-bold">SP26/623-22649</td>
+          <td class="text-center font-mono font-bold">12521</td>
+          <td class="text-center font-mono">12905</td>
+          <td class="text-right font-mono font-bold">2,320</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">248</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11661</td>
+          <td class="text-center font-mono">12900</td>
+          <td class="text-right font-mono font-bold">2,550</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">249</td>
+          <td class="text-center font-mono font-bold">23420</td>
+          <td class="font-bold">SP26/290-23420</td>
+          <td class="text-center font-mono font-bold">12545</td>
+          <td class="text-center font-mono">12926</td>
+          <td class="text-right font-mono font-bold">1,830</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-27</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">250</td>
+          <td class="text-center font-mono font-bold">23420</td>
+          <td class="font-bold">SP26/290-23420</td>
+          <td class="text-center font-mono font-bold">12546</td>
+          <td class="text-center font-mono">12926</td>
+          <td class="text-right font-mono font-bold">1,550</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-27</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">252</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11672</td>
+          <td class="text-center font-mono">12921</td>
+          <td class="text-right font-mono font-bold">2,600</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">254</td>
+          <td class="text-center font-mono font-bold">23725</td>
+          <td class="font-bold">SP26/633-23725</td>
+          <td class="text-center font-mono font-bold">11681</td>
+          <td class="text-center font-mono">12930</td>
+          <td class="text-right font-mono font-bold">2,700</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">255</td>
+          <td class="text-center font-mono font-bold">23875</td>
+          <td class="font-bold">SP26/663-23875</td>
+          <td class="text-center font-mono font-bold">11711</td>
+          <td class="text-center font-mono">12962</td>
+          <td class="text-right font-mono font-bold">3,020</td>
+          <td class="text-center font-mono">2026-10-01</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-27</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">257</td>
+          <td class="text-center font-mono font-bold">24344</td>
+          <td class="font-bold">SP26/322-24344</td>
+          <td class="text-center font-mono font-bold">11702</td>
+          <td class="text-center font-mono">12934</td>
+          <td class="text-right font-mono font-bold">2,300</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">258</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">11639</td>
+          <td class="text-center font-mono">12885</td>
+          <td class="text-right font-mono font-bold">2,900</td>
+          <td class="text-center font-mono">2026-09-26</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-22</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">260</td>
+          <td class="text-center font-mono font-bold">22725</td>
+          <td class="font-bold">SP26/623-22725</td>
+          <td class="text-center font-mono font-bold">11695</td>
+          <td class="text-center font-mono">12946</td>
+          <td class="text-right font-mono font-bold">1,750</td>
+          <td class="text-center font-mono">2026-09-27</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-23</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">266</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11663</td>
+          <td class="text-center font-mono">12900</td>
+          <td class="text-right font-mono font-bold">2,550</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">271</td>
+          <td class="text-center font-mono font-bold">24344</td>
+          <td class="font-bold">SP26/322-24344</td>
+          <td class="text-center font-mono font-bold">11703</td>
+          <td class="text-center font-mono">12934</td>
+          <td class="text-right font-mono font-bold">2,280</td>
+          <td class="text-center font-mono">2026-10-04</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-30</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">273</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11635</td>
+          <td class="text-center font-mono">12884</td>
+          <td class="text-right font-mono font-bold">3,550</td>
+          <td class="text-center font-mono">2026-09-23</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-19</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">274</td>
+          <td class="text-center font-mono font-bold">24032</td>
+          <td class="font-bold">SP26/772-24032</td>
+          <td class="text-center font-mono font-bold">12615</td>
+          <td class="text-center font-mono">12998</td>
+          <td class="text-right font-mono font-bold">2,500</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">275</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11629</td>
+          <td class="text-center font-mono">12878</td>
+          <td class="text-right font-mono font-bold">3,550</td>
+          <td class="text-center font-mono">2026-09-21</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-17</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">276</td>
+          <td class="text-center font-mono font-bold">23204</td>
+          <td class="font-bold">SP26/692-23204</td>
+          <td class="text-center font-mono font-bold">11730</td>
+          <td class="text-center font-mono">12981</td>
+          <td class="text-right font-mono font-bold">2,600</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">278</td>
+          <td class="text-center font-mono font-bold">23660</td>
+          <td class="font-bold">SP26/736-23660</td>
+          <td class="text-center font-mono font-bold">11670</td>
+          <td class="text-center font-mono">12921</td>
+          <td class="text-right font-mono font-bold">2,600</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">284</td>
+          <td class="text-center font-mono font-bold">23725</td>
+          <td class="font-bold">SP26/633-23725</td>
+          <td class="text-center font-mono font-bold">11684</td>
+          <td class="text-center font-mono">12930</td>
+          <td class="text-right font-mono font-bold">2,700</td>
+          <td class="text-center font-mono">2026-10-02</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-28</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">285</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12552</td>
+          <td class="text-center font-mono">12929</td>
+          <td class="text-right font-mono font-bold">2,500</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">286</td>
+          <td class="text-center font-mono font-bold">24344</td>
+          <td class="font-bold">SP26/322-24344</td>
+          <td class="text-center font-mono font-bold">11716</td>
+          <td class="text-center font-mono">12964</td>
+          <td class="text-right font-mono font-bold">2,120</td>
+          <td class="text-center font-mono">2026-10-04</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-30</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">293</td>
+          <td class="text-center font-mono font-bold">23204</td>
+          <td class="font-bold">SP26/692-23204</td>
+          <td class="text-center font-mono font-bold">11717</td>
+          <td class="text-center font-mono">12965</td>
+          <td class="text-right font-mono font-bold">2,700</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">297</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12541</td>
+          <td class="text-center font-mono">12916</td>
+          <td class="text-right font-mono font-bold">2,600</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">298</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12551</td>
+          <td class="text-center font-mono">12929</td>
+          <td class="text-right font-mono font-bold">2,500</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">300</td>
+          <td class="text-center font-mono font-bold">23875</td>
+          <td class="font-bold">SP26/663-23875</td>
+          <td class="text-center font-mono font-bold">11712</td>
+          <td class="text-center font-mono">12962</td>
+          <td class="text-right font-mono font-bold">2,380</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">301</td>
+          <td class="text-center font-mono font-bold">23203</td>
+          <td class="font-bold">SP26/682-23203</td>
+          <td class="text-center font-mono font-bold">11782</td>
+          <td class="text-center font-mono">13028</td>
+          <td class="text-right font-mono font-bold">540</td>
+          <td class="text-center font-mono">2026-10-05</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-01</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">516</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">303</td>
+          <td class="text-center font-mono font-bold">22649</td>
+          <td class="font-bold">SP26/623-22649</td>
+          <td class="text-center font-mono font-bold">11647</td>
+          <td class="text-center font-mono">12895</td>
+          <td class="text-right font-mono font-bold">2,710</td>
+          <td class="text-center font-mono">2026-09-22</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-18</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">305</td>
+          <td class="text-center font-mono font-bold">23580</td>
+          <td class="font-bold">SP26/663-23580</td>
+          <td class="text-center font-mono font-bold">11714</td>
+          <td class="text-center font-mono">12963</td>
+          <td class="text-right font-mono font-bold">3,020</td>
+          <td class="text-center font-mono">2026-09-30</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-26</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">306</td>
+          <td class="text-center font-mono font-bold">23661</td>
+          <td class="font-bold">SP26/737-23661</td>
+          <td class="text-center font-mono font-bold">12491</td>
+          <td class="text-center font-mono">12880</td>
+          <td class="text-right font-mono font-bold">3,000</td>
+          <td class="text-center font-mono">2026-10-03</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-09-29</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+        <tr>
+          <td class="text-center font-bold" style="background-color: #f1f5f9; color: #0284c7;">308</td>
+          <td class="text-center font-mono font-bold">23614</td>
+          <td class="font-bold">SP26/719-23614</td>
+          <td class="text-center font-mono font-bold">12634</td>
+          <td class="text-center font-mono">13013</td>
+          <td class="text-right font-mono font-bold">1,360</td>
+          <td class="text-center font-mono">2026-10-06</td>
+          <td class="text-center font-mono font-bold" style="color: #0d9488;">2026-10-02</td>
+          <td>SANTHI {R/F-900DIA}</td>
+          <td class="text-center font-mono">-</td>
+          <td class="text-center"><span class="status-running">Running</span></td>
+        </tr>
+      
+    </tbody>
+  </table>
+
+  <div style="margin-top: 16px; text-align: center; color: #64748b; font-size: 7pt; border-top: 1px solid #e2e8f0; padding-top: 8px;">
+    Report automatically generated by SPUPL Loom Planning ERP System. All data synchronized with Supabase PostgreSQL production database.
+  </div>
+</body>
+</html>
