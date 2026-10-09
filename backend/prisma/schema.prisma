@@ -196,6 +196,7 @@ model LoomRunEntry {
   loom_no             Int        @unique
   design_no_sp_no     String?
   current_reed_no     String?
+  current_pick        String?
   current_beam_no     String?
   set_no              String?
   beam_id             Int?

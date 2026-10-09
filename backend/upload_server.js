@@ -4215,6 +4215,10 @@ app.get('/api/active-runs', async (req, res) => {
         ...r,
         set_no: setNo || '',
         beam_id: beamId || null,
+        current_reed_no: r.current_reed_no || null,
+        current_pick: r.current_pick || null,
+        reed: r.current_reed_no || null,
+        pick: r.current_pick || null,
         sort_change_type: r.sort_change_type || null,
         sortChangeType: r.sort_change_type || null,
         prep_status: r.prep_status || null,
@@ -4225,6 +4229,69 @@ app.get('/api/active-runs', async (req, res) => {
     res.json(enrichedRuns);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// LOOM LOGS EXPORT API (Date Range & Multiple Looms)
+// ----------------------------------------------------
+app.get('/api/loom-logs/export', async (req, res) => {
+  try {
+    const { fromDate, toDate, looms } = req.query;
+    let loomList = [];
+    if (looms && typeof looms === 'string' && looms.trim() !== '') {
+      loomList = looms.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+    }
+
+    // Build production logs query
+    const prodWhere = {};
+    if (loomList.length > 0) {
+      prodWhere.loom_no = { in: loomList };
+    }
+    if (fromDate || toDate) {
+      prodWhere.date = {};
+      if (fromDate) prodWhere.date.gte = new Date(fromDate);
+      if (toDate) {
+        const toD = new Date(toDate);
+        toD.setHours(23, 59, 59, 999);
+        prodWhere.date.lte = toD;
+      }
+    }
+
+    // Parallel fetch: production logs, allocation audit logs, and system audit logs
+    const [prodLogs, allocAudits, sysAudits, activeRunsList] = await Promise.all([
+      prisma.dailyProductionLog.findMany({
+        where: prodWhere,
+        orderBy: [{ date: 'desc' }, { loom_no: 'asc' }]
+      }),
+      prisma.allocationAuditLog.findMany({
+        where: loomList.length > 0 ? { loom_no: { in: loomList } } : {},
+        orderBy: { timestamp: 'desc' },
+        take: 500
+      }),
+      prisma.systemAuditLog.findMany({
+        where: {
+          action: { contains: 'REED' }
+        },
+        orderBy: { timestamp: 'desc' },
+        take: 200
+      }),
+      prisma.loomRunEntry.findMany({
+        where: loomList.length > 0 ? { loom_no: { in: loomList } } : {},
+        orderBy: { loom_no: 'asc' }
+      })
+    ]);
+
+    res.json({
+      success: true,
+      productionLogs: prodLogs,
+      allocationAudits: allocAudits,
+      systemAudits: sysAudits,
+      activeRuns: activeRunsList
+    });
+  } catch (error) {
+    console.error('Error exporting loom logs:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -4395,6 +4462,50 @@ app.post('/api/active-runs', async (req, res) => {
         }
         if (run.prepStatus !== undefined || run.prep_status !== undefined) {
           updateData.prep_status = run.prepStatus || run.prep_status;
+        }
+        if (run.currentReedNo !== undefined || run.reed !== undefined) {
+          updateData.current_reed_no = run.currentReedNo !== undefined ? run.currentReedNo : run.reed;
+        }
+        if (run.currentPick !== undefined || run.pick !== undefined) {
+          updateData.current_pick = run.currentPick !== undefined ? String(run.currentPick) : String(run.pick);
+        }
+
+        // Record audit log for Reed or Pick changes without touching OrderMaster
+        if (
+          (updateData.current_reed_no && existingRun && existingRun.current_reed_no && String(existingRun.current_reed_no).trim() !== String(updateData.current_reed_no).trim()) ||
+          (updateData.current_pick && existingRun && existingRun.current_pick && String(existingRun.current_pick).trim() !== String(updateData.current_pick).trim())
+        ) {
+          try {
+            const oldReed = existingRun?.current_reed_no || 'Default';
+            const newReed = updateData.current_reed_no || oldReed;
+            const oldPick = existingRun?.current_pick || 'Default';
+            const newPick = updateData.current_pick || oldPick;
+            const logUser = req.body?.user || run.user || 'ADMIN';
+
+            await tx.allocationAuditLog.create({
+              data: {
+                user: logUser,
+                action: 'REED_PICK_EDIT',
+                loom_no: loomNoNum,
+                design_no: updateData.design_no_sp_no || existingRun?.design_no_sp_no || 'N/A',
+                old_plan: `Reed: ${oldReed}, Pick: ${oldPick}`,
+                new_plan: `Reed: ${newReed}, Pick: ${newPick}`,
+                reason: 'Admin specification override for running loom (Main Entry only)'
+              }
+            });
+
+            await tx.systemAuditLog.create({
+              data: {
+                username: logUser,
+                screen: 'Main Entry',
+                action: `L-${loomNoNum} REED_PICK_CHANGE`,
+                oldValue: `Reed: ${oldReed}, Pick: ${oldPick}`,
+                newValue: `Reed: ${newReed}, Pick: ${newPick}`
+              }
+            });
+          } catch (auditErr) {
+            console.warn(`Loom ${loomNoNum} audit log record warning:`, auditErr.message);
+          }
         }
 
         await tx.loomRunEntry.upsert({

@@ -159,10 +159,10 @@ export const LoomRow = React.memo(function LoomRow({
                     }
                   }
 
-                  // Cumulative meters calculation for CURRENT active warp
-                  if (currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
+                  // Cumulative meters calculation for CURRENT active warp: take all logs from start date
                   if (effectiveStartDateStr && logDateStr < effectiveStartDateStr) continue;
                   if (selectedProductionDate && logDateStr > selectedProductionDate) continue;
+                  if (!effectiveStartDateStr && currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
 
                   const pVal = l.produced_meter || 0;
                   loomLogs.push(pVal);

@@ -235,8 +235,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
           for (let li = 0; li < loomLogsList.length; li++) {
             const l = loomLogsList[li];
-            const lDesign = (l.design_no || '').trim().toLowerCase();
-            if (currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
 
             let lDateStr = '';
             try {
@@ -248,6 +246,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (loomStartDate && lDateStr && lDateStr < loomStartDate) continue;
             // Skip logs dated AFTER today (matches LoomRow selectedProductionDate cutoff)
             if (lDateStr && lDateStr > todayStr) continue;
+
+            const lDesign = (l.design_no || '').trim().toLowerCase();
+            if (!loomStartDate && currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
 
             const pMtr = Number(l.produced_meter) || 0;
             relevantLogs.push(pMtr);

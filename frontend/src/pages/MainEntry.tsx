@@ -25,6 +25,9 @@ interface EntryState {
   rpm: number | '';
   efficiency: number | '';
   remarks: string;
+  reed?: string;
+  pick?: string;
+  sortChangeType?: string;
 }
 
 interface ProductionLogItem {
@@ -50,19 +53,32 @@ export default function MainEntry() {
   const { activeRuns, setActiveRuns, looms, designs, beams, reeds, orders, nextPlans, rawNextPlans, refreshData } = useAppContext();
   const [entries, setEntries] = useState<Record<number, EntryState>>({});
   const [unlockedLoomDates, setUnlockedLoomDates] = useState<Record<number, boolean>>({});
+  const [unlockedLoomSpecs, setUnlockedLoomSpecs] = useState<Record<number, boolean>>({});
   const [adminUnlockModal, setAdminUnlockModal] = useState<{
     isOpen: boolean;
     loomNo: number | null;
+    targetField?: 'startDate' | 'specs';
     password: string;
     error: string | null;
     isVerifying: boolean;
   }>({
     isOpen: false,
     loomNo: null,
+    targetField: 'startDate',
     password: '',
     error: null,
     isVerifying: false
   });
+  const [showLogExportModal, setShowLogExportModal] = useState<boolean>(false);
+  const [logExportFromDate, setLogExportFromDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return format(d, 'yyyy-MM-dd');
+  });
+  const [logExportToDate, setLogExportToDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
+  const [selectedExportLooms, setSelectedExportLooms] = useState<Set<number>>(new Set());
+  const [isExportingLogs, setIsExportingLogs] = useState<boolean>(false);
+  const [exportLoomSearch, setExportLoomSearch] = useState<string>('');
   const [isSavingAll, setIsSavingAll] = useState<boolean>(false);
   const [isImportingWarpLoad, setIsImportingWarpLoad] = useState<boolean>(false);
   const [warpLoadModalData, setWarpLoadModalData] = useState<any | null>(null);
@@ -336,6 +352,9 @@ export default function MainEntry() {
   // Daily Production History state
   const [productionLogs, setProductionLogs] = useState<ProductionLogItem[]>([]);
   const [historyModalLoomNo, setHistoryModalLoomNo] = useState<number | null>(null);
+  const [historyModalTab, setHistoryModalTab] = useState<'production' | 'spec_changes'>('production');
+  const [historySpecLogs, setHistorySpecLogs] = useState<any[]>([]);
+  const [isLoadingSpecLogs, setIsLoadingSpecLogs] = useState<boolean>(false);
   const [newLogMeter, setNewLogMeter] = useState<string>('');
   const [newLogRpm, setNewLogRpm] = useState<string>('');
   const [newLogEff, setNewLogEff] = useState<string>('');
@@ -345,6 +364,43 @@ export default function MainEntry() {
   const [editLogRpm, setEditLogRpm] = useState<string>('');
   const [editLogEff, setEditLogEff] = useState<string>('');
   const [editLogRemarks, setEditLogRemarks] = useState<string>('');
+
+  // Fetch spec changes (Reed / Pick modifications) whenever history modal opens for a loom
+  useEffect(() => {
+    if (historyModalLoomNo) {
+      setIsLoadingSpecLogs(true);
+      fetch(`${API_BASE_URL}/api/loom-logs/export?looms=${historyModalLoomNo}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            const combined = [
+              ...(data.allocationAudits || []).map((a: any) => ({
+                id: `alloc-${a.id}`,
+                action: a.action || 'SPEC_EDIT',
+                details: `${a.old_plan || ''} ➔ ${a.new_plan || ''}`,
+                notes: a.reason || a.notes || '',
+                user: a.user || 'ADMIN',
+                timestamp: a.timestamp
+              })),
+              ...(data.systemAudits || []).map((s: any) => ({
+                id: `sys-${s.id}`,
+                action: s.action || 'SPEC_CHANGE',
+                details: `${s.oldValue || ''} ➔ ${s.newValue || ''}`,
+                notes: s.screen || 'Main Entry',
+                user: s.username || 'ADMIN',
+                timestamp: s.timestamp
+              }))
+            ];
+            setHistorySpecLogs(combined);
+          }
+        })
+        .catch(err => console.error('Failed to load spec logs:', err))
+        .finally(() => setIsLoadingSpecLogs(false));
+    } else {
+      setHistorySpecLogs([]);
+      setHistoryModalTab('production');
+    }
+  }, [historyModalLoomNo]);
 
   // Warp Runout Transition Modal State
   const [transitionPromptPlan, setTransitionPromptPlan] = useState<any | null>(null);
@@ -548,7 +604,9 @@ export default function MainEntry() {
             dailyProduction: (dateLog && dateLog.produced_meter !== undefined && dateLog.produced_meter !== null) ? dateLog.produced_meter : '',
             rpm: (dateLog && dateLog.rpm !== undefined && dateLog.rpm !== null) ? dateLog.rpm : '',
             efficiency: (dateLog && dateLog.efficiency !== undefined && dateLog.efficiency !== null) ? dateLog.efficiency : '',
-            remarks: (activeRun as any).remarks || ''
+            remarks: (activeRun as any).remarks || '',
+            reed: prevEntries[loom.loomNo]?.reed !== undefined ? prevEntries[loom.loomNo].reed : ((activeRun as any).current_reed_no || (activeRun as any).reed || ''),
+            pick: prevEntries[loom.loomNo]?.pick !== undefined ? prevEntries[loom.loomNo].pick : ((activeRun as any).current_pick || (activeRun as any).pick || '')
           };
         } else {
           nextEntries[loom.loomNo] = {
@@ -559,7 +617,9 @@ export default function MainEntry() {
             dailyProduction: '',
             rpm: '',
             efficiency: '',
-            remarks: ''
+            remarks: '',
+            reed: '',
+            pick: ''
           };
         }
       });
@@ -632,7 +692,9 @@ export default function MainEntry() {
               dailyProduction: (dateLog && dateLog.produced_meter !== undefined && dateLog.produced_meter !== null) ? dateLog.produced_meter : '',
               rpm: (dateLog && dateLog.rpm !== undefined && dateLog.rpm !== null) ? dateLog.rpm : '',
               efficiency: (dateLog && dateLog.efficiency !== undefined && dateLog.efficiency !== null) ? dateLog.efficiency : '',
-              remarks: (activeRun as any).remarks || ''
+              remarks: (activeRun as any).remarks || '',
+              reed: prevEntries[loom.loomNo]?.reed !== undefined ? prevEntries[loom.loomNo].reed : ((activeRun as any).current_reed_no || (activeRun as any).reed || ''),
+              pick: prevEntries[loom.loomNo]?.pick !== undefined ? prevEntries[loom.loomNo].pick : ((activeRun as any).current_pick || (activeRun as any).pick || '')
             };
           } else {
             newEntries[loom.loomNo] = {
@@ -643,7 +705,9 @@ export default function MainEntry() {
               dailyProduction: '',
               rpm: '',
               efficiency: '',
-              remarks: ''
+              remarks: '',
+              reed: '',
+              pick: ''
             };
           }
         }
@@ -710,13 +774,36 @@ export default function MainEntry() {
     setAdminUnlockModal({
       isOpen: true,
       loomNo,
+      targetField: 'startDate',
       password: '',
       error: null,
       isVerifying: false
     });
   }, [unlockedLoomDates, isAdmin]);
 
-  // Verify Admin password to unlock Start Date
+  // Request Admin unlock for Loom Reed & Pick
+  const handleRequestUnlockSpecs = useCallback((loomNo: number) => {
+    // If already unlocked, clicking toggles back to locked
+    if (unlockedLoomSpecs[loomNo]) {
+      setUnlockedLoomSpecs(prev => ({ ...prev, [loomNo]: false }));
+      return;
+    }
+    if (!isAdmin) {
+      setErrorMsg(`Loom L-${loomNo}: Only Administrator ID can unlock and modify Reed & Pick.`);
+      setTimeout(() => setErrorMsg(null), 4000);
+      return;
+    }
+    setAdminUnlockModal({
+      isOpen: true,
+      loomNo,
+      targetField: 'specs',
+      password: '',
+      error: null,
+      isVerifying: false
+    });
+  }, [unlockedLoomSpecs, isAdmin]);
+
+  // Verify Admin password to unlock Start Date or Reed & Pick
   const handleVerifyAdminPassword = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!adminUnlockModal.loomNo || !adminUnlockModal.password) {
@@ -741,9 +828,15 @@ export default function MainEntry() {
       const data = await res.json();
       if (res.ok && data.success) {
         const targetLoom = adminUnlockModal.loomNo;
-        setUnlockedLoomDates(prev => ({ ...prev, [targetLoom]: true }));
-        setAdminUnlockModal({ isOpen: false, loomNo: null, password: '', error: null, isVerifying: false });
-        setSuccessMsg(`Loom L-${targetLoom} Start Date unlocked! Modify the date and click SAVE to lock it.`);
+        if (adminUnlockModal.targetField === 'specs') {
+          setUnlockedLoomSpecs(prev => ({ ...prev, [targetLoom]: true }));
+          setAdminUnlockModal({ isOpen: false, loomNo: null, targetField: 'startDate', password: '', error: null, isVerifying: false });
+          setSuccessMsg(`Loom L-${targetLoom}: Reed & Pick unlocked! You can now edit Reed and Pick for this running loom. It will relock on Save.`);
+        } else {
+          setUnlockedLoomDates(prev => ({ ...prev, [targetLoom]: true }));
+          setAdminUnlockModal({ isOpen: false, loomNo: null, targetField: 'startDate', password: '', error: null, isVerifying: false });
+          setSuccessMsg(`Loom L-${targetLoom} Start Date unlocked! Modify the date and click SAVE to lock it.`);
+        }
         setTimeout(() => setSuccessMsg(null), 4000);
       } else {
         setAdminUnlockModal(prev => ({ ...prev, isVerifying: false, error: data.error || 'Incorrect Administrator Password. Please try again.' }));
@@ -758,6 +851,12 @@ export default function MainEntry() {
     // Start Date cannot be changed once set for an active run, UNLESS unlocked via Admin Password
     if (field === 'loomStartDate' && activeRuns[loomNo]?.loomStartDate && !unlockedLoomDates[loomNo]) {
       setErrorMsg(`Loom L-${loomNo}: Loom Start Date is locked. Click the Lock button and enter Admin Password to unlock.`);
+      setTimeout(() => setErrorMsg(null), 4000);
+      return;
+    }
+    // Reed & Pick cannot be changed once set for an active run, UNLESS unlocked via Admin Password
+    if ((field === 'reed' || field === 'pick') && !unlockedLoomSpecs[loomNo]) {
+      setErrorMsg(`Loom L-${loomNo}: Reed and Pick are locked. Click the Lock button and enter Admin Password to unlock.`);
       setTimeout(() => setErrorMsg(null), 4000);
       return;
     }
@@ -998,8 +1097,11 @@ export default function MainEntry() {
       rpm: entry.rpm ? Number(entry.rpm) : null,
       efficiency: entry.efficiency ? Number(entry.efficiency) : null,
       crimpPercent: design && Number(design.crimpPercent) > 0 ? (design.crimpPercent > 1 ? design.crimpPercent / 100 : design.crimpPercent) : 0.05,
-      sortChangeType: (activeRuns[loomNo] as any)?.sortChangeType || (activeRuns[loomNo] as any)?.sort_change_type || prepRecordsByLoom[loomNo]?.confirmed_process || (entry as any).sortChangeType || null,
+      sortChangeType: (activeRuns[loomNo] as any)?.sortChangeType || (activeRuns[loomNo] as any)?.sort_change_type || prepRecordsByLoom[loomNo]?.confirmed_process || (entry as any).sortChangeType || (entry.currentBeamNo ? 'GAITING' : null),
       prepStatus: prepRecordsByLoom[loomNo]?.status || (activeRuns[loomNo] as any)?.prepStatus || (activeRuns[loomNo] as any)?.prep_status || null,
+      current_reed_no: entry.reed !== undefined ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
+      current_pick: entry.pick !== undefined ? entry.pick : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
+      user: user?.username || 'ADMIN',
       remarks: entry.remarks
     };
 
@@ -1029,9 +1131,10 @@ export default function MainEntry() {
       }
 
       await refreshData();
-      // Auto-relock Loom Start Date after saving
+      // Auto-relock Loom Start Date & Specs after saving
       setUnlockedLoomDates(prev => ({ ...prev, [loomNo]: false }));
-      setSuccessMsg(`Loom ${loomNo} production entry for ${format(new Date(selectedProductionDate), 'dd-MMM-yyyy')} saved!`);
+      setUnlockedLoomSpecs(prev => ({ ...prev, [loomNo]: false }));
+      setSuccessMsg(`Loom ${loomNo} production & spec entry for ${format(new Date(selectedProductionDate), 'dd-MMM-yyyy')} saved!`);
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (e) {
       setErrorMsg(`Failed to save Loom ${loomNo} entry.`);
@@ -1078,8 +1181,11 @@ export default function MainEntry() {
           rpm: entry.rpm !== '' ? Number(entry.rpm) : null,
           efficiency: entry.efficiency !== '' ? Number(entry.efficiency) : null,
           crimpPercent: design && Number(design.crimpPercent) > 0 ? (design.crimpPercent > 1 ? design.crimpPercent / 100 : design.crimpPercent) : 0.05,
-          sortChangeType: (activeRuns[loomNo] as any)?.sortChangeType || (activeRuns[loomNo] as any)?.sort_change_type || prepRecordsByLoom[loomNo]?.confirmed_process || (entry as any).sortChangeType || null,
+          sortChangeType: (activeRuns[loomNo] as any)?.sortChangeType || (activeRuns[loomNo] as any)?.sort_change_type || prepRecordsByLoom[loomNo]?.confirmed_process || (entry as any).sortChangeType || (entry.currentBeamNo ? 'GAITING' : null),
           prepStatus: prepRecordsByLoom[loomNo]?.status || (activeRuns[loomNo] as any)?.prepStatus || (activeRuns[loomNo] as any)?.prep_status || null,
+          current_reed_no: entry.reed !== undefined ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
+          current_pick: entry.pick !== undefined ? entry.pick : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
+          user: user?.username || 'ADMIN',
           remarks: entry.remarks
         };
         runsArray.push(run);
@@ -1102,8 +1208,11 @@ export default function MainEntry() {
           rpm: entry.rpm !== '' ? Number(entry.rpm) : null,
           efficiency: entry.efficiency !== '' ? Number(entry.efficiency) : null,
           crimpPercent: 0.05,
-          sortChangeType: null,
+          sortChangeType: (entry.currentBeamNo || (activeRuns[loomNo] as any)?.currentBeamNo) ? 'GAITING' : null,
           prepStatus: null,
+          current_reed_no: entry.reed !== undefined ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
+          current_pick: entry.pick !== undefined ? entry.pick : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
+          user: user?.username || 'ADMIN',
           remarks: entry.remarks
         };
         runsArray.push(run);
@@ -1156,8 +1265,9 @@ export default function MainEntry() {
       }
 
       await Promise.all([refreshData(), fetchLogs()]);
-      // Auto-relock all start dates after saving
+      // Auto-relock all start dates and specs after saving
       setUnlockedLoomDates({});
+      setUnlockedLoomSpecs({});
       const skipNote = skippedBeforeStart > 0 ? ` (${skippedBeforeStart} looms skipped: entry date is prior to their start date)` : '';
       const warnNote = validationErrors.length > 0 ? ` (Note: ${validationErrors.length} beam design mismatch warning${validationErrors.length > 1 ? 's' : ''} logged)` : '';
       setSuccessMsg(`Successfully saved daily production entries for ${format(new Date(selectedProductionDate), 'dd-MMM-yyyy')} across ${savedCount} looms!${skipNote}${warnNote}`);
@@ -1307,9 +1417,12 @@ export default function MainEntry() {
         const effectiveStartDateStr = startDateStr;
 
         const loomLogs = loomLogsList.filter(l => {
-          if (currentDesignClean && l.design_no && !isMatchingDesign(l.design_no, currentDesignClean)) return false;
           const logDateStr = getLogDateStr(l);
-          if (effectiveStartDateStr && logDateStr < effectiveStartDateStr) return false;
+          if (effectiveStartDateStr) {
+            if (logDateStr < effectiveStartDateStr) return false;
+          } else if (currentDesignClean && l.design_no && !isMatchingDesign(l.design_no, currentDesignClean)) {
+            return false;
+          }
           if (selectedProductionDate && logDateStr > selectedProductionDate) return false;
           return true;
         }).map(l => l.produced_meter);
@@ -1358,9 +1471,12 @@ export default function MainEntry() {
 
       const loomLogs = loomLogsList
         .filter(l => {
-          if (currentDesignClean && l.design_no && !isMatchingDesign(l.design_no, currentDesignClean)) return false;
           const logDateStr = getLogDateStr(l);
-          if (effectiveStartDateStr && logDateStr < effectiveStartDateStr) return false;
+          if (effectiveStartDateStr) {
+            if (logDateStr < effectiveStartDateStr) return false;
+          } else if (currentDesignClean && l.design_no && !isMatchingDesign(l.design_no, currentDesignClean)) {
+            return false;
+          }
           if (selectedProductionDate && logDateStr > selectedProductionDate) return false;
           return true;
         })
@@ -1533,6 +1649,107 @@ export default function MainEntry() {
     XLSX.writeFile(workbook, `SPUPL_Main_Entry_Register_${selectedProductionDate || format(new Date(), 'yyyy-MM-dd')}.xlsx`);
   };
 
+  // Export Loom Production & Specification Logs to Excel
+  const handleDownloadLoomLogsExcel = async () => {
+    if (selectedExportLooms.size === 0) {
+      alert('Please select at least one loom to export logs.');
+      return;
+    }
+    setIsExportingLogs(true);
+    try {
+      const loomArr = Array.from(selectedExportLooms).sort((a, b) => a - b);
+      const res = await fetch(`${API_BASE_URL}/api/loom-logs/export?looms=${loomArr.join(',')}&fromDate=${logExportFromDate}&toDate=${logExportToDate}`);
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch log details');
+      }
+
+      const prodRows = (data.productionLogs || []).map((log: any, idx: number) => {
+        const lObj = looms.find(l => l.loomNo === log.loom_no);
+        return {
+          'S.No': idx + 1,
+          'Loom No': `L-${log.loom_no}`,
+          'Unit': lObj?.unit || 'Unit I',
+          'Date': log.date ? format(new Date(log.date), 'dd-MMM-yyyy') : (log.createdAt ? format(new Date(log.createdAt), 'dd-MMM-yyyy') : '—'),
+          'Design No': log.design_no || '—',
+          'Produced Meter (M)': Number(log.produced_meter || 0),
+          'RPM': log.rpm !== null && log.rpm !== undefined ? log.rpm : '—',
+          'Efficiency %': log.efficiency !== null && log.efficiency !== undefined ? log.efficiency : '—',
+          'Remarks': log.remarks || '',
+          'Timestamp': log.createdAt ? format(new Date(log.createdAt), 'dd-MMM-yyyy HH:mm') : '—'
+        };
+      });
+
+      const auditRows = [
+        ...(data.allocationAudits || []).map((aud: any, idx: number) => ({
+          'S.No': idx + 1,
+          'Loom No': `L-${aud.loom_no}`,
+          'Type': 'ALLOCATION / SPEC CHANGE',
+          'Action': aud.action,
+          'Design No': aud.design_no || '—',
+          'Old Plan / Specs': aud.old_plan || '—',
+          'New Plan / Specs': aud.new_plan || '—',
+          'Reason / Notes': aud.reason || '',
+          'User': aud.user || 'ADMIN',
+          'Date / Time': aud.timestamp ? format(new Date(aud.timestamp), 'dd-MMM-yyyy HH:mm') : '—'
+        })),
+        ...(data.systemAudits || []).map((aud: any, idx: number) => ({
+          'S.No': (data.allocationAudits?.length || 0) + idx + 1,
+          'Loom No': aud.action || '—',
+          'Type': 'SYSTEM SPEC CHANGE',
+          'Action': aud.action,
+          'Design No': '—',
+          'Old Plan / Specs': aud.oldValue || '—',
+          'New Plan / Specs': aud.newValue || '—',
+          'Reason / Notes': aud.screen || 'Main Entry',
+          'User': aud.username || 'ADMIN',
+          'Date / Time': aud.timestamp ? format(new Date(aud.timestamp), 'dd-MMM-yyyy HH:mm') : '—'
+        }))
+      ];
+
+      const summaryRows = loomArr.map((loomNo, idx) => {
+        const lObj = looms.find(l => l.loomNo === loomNo);
+        const entry = entries[loomNo];
+        const activeRun = activeRuns[loomNo];
+        const loomLogs = (data.productionLogs || []).filter((l: any) => l.loom_no === loomNo);
+        const totalMtr = loomLogs.reduce((acc: number, cur: any) => acc + (Number(cur.produced_meter) || 0), 0);
+        return {
+          'S.No': idx + 1,
+          'Loom No': `L-${loomNo}`,
+          'Unit': lObj?.unit || 'Unit I',
+          'Running Design': entry?.designNo || activeRun?.designNo || '—',
+          'Reed': entry?.reed || (activeRun as any)?.current_reed_no || (activeRun as any)?.reed || '—',
+          'Pick': entry?.pick || (activeRun as any)?.current_pick || (activeRun as any)?.pick || '—',
+          'Sort Change': (activeRun as any)?.sort_change_type || 'GAITING',
+          'Start Date': entry?.loomStartDate || activeRun?.loomStartDate || '—',
+          'Total Production In Range (M)': Number(totalMtr.toFixed(1)),
+          'Log Count': loomLogs.length
+        };
+      });
+
+      const wb = XLSX.utils.book_new();
+      const wsProd = XLSX.utils.json_to_sheet(prodRows.length > 0 ? prodRows : [{ Note: 'No daily production records in selected date range' }]);
+      XLSX.utils.book_append_sheet(wb, wsProd, 'Daily Production Logs');
+
+      const wsAudits = XLSX.utils.json_to_sheet(auditRows.length > 0 ? auditRows : [{ Note: 'No spec changes or audits found' }]);
+      XLSX.utils.book_append_sheet(wb, wsAudits, 'Reed-Pick & Spec Logs');
+
+      const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Loom Summary');
+
+      const filename = `SPUPL_Loom_Logs_${logExportFromDate}_to_${logExportToDate}.xlsx`;
+      XLSX.writeFile(wb, filename);
+
+      setSuccessMsg(`Loom logs Excel exported successfully (${prodRows.length} logs across ${loomArr.length} looms).`);
+      setShowLogExportModal(false);
+      setTimeout(() => setSuccessMsg(null), 4000);
+    } catch (e: any) {
+      alert('Failed to export loom logs: ' + e.message);
+    } finally {
+      setIsExportingLogs(false);
+    }
+  };
+
   return (
     <div className="p-6 space-y-6 max-w-[1920px] mx-auto pb-24 font-sans">
       <CompanyPrintHeader title="Main Production Entry & Live Loom Runout Register" subtitle="Operational Live Weaving Master Audit Log" />
@@ -1555,6 +1772,20 @@ export default function MainEntry() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (selectedExportLooms.size === 0) {
+                setSelectedExportLooms(new Set(looms.map(l => l.loomNo)));
+              }
+              setShowLogExportModal(true);
+            }}
+            title="Download Loom Wise Daily Logs & Spec History Excel"
+            className="flex items-center gap-2 px-4 py-2.5 bg-teal-700 text-white hover:bg-teal-800 rounded-xl text-xs font-black transition-all shadow-md active:scale-95 cursor-pointer"
+          >
+            <Download className="w-4 h-4" />
+            <span>Loom Logs Export</span>
+          </button>
+
           <button
             onClick={handleExportExcel}
             title="Download Excel Report"
@@ -1904,9 +2135,12 @@ export default function MainEntry() {
                     }
                   }
 
-                  // Cumulative meters calculation for CURRENT active warp
-                  if (currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
-                  if (effectiveStartDateStr && logDateStr < effectiveStartDateStr) continue;
+                  // Cumulative meters calculation for CURRENT active warp strictly from start date
+                  if (effectiveStartDateStr) {
+                    if (logDateStr < effectiveStartDateStr) continue;
+                  } else if (currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) {
+                    continue;
+                  }
                   if (selectedProductionDate && logDateStr > selectedProductionDate) continue;
 
                   const pVal = l.produced_meter || 0;
@@ -2077,17 +2311,101 @@ export default function MainEntry() {
                         </span>
                       </td>
 
-                      {/* 6. Reed Count */}
+                      {/* 6. Reed Count (Locked by Admin - Unlockable by Admin only) */}
                       <td className="p-3 text-xs font-bold text-slate-950 dark:text-slate-100">
-                        {design?.reedCount || design?.reed_count || matchedOrder?.reed_count || matchedOrder?.reedCount || matchedOrder?.designMaster?.reed_count || '—'}
+                        {(() => {
+                          const defaultReed = (activeRunObj as any)?.current_reed_no || (activeRunObj as any)?.reed || design?.reedCount || design?.reed_count || matchedOrder?.reed_count || matchedOrder?.reedCount || matchedOrder?.designMaster?.reed_count || '';
+                          const currentReedVal = entry.reed !== undefined ? entry.reed : defaultReed;
+                          const isUnlocked = !!unlockedLoomSpecs[loom.loomNo];
+
+                          if (isUnlocked) {
+                            return (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  value={currentReedVal}
+                                  onChange={e => handleEntryChange(loom.loomNo, 'reed', e.target.value)}
+                                  className="w-16 px-1.5 py-1 rounded border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-xs font-black text-slate-950 dark:text-white shadow-xs focus:ring-1 focus:ring-emerald-500"
+                                  placeholder="Reed"
+                                  title="UNLOCKED: Edit running loom Reed count. Auto-relocks on save."
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleRequestUnlockSpecs(loom.loomNo)}
+                                  className="p-1 rounded text-xs font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 transition-all cursor-pointer shadow-xs"
+                                  title="Unlocked: Click to re-lock Reed & Pick"
+                                >
+                                  <Unlock className="w-3 h-3 text-emerald-700" />
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-extrabold text-slate-950 dark:text-slate-100 text-xs font-mono" title={currentReedVal || 'No reed set'}>
+                                {currentReedVal || '—'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleRequestUnlockSpecs(loom.loomNo)}
+                                className="p-1 rounded text-xs font-bold bg-slate-100 hover:bg-amber-100 text-slate-500 hover:text-amber-800 border border-slate-300 dark:border-slate-700 dark:bg-slate-800 transition-all cursor-pointer shadow-xs"
+                                title="Locked: Click to enter Admin Password & unlock Reed & Pick for this running loom"
+                              >
+                                <Lock className="w-3 h-3 text-amber-600" />
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </td>
 
-                      {/* 7. Pick */}
+                      {/* 7. Pick (Locked by Admin - Unlockable by Admin only) */}
                       <td className="p-3 text-xs font-bold text-slate-950 dark:text-slate-100">
                         {(() => {
                           const constStr = design?.construction || matchedOrder?.construction || matchedOrder?.designMaster?.construction || '';
                           const parsedPick = constStr.match(/\b\d+\s*x\s*(\d+)\b/i)?.[1] || constStr.match(/\bX\s*(\d+)\b/i)?.[1] || '';
-                          return design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick || matchedOrder?.designMaster?.pick || parsedPick || '—';
+                          const defaultPick = (activeRunObj as any)?.current_pick || (activeRunObj as any)?.pick || design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick || matchedOrder?.designMaster?.pick || parsedPick || '';
+                          const currentPickVal = entry.pick !== undefined ? entry.pick : defaultPick;
+                          const isUnlocked = !!unlockedLoomSpecs[loom.loomNo];
+
+                          if (isUnlocked) {
+                            return (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  value={currentPickVal}
+                                  onChange={e => handleEntryChange(loom.loomNo, 'pick', e.target.value)}
+                                  className="w-16 px-1.5 py-1 rounded border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-xs font-black text-slate-950 dark:text-white shadow-xs focus:ring-1 focus:ring-emerald-500"
+                                  placeholder="Pick"
+                                  title="UNLOCKED: Edit running loom Pick count. Auto-relocks on save."
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleRequestUnlockSpecs(loom.loomNo)}
+                                  className="p-1 rounded text-xs font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 transition-all cursor-pointer shadow-xs"
+                                  title="Unlocked: Click to re-lock Reed & Pick"
+                                >
+                                  <Unlock className="w-3 h-3 text-emerald-700" />
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-extrabold text-slate-950 dark:text-slate-100 text-xs font-mono" title={currentPickVal || 'No pick set'}>
+                                {currentPickVal || '—'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleRequestUnlockSpecs(loom.loomNo)}
+                                className="p-1 rounded text-xs font-bold bg-slate-100 hover:bg-amber-100 text-slate-500 hover:text-amber-800 border border-slate-300 dark:border-slate-700 dark:bg-slate-800 transition-all cursor-pointer shadow-xs"
+                                title="Locked: Click to enter Admin Password & unlock Reed & Pick for this running loom"
+                              >
+                                <Lock className="w-3 h-3 text-amber-600" />
+                              </button>
+                            </div>
+                          );
                         })()}
                       </td>
 
@@ -2115,7 +2433,7 @@ export default function MainEntry() {
                         </div>
                       </td>
 
-                      {/* 10b. Sort Change Details (Confirmed in Next Planned Looms / Confirmation) */}
+                      {/* 10b. Sort Change Details (Confirmed in Next Planned Looms / Default GAITING for all running looms) */}
                       <td className="p-3 border-r border-slate-300 dark:border-slate-700 text-xs">
                         {(() => {
                           const prepRec = prepRecordsByLoom[loom.loomNo] || (nextPlansList[0]?.WarpPreparationProcess && nextPlansList[0].WarpPreparationProcess[0]);
@@ -2127,7 +2445,10 @@ export default function MainEntry() {
                           const hasAllocatedBeam = !!(entry.currentBeamNo && entry.currentBeamNo.trim() !== '' && entry.currentBeamNo !== 'Not Allocated') ||
                                                   !!(nextPlansList[0]?.reserved_beam_no || nextPlansList[0]?.reserved_beam_id);
 
-                          if (!hasAllocatedBeam || !pType) {
+                          // Default to GAITING for all available running looms with allocated beam/run if not explicitly set
+                          const effectivePType = pType || (hasAllocatedBeam ? 'GAITING' : null);
+
+                          if (!hasAllocatedBeam || !effectivePType) {
                             return <span className="text-slate-400 font-medium text-xs select-none">—</span>;
                           }
 
@@ -2147,10 +2468,10 @@ export default function MainEntry() {
                               shortLabel: 'Gaiting',
                               color: 'bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-950 dark:text-purple-200 dark:border-purple-800'
                             }
-                          }[pType as 'KNOTTING' | 'KNOTTING_SORT_CHANGE' | 'GAITING'] || {
-                            label: pType,
-                            shortLabel: pType,
-                            color: 'bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-950 dark:text-blue-200 dark:border-blue-800'
+                          }[effectivePType as 'KNOTTING' | 'KNOTTING_SORT_CHANGE' | 'GAITING'] || {
+                            label: effectivePType,
+                            shortLabel: effectivePType,
+                            color: 'bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-950 dark:text-purple-200 dark:border-purple-800'
                           };
 
                           return (
@@ -2160,7 +2481,9 @@ export default function MainEntry() {
                                 type="button"
                                 onClick={() => {
                                   const p = nextPlansList[0];
-                                  handleOpenPrepModal(loom.loomNo, p, prepRec);
+                                  if (p) {
+                                    handleOpenPrepModal(loom.loomNo, p, prepRec);
+                                  }
                                 }}
                                 className={`px-2 py-0.5 rounded text-[10px] font-black border tracking-tight shadow-xs hover:scale-105 transition-transform flex items-center gap-1 cursor-pointer ${typeConfig.color}`}
                                 title={`Confirmed Sort Change Type: ${typeConfig.label}. Click to view/edit details.`}
@@ -2169,13 +2492,15 @@ export default function MainEntry() {
                                 <span>{typeConfig.shortLabel}</span>
                               </button>
 
-                              {/* Status Pill & Responsible Person (Hidden for Gaiting so only 'Gaiting' is displayed) */}
-                              {pType !== 'GAITING' && (
+                              {/* Status Pill & Responsible Person (Hidden for default Gaiting) */}
+                              {effectivePType !== 'GAITING' && (
                                 <div className="flex items-center gap-1">
                                   <span
                                     onClick={() => {
                                       const p = nextPlansList[0];
-                                      handleOpenPrepModal(loom.loomNo, p, prepRec);
+                                      if (p) {
+                                        handleOpenPrepModal(loom.loomNo, p, prepRec);
+                                      }
                                     }}
                                     className={`px-1.5 py-0.2 rounded text-[9px] font-bold cursor-pointer transition-all hover:opacity-80 ${
                                       pStatus === 'COMPLETED'
@@ -2656,8 +2981,10 @@ export default function MainEntry() {
                                      <div>Construction: <span className="font-bold">{design?.construction || matchedOrder?.construction || '—'}</span></div>
                                      <div>Weave: <span className="font-bold">{design?.weaveType || matchedOrder?.weave_type || '—'}</span></div>
                                      <div>Frames: <span className="font-bold">{design?.frames || matchedOrder?.frames || '—'}</span></div>
-                                     <div>Reed: <span className="font-bold">{design?.reedCount || design?.reed_count || matchedOrder?.reed_count || '—'}</span></div>
-                                     <div>Pick: <span className="font-bold">{design?.pick || (matchedOrder?.ppi ? String(matchedOrder.ppi) : '') || matchedOrder?.pick || '—'}</span></div>
+                                     <div>Master Reed: <span className="font-bold">{design?.reedCount || design?.reed_count || matchedOrder?.reed_count || '—'}</span></div>
+                                     <div>Master Pick: <span className="font-bold">{design?.pick || (matchedOrder?.ppi ? String(matchedOrder.ppi) : '') || matchedOrder?.pick || '—'}</span></div>
+                                     <div>Running Reed: <span className="font-black text-emerald-700 dark:text-emerald-300 font-mono">{entry.reed || (activeRunObj as any)?.current_reed_no || '—'}</span></div>
+                                     <div>Running Pick: <span className="font-black text-emerald-700 dark:text-emerald-300 font-mono">{entry.pick || (activeRunObj as any)?.current_pick || '—'}</span></div>
                                      <div>Greige W: <span className="font-bold">{design?.greigeWidth || matchedOrder?.greige_width || matchedOrder?.width || matchedOrder?.required_reed_space || '—'}</span></div>
                                       <div>Crimp: <span className="font-bold">{calc?.actualCrimpPercent !== null && calc?.actualCrimpPercent !== undefined ? `${calc.actualCrimpPercent.toFixed(1)}% (Actual)` : `${(calc?.standardCrimpPercent ?? (effectiveCrimp * 100)).toFixed(1)}%`}</span></div>
                                    </div>
@@ -2882,199 +3209,282 @@ export default function MainEntry() {
               </button>
             </div>
 
-            {/* Add New Daily Log Row */}
-            <div className="p-4 bg-slate-50 dark:bg-slate-750 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
-              <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Plus className="w-4 h-4 text-emerald-600" />
-                <span>Add Daily Production Record</span>
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Production (Mtr) *</label>
-                  <input
-                    type="number"
-                    value={newLogMeter}
-                    onChange={e => setNewLogMeter(e.target.value)}
-                    placeholder="e.g. 500"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-1">RPM (Optional)</label>
-                  <input
-                    type="number"
-                    value={newLogRpm}
-                    onChange={e => setNewLogRpm(e.target.value)}
-                    placeholder="e.g. 450"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Efficiency % (Optional)</label>
-                  <input
-                    type="number"
-                    value={newLogEff}
-                    onChange={e => setNewLogEff(e.target.value)}
-                    placeholder="e.g. 85"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Remarks</label>
-                  <input
-                    type="text"
-                    value={newLogRemarks}
-                    onChange={e => setNewLogRemarks(e.target.value)}
-                    placeholder="Remarks"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs"
-                  />
-                </div>
-              </div>
-              <div className="text-right">
-                <button
-                  onClick={handleAddLog}
-                  className="px-4 py-2 bg-emerald-600 text-white font-bold text-xs rounded-lg hover:bg-emerald-700 transition-colors shadow-sm"
-                >
-                  Add Record
-                </button>
-              </div>
+            {/* Modal Tabs: Production Records vs. Reed & Pick Spec Changes */}
+            <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
+              <button
+                type="button"
+                onClick={() => setHistoryModalTab('production')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  historyModalTab === 'production'
+                    ? 'bg-spu-primary text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-750 dark:text-slate-300'
+                }`}
+              >
+                Production Records ({productionLogs.filter(l => l.loom_no === historyModalLoomNo).length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setHistoryModalTab('spec_changes')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  historyModalTab === 'spec_changes'
+                    ? 'bg-spu-primary text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-750 dark:text-slate-300'
+                }`}
+              >
+                Reed / Pick & Spec Changes ({historySpecLogs.length})
+              </button>
             </div>
 
-            {/* Production History Logs Table */}
-            <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 uppercase text-[10px] font-black">
-                  <tr>
-                    <th className="p-3">#</th>
-                    <th className="p-3">Logged Date</th>
-                    <th className="p-3">Produced Mtr</th>
-                    <th className="p-3">RPM</th>
-                    <th className="p-3">Eff %</th>
-                    <th className="p-3">Remarks</th>
-                    <th className="p-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                  {productionLogs.filter(l => l.loom_no === historyModalLoomNo).length === 0 ? (
+            {historyModalTab === 'production' ? (
+              <>
+                {/* Add New Daily Log Row */}
+                <div className="p-4 bg-slate-50 dark:bg-slate-750 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+                  <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Plus className="w-4 h-4 text-emerald-600" />
+                    <span>Add Daily Production Record</span>
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1">Production (Mtr) *</label>
+                      <input
+                        type="number"
+                        value={newLogMeter}
+                        onChange={e => setNewLogMeter(e.target.value)}
+                        placeholder="e.g. 500"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1">RPM (Optional)</label>
+                      <input
+                        type="number"
+                        value={newLogRpm}
+                        onChange={e => setNewLogRpm(e.target.value)}
+                        placeholder="e.g. 450"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1">Efficiency % (Optional)</label>
+                      <input
+                        type="number"
+                        value={newLogEff}
+                        onChange={e => setNewLogEff(e.target.value)}
+                        placeholder="e.g. 85"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1">Remarks</label>
+                      <input
+                        type="text"
+                        value={newLogRemarks}
+                        onChange={e => setNewLogRemarks(e.target.value)}
+                        placeholder="Remarks"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <button
+                      onClick={handleAddLog}
+                      className="px-4 py-2 bg-emerald-600 text-white font-bold text-xs rounded-lg hover:bg-emerald-700 transition-colors shadow-sm"
+                    >
+                      Add Record
+                    </button>
+                  </div>
+                </div>
+
+                {/* Production History Logs Table */}
+                <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 uppercase text-[10px] font-black">
+                      <tr>
+                        <th className="p-3">#</th>
+                        <th className="p-3">Logged Date</th>
+                        <th className="p-3">Produced Mtr</th>
+                        <th className="p-3">RPM</th>
+                        <th className="p-3">Eff %</th>
+                        <th className="p-3">Remarks</th>
+                        <th className="p-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                      {productionLogs.filter(l => l.loom_no === historyModalLoomNo).length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-4 text-center text-slate-400">
+                            No production history records found for Loom {historyModalLoomNo}.
+                          </td>
+                        </tr>
+                      ) : (
+                        productionLogs
+                          .filter(l => l.loom_no === historyModalLoomNo)
+                          .map((log, idx) => {
+                            const isEditing = editingLogId === log.id;
+                            return (
+                              <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-750">
+                                <td className="p-3 font-mono text-[11px] text-slate-400">{idx + 1}</td>
+                                <td className="p-3 font-medium">
+                                  {log.createdAt ? format(new Date(log.createdAt), 'dd-MMM-yyyy HH:mm') : '—'}
+                                </td>
+                                <td className="p-3 font-extrabold text-emerald-700 dark:text-emerald-400">
+                                  {isEditing ? (
+                                    <input
+                                      type="number"
+                                      value={editLogMeter}
+                                      onChange={e => setEditLogMeter(e.target.value)}
+                                      className="w-20 px-2 py-1 rounded border border-slate-300 text-xs font-bold"
+                                    />
+                                  ) : (
+                                    `${log.produced_meter} M`
+                                  )}
+                                </td>
+                                <td className="p-3 font-medium">
+                                  {isEditing ? (
+                                    <input
+                                      type="number"
+                                      value={editLogRpm}
+                                      onChange={e => setEditLogRpm(e.target.value)}
+                                      className="w-16 px-2 py-1 rounded border border-slate-300 text-xs"
+                                    />
+                                  ) : (
+                                    log.rpm || '—'
+                                  )}
+                                </td>
+                                <td className="p-3 font-medium">
+                                  {isEditing ? (
+                                    <input
+                                      type="number"
+                                      value={editLogEff}
+                                      onChange={e => setEditLogEff(e.target.value)}
+                                      className="w-16 px-2 py-1 rounded border border-slate-300 text-xs"
+                                    />
+                                  ) : (
+                                    log.efficiency ? `${log.efficiency}%` : '—'
+                                  )}
+                                </td>
+                                <td className="p-3 text-slate-500">
+                                  {isEditing ? (
+                                    <input
+                                      type="text"
+                                      value={editLogRemarks}
+                                      onChange={e => setEditLogRemarks(e.target.value)}
+                                      className="w-full px-2 py-1 rounded border border-slate-300 text-xs"
+                                    />
+                                  ) : (
+                                    log.remarks || '—'
+                                  )}
+                                </td>
+                                <td className="p-3 text-right">
+                                  {isEditing ? (
+                                    <div className="flex items-center justify-end gap-1">
+                                      <button
+                                        onClick={() => handleSaveEditLog(log.id)}
+                                        className="p-1 bg-emerald-100 text-emerald-800 rounded hover:bg-emerald-200"
+                                        title="Save Edit"
+                                      >
+                                        <CheckCircle className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => setEditingLogId(null)}
+                                        className="p-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200"
+                                        title="Cancel Edit"
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-end gap-1">
+                                      <button
+                                        onClick={() => {
+                                          setEditingLogId(log.id);
+                                          setEditLogMeter(String(log.produced_meter));
+                                          setEditLogRpm(log.rpm ? String(log.rpm) : '');
+                                          setEditLogEff(log.efficiency ? String(log.efficiency) : '');
+                                          setEditLogRemarks(log.remarks || '');
+                                        }}
+                                        className="p-1 bg-slate-100 text-slate-700 rounded hover:bg-slate-200"
+                                        title="Edit Entry"
+                                      >
+                                        <Edit3 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteLog(log.id)}
+                                        className="p-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
+                                        title="Delete Entry"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              /* Reed / Pick & Spec Change Audit Trail */
+              <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 uppercase text-[10px] font-black">
                     <tr>
-                      <td colSpan={7} className="p-4 text-center text-slate-400">
-                        No production history records found for Loom {historyModalLoomNo}.
-                      </td>
+                      <th className="p-3">#</th>
+                      <th className="p-3">Date & Time</th>
+                      <th className="p-3">Action</th>
+                      <th className="p-3">Specification Change</th>
+                      <th className="p-3">Notes / Reason</th>
+                      <th className="p-3">User</th>
                     </tr>
-                  ) : (
-                    productionLogs
-                      .filter(l => l.loom_no === historyModalLoomNo)
-                      .map((log, idx) => {
-                        const isEditing = editingLogId === log.id;
-                        return (
-                          <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-750">
-                            <td className="p-3 font-mono text-[11px] text-slate-400">{idx + 1}</td>
-                            <td className="p-3 font-medium">
-                              {log.createdAt ? format(new Date(log.createdAt), 'dd-MMM-yyyy HH:mm') : '—'}
-                            </td>
-                            <td className="p-3 font-extrabold text-emerald-700 dark:text-emerald-400">
-                              {isEditing ? (
-                                <input
-                                  type="number"
-                                  value={editLogMeter}
-                                  onChange={e => setEditLogMeter(e.target.value)}
-                                  className="w-20 px-2 py-1 rounded border border-slate-300 text-xs font-bold"
-                                />
-                              ) : (
-                                `${log.produced_meter} M`
-                              )}
-                            </td>
-                            <td className="p-3 font-medium">
-                              {isEditing ? (
-                                <input
-                                  type="number"
-                                  value={editLogRpm}
-                                  onChange={e => setEditLogRpm(e.target.value)}
-                                  className="w-16 px-2 py-1 rounded border border-slate-300 text-xs"
-                                />
-                              ) : (
-                                log.rpm || '—'
-                              )}
-                            </td>
-                            <td className="p-3 font-medium">
-                              {isEditing ? (
-                                <input
-                                  type="number"
-                                  value={editLogEff}
-                                  onChange={e => setEditLogEff(e.target.value)}
-                                  className="w-16 px-2 py-1 rounded border border-slate-300 text-xs"
-                                />
-                              ) : (
-                                log.efficiency ? `${log.efficiency}%` : '—'
-                              )}
-                            </td>
-                            <td className="p-3 text-slate-500">
-                              {isEditing ? (
-                                <input
-                                  type="text"
-                                  value={editLogRemarks}
-                                  onChange={e => setEditLogRemarks(e.target.value)}
-                                  className="w-full px-2 py-1 rounded border border-slate-300 text-xs"
-                                />
-                              ) : (
-                                log.remarks || '—'
-                              )}
-                            </td>
-                            <td className="p-3 text-right">
-                              {isEditing ? (
-                                <div className="flex items-center justify-end gap-1">
-                                  <button
-                                    onClick={() => handleSaveEditLog(log.id)}
-                                    className="p-1 bg-emerald-100 text-emerald-800 rounded hover:bg-emerald-200"
-                                    title="Save Edit"
-                                  >
-                                    <CheckCircle className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => setEditingLogId(null)}
-                                    className="p-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200"
-                                    title="Cancel Edit"
-                                  >
-                                    <X className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-end gap-1">
-                                  <button
-                                    onClick={() => {
-                                      setEditingLogId(log.id);
-                                      setEditLogMeter(String(log.produced_meter));
-                                      setEditLogRpm(log.rpm ? String(log.rpm) : '');
-                                      setEditLogEff(log.efficiency ? String(log.efficiency) : '');
-                                      setEditLogRemarks(log.remarks || '');
-                                    }}
-                                    className="p-1 bg-slate-100 text-slate-700 rounded hover:bg-slate-200"
-                                    title="Edit Entry"
-                                  >
-                                    <Edit3 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteLog(log.id)}
-                                    className="p-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
-                                    title="Delete Entry"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                    {isLoadingSpecLogs ? (
+                      <tr>
+                        <td colSpan={6} className="p-6 text-center text-slate-400">
+                          <RefreshCw className="w-4 h-4 animate-spin inline mr-2" />
+                          Loading specification changes...
+                        </td>
+                      </tr>
+                    ) : historySpecLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-6 text-center text-slate-400">
+                          No specification modification logs recorded for Loom {historyModalLoomNo}.
+                        </td>
+                      </tr>
+                    ) : (
+                      historySpecLogs.map((spec, idx) => (
+                        <tr key={spec.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-750">
+                          <td className="p-3 font-mono text-[11px] text-slate-400">{idx + 1}</td>
+                          <td className="p-3 font-medium whitespace-nowrap">
+                            {spec.timestamp ? format(new Date(spec.timestamp), 'dd-MMM-yyyy HH:mm') : '—'}
+                          </td>
+                          <td className="p-3 font-bold text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                            {spec.action}
+                          </td>
+                          <td className="p-3 font-bold text-slate-900 dark:text-slate-100">
+                            {spec.details}
+                          </td>
+                          <td className="p-3 text-slate-500">
+                            {spec.notes || '—'}
+                          </td>
+                          <td className="p-3 font-bold text-spu-primary">
+                            {spec.user}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <div className="text-right pt-2 border-t border-slate-200 dark:border-slate-700">
               <button
                 onClick={() => setHistoryModalLoomNo(null)}
-                className="px-5 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl hover:bg-slate-200"
+                className="px-5 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl hover:bg-slate-200 cursor-pointer"
               >
                 Close Modal
               </button>
@@ -3094,7 +3504,11 @@ export default function MainEntry() {
                 </div>
                 <div>
                   <h3 className="text-sm font-black tracking-tight text-slate-900 dark:text-white">Admin Authorization</h3>
-                  <p className="text-[11px] text-slate-500">Unlock Start Date for Loom L-{adminUnlockModal.loomNo}</p>
+                  <p className="text-[11px] text-slate-500">
+                    {adminUnlockModal.targetField === 'specs' 
+                      ? `Unlock Reed & Pick Specs for Loom L-${adminUnlockModal.loomNo}` 
+                      : `Unlock Start Date for Loom L-${adminUnlockModal.loomNo}`}
+                  </p>
                 </div>
               </div>
               <button 
@@ -3108,7 +3522,11 @@ export default function MainEntry() {
             <form onSubmit={handleVerifyAdminPassword} className="space-y-3">
               <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 rounded-xl border border-amber-200/60 text-xs text-amber-900 dark:text-amber-200">
                 <p className="font-semibold leading-relaxed">
-                  Changing the <strong>Loom Start Date</strong> directly recalculates the active warp runout forecast. Please enter the <strong>Administrator Password</strong> to authorize.
+                  {adminUnlockModal.targetField === 'specs' ? (
+                    <>Editing <strong>Reed & Pick specifications</strong> updates the running loom parameters directly without altering the Master Order. Please enter the <strong>Administrator Password</strong> to authorize.</>
+                  ) : (
+                    <>Changing the <strong>Loom Start Date</strong> directly recalculates the active warp runout forecast. Please enter the <strong>Administrator Password</strong> to authorize.</>
+                  )}
                 </p>
               </div>
 
@@ -3149,6 +3567,247 @@ export default function MainEntry() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* LOOM WISE LOG DETAILS EXCEL EXPORT MODAL */}
+      {showLogExportModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/40">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-teal-100 dark:bg-teal-950/60 flex items-center justify-center text-teal-700 dark:text-teal-400">
+                  <Download className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">Loom Wise Logs & History Export</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Download Daily Production, Reed/Pick Spec Changes & Loom Summaries to Excel</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowLogExportModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1">
+              {/* Date Range Selection */}
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-2">
+                  1. Select Date Range (From - To)
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-500 mb-1 block">From Date</span>
+                    <div className="relative">
+                      <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                      <input 
+                        type="date"
+                        value={logExportFromDate}
+                        onChange={e => setLogExportFromDate(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-500 mb-1 block">To Date</span>
+                    <div className="relative">
+                      <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                      <input 
+                        type="date"
+                        value={logExportToDate}
+                        onChange={e => setLogExportToDate(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Date Presets */}
+                <div className="flex flex-wrap gap-1.5 mt-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - 7);
+                      setLogExportFromDate(format(d, 'yyyy-MM-dd'));
+                      setLogExportToDate(format(new Date(), 'yyyy-MM-dd'));
+                    }}
+                    className="px-2.5 py-1 text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition-all"
+                  >
+                    Last 7 Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - 30);
+                      setLogExportFromDate(format(d, 'yyyy-MM-dd'));
+                      setLogExportToDate(format(new Date(), 'yyyy-MM-dd'));
+                    }}
+                    className="px-2.5 py-1 text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition-all"
+                  >
+                    Last 30 Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+                      setLogExportFromDate(format(firstDay, 'yyyy-MM-dd'));
+                      setLogExportToDate(format(now, 'yyyy-MM-dd'));
+                    }}
+                    className="px-2.5 py-1 text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition-all"
+                  >
+                    This Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLogExportFromDate('2026-01-01');
+                      setLogExportToDate(format(new Date(), 'yyyy-MM-dd'));
+                    }}
+                    className="px-2.5 py-1 text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition-all"
+                  >
+                    All 2026 Logs
+                  </button>
+                </div>
+              </div>
+
+              {/* Loom Selection Controls */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                    2. Select Looms ({selectedExportLooms.size} of {looms.length} Selected)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedExportLooms(new Set(looms.map(l => l.loomNo)))}
+                      className="text-xs font-black text-teal-600 hover:text-teal-700 underline cursor-pointer"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedExportLooms(new Set())}
+                      className="text-xs font-black text-slate-500 hover:text-slate-700 underline cursor-pointer"
+                    >
+                      Deselect All
+                    </button>
+                  </div>
+                </div>
+
+                {/* Search Bar for Loom Selection */}
+                <div className="relative mb-2.5">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={exportLoomSearch}
+                    onChange={e => setExportLoomSearch(e.target.value)}
+                    placeholder="Filter looms (e.g. 1, 14, Unit I)..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs font-medium bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none"
+                  />
+                </div>
+
+                {/* Looms Checkbox Grid */}
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 max-h-56 overflow-y-auto p-2 bg-slate-50/70 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700/60">
+                  {looms
+                    .filter(l => {
+                      if (!exportLoomSearch) return true;
+                      const q = exportLoomSearch.toLowerCase();
+                      return l.loomNo.toString().includes(q) || (l.unit || '').toLowerCase().includes(q);
+                    })
+                    .map(loom => {
+                      const isSelected = selectedExportLooms.has(loom.loomNo);
+                      const hasRunning = !!(activeRuns[loom.loomNo]?.designNo);
+                      return (
+                        <label
+                          key={loom.loomNo}
+                          onClick={() => {
+                            const next = new Set(selectedExportLooms);
+                            if (isSelected) {
+                              next.delete(loom.loomNo);
+                            } else {
+                              next.add(loom.loomNo);
+                            }
+                            setSelectedExportLooms(next);
+                          }}
+                          className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer border text-xs font-bold transition-all select-none ${
+                            isSelected 
+                              ? 'bg-teal-50 dark:bg-teal-950/40 border-teal-300 dark:border-teal-700 text-teal-900 dark:text-teal-200 shadow-xs' 
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}} // handled by parent onClick
+                            className="rounded text-teal-600 focus:ring-teal-500 pointer-events-none"
+                          />
+                          <div className="truncate">
+                            <span className="block font-black leading-tight">L-{loom.loomNo}</span>
+                            <span className={`text-[10px] block leading-tight ${hasRunning ? 'text-emerald-600 font-bold' : 'text-slate-400'}`}>
+                              {hasRunning ? 'Running' : 'Available'}
+                            </span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Information Note */}
+              <div className="p-3 bg-teal-50/70 dark:bg-teal-950/30 rounded-xl border border-teal-200/60 text-xs text-teal-900 dark:text-teal-200 flex items-start gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  The generated Excel spreadsheet includes <strong>3 comprehensive sheets</strong>:
+                  <br />• <strong>Daily Production Logs</strong>: Date-wise meters produced, RPM, Efficiency % and supervisor remarks.
+                  <br />• <strong>Reed-Pick & Spec Logs</strong>: Full audit history of Reed, Pick and Allocation adjustments.
+                  <br />• <strong>Loom Summary</strong>: Current status, Running design, Reed, Pick, Sort change and total meters.
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/40">
+              <span className="text-xs text-slate-500 font-medium">
+                {selectedExportLooms.size} loom(s) selected for export
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLogExportModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isExportingLogs || selectedExportLooms.size === 0}
+                  onClick={handleDownloadLoomLogsExcel}
+                  className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                >
+                  {isExportingLogs ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Generating Excel...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet className="w-4 h-4" />
+                      <span>Download Excel (.xlsx)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

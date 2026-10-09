@@ -851,12 +851,13 @@ export function getMainEntryLoomRun({
   let totalCumulativeProducedMtr = 0;
   for (let li = 0; li < loomLogsList.length; li++) {
     const l = loomLogsList[li];
-    const lDesign = (l.design_no || '').trim().toLowerCase();
-    if (currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
-
     const logDateStr = getLogDateStr(l);
     if (effectiveStartDateStr && logDateStr < effectiveStartDateStr) continue;
     if (curDateStr && logDateStr > curDateStr) continue;
+
+    // Only filter design if no start date was specified
+    const lDesign = (l.design_no || '').trim().toLowerCase();
+    if (!effectiveStartDateStr && currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
 
     const pVal = Number(l.produced_meter) || 0;
     loomLogs.push(pVal);
