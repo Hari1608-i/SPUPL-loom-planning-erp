@@ -153,6 +153,7 @@ export default function AvailabilityBoard() {
       let currentDesign = '-';
       let nextDesign = '-';
       let activeBeamStatus = '-';
+      let matchedOrder: any = null;
 
       let loomDailyProd = 300;
 
@@ -162,7 +163,7 @@ export default function AvailabilityBoard() {
 
         const cleanRunDesign = runDesignNo.toLowerCase();
         const design = designs.find(d => (d.design_no_sp_no || d.designNo || '').trim().toLowerCase() === cleanRunDesign);
-        const matchedOrder = orders.find(o => 
+        matchedOrder = orders.find(o =>
           (o.design_no_sp_no || '').trim().toLowerCase() === cleanRunDesign ||
           (o.ibpo_no || '').trim().toLowerCase() === cleanRunDesign ||
           (o.order_no || '').trim().toLowerCase() === cleanRunDesign
@@ -295,15 +296,28 @@ export default function AvailabilityBoard() {
         isRunning,
         currentBeamNo: activeRun?.currentBeamNo || activeRun?.beam_no || '',
         currentSetNo: activeRun?.setNo || activeRun?.set_no || '',
-        currentOrderNo: activeRun?.orderNo || activeRun?.order_no || '',
-        loomType: loom?.loomType || loom?.make || ''
+        currentOrderNo: activeRun?.orderNo || activeRun?.order_no || activeRun?.ibpo_no || matchedOrder?.ibpo_no || '',
+        loomType: loom?.loomType || loom?.make || '',
+        netBalanceMeter: activeRun?.netBalanceMeter ?? activeRun?.warpBalanceGross ?? 0,
+        loomDailyProd: loomDailyProd,
+        balanceDays: typeof activeRun?.balanceDays === 'number' ? activeRun.balanceDays : null,
+        runoutStatus: activeRun?.runoutStatus || (activeRun && currentRunoutDate ? 'NORMAL' : 'NOT AVAILABLE'),
+        nextOrderNo: (calculatedNextPlans[0] as any)?.orderNo || loomPlans[0]?.order_no || '-',
+        nextStartDate: calculatedNextPlans[0]?.startDateFormatted || '-',
+        orderType: (matchedOrder?.order_type || (matchedOrder as any)?.order_type_category || '').toUpperCase().includes('YD') ? 'YD' : 'Grey'
       };
     });
 
     return rows.sort((a, b) => a.loomNo - b.loomNo);
   }, [looms, activeRuns, nextPlans, rawNextPlans, orders, designs, timelineStart, timelineEnd, beamStock, productionLogs]);
 
+  const [orderTypeFilter, setOrderTypeFilter] = useState<'ALL' | 'GREY' | 'YD'>('ALL');
+
   const filteredData = boardData.filter(d => {
+    if (orderTypeFilter !== 'ALL') {
+      const matchType = (d.orderType || '').toUpperCase() === orderTypeFilter;
+      if (!matchType) return false;
+    }
     const q = (searchTerm || '').trim().toLowerCase();
     if (!q) return true;
     const cleanLoomQ = q.replace(/^loom\s*|^l-?\s*/i, '');
@@ -387,6 +401,23 @@ export default function AvailabilityBoard() {
                </button>
              ))}
           </div>
+
+          {/* Order Type Filter: ALL / GREY / YD */}
+          <div className="flex bg-white rounded-lg border border-slate-200 shadow-sm p-1">
+            {(['ALL', 'GREY', 'YD'] as const).map(type => (
+              <button
+                key={type}
+                onClick={() => setOrderTypeFilter(type)}
+                className={`px-3 py-1 text-xs font-black rounded-md transition-all duration-200 ${
+                  orderTypeFilter === type
+                    ? 'bg-spu-primary text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {type === 'ALL' ? 'All' : type === 'GREY' ? 'Grey' : 'YD'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -410,9 +441,9 @@ export default function AvailabilityBoard() {
           
           <div className="flex border-b border-slate-200 bg-slate-50 flex-shrink-0 shadow-sm z-30 sticky top-0 min-w-max">
             <div className="flex w-[480px] flex-shrink-0 divide-x divide-slate-200 sticky left-0 z-40 bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-300">
-              <div className="w-16 p-3 text-[10px] font-black uppercase text-slate-500">Loom</div>
+              <div className="w-16 p-3 text-[10px] font-black uppercase text-slate-500 text-center">Loom</div>
               <div className="w-32 p-3 text-[10px] font-black uppercase text-slate-500">Current Design</div>
-              <div className="w-20 p-3 text-[10px] font-black uppercase text-slate-500 text-center">Runout</div>
+              <div className="w-24 p-3 text-[10px] font-black uppercase text-slate-500 text-center">Runout & Days</div>
               <div className="flex-1 p-3 text-[10px] font-black uppercase text-slate-500">Planning Status</div>
             </div>
             
@@ -446,22 +477,53 @@ export default function AvailabilityBoard() {
                 <div className="flex w-[480px] flex-shrink-0 bg-white group-hover:bg-slate-50 divide-x divide-slate-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-300">
                   <div 
                     onClick={() => navigate(`/plan?loomNo=${row.loomNo}`)}
-                    className="w-16 p-2 flex items-center justify-center font-black text-slate-800 text-sm cursor-pointer hover:text-indigo-600 hover:bg-indigo-50/50 transition-colors"
+                    className="w-16 p-1.5 flex flex-col items-center justify-center font-black text-slate-800 text-xs cursor-pointer hover:text-indigo-600 hover:bg-indigo-50/50 transition-colors"
                     title={`Click to Create/Assign Plan on Loom ${row.loomNo}`}
                   >
-                    {row.loomNo}
+                    <span>L-{row.loomNo}</span>
+                    <span className="text-[9px] text-slate-400 font-bold">U{row.unit}</span>
                   </div>
-                  <div className="w-32 p-2 flex items-center text-xs font-bold text-slate-700 truncate">
+                  <div className="w-32 p-1.5 flex flex-col justify-center truncate">
                     {row.currentDesign !== '-' ? (
-                      <span className={`px-2 py-0.5 rounded text-white text-[10px] ${getDesignColor(row.currentDesign).split(' ')[0]}`} title={`Running: ${row.currentDesign}`}>
-                        {row.currentDesign}
-                      </span>
+                      <>
+                        <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-black truncate ${getDesignColor(row.currentDesign).split(' ')[0]}`} title={`Running: ${row.currentDesign}`}>
+                          {row.currentDesign}
+                        </span>
+                        {row.currentOrderNo && (
+                          <span className="text-[10px] text-slate-500 font-semibold truncate mt-0.5" title={`IBPO: ${row.currentOrderNo}`}>
+                            #{row.currentOrderNo}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-slate-400 text-xs italic">Available</span>
+                    )}
+                  </div>
+                  <div
+                    className="w-24 p-1.5 flex flex-col items-center justify-center text-xs font-bold text-slate-600"
+                    title={row.currentRunout ? `Expected Runout: ${format(new Date(row.currentRunout), 'dd/MM/yyyy')}\nEst. Days Left: ${row.balanceDays !== null ? row.balanceDays : 'N/A'}\nNet Warp Balance: ${Math.round(row.netBalanceMeter)}m\nAvg Prod: ${Math.round(row.loomDailyProd)}m/d` : 'No Active Run'}
+                  >
+                    {row.currentRunout && !isNaN(new Date(row.currentRunout).getTime()) ? (
+                      <>
+                        <div className="flex items-center gap-1">
+                          <span className="text-slate-900 font-black text-[11px]">{format(new Date(row.currentRunout), 'dd/MM')}</span>
+                          {row.balanceDays !== null && (
+                            <span className={`text-[9px] px-1 py-0.2 rounded font-black ${
+                              row.balanceDays <= 1 ? 'bg-red-100 text-red-700' :
+                              row.balanceDays <= 3 ? 'bg-amber-100 text-amber-700' :
+                              'bg-slate-100 text-slate-700'
+                            }`}>
+                              {row.balanceDays <= 0 ? 'Due' : `${row.balanceDays}d`}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[9px] text-slate-400 font-medium">
+                          {row.netBalanceMeter > 0 ? `${Math.round(row.netBalanceMeter).toLocaleString()}m` : row.runoutStatus}
+                        </div>
+                      </>
                     ) : (
                       <span className="text-slate-400 font-normal">-</span>
                     )}
-                  </div>
-                  <div className="w-20 p-2 flex items-center justify-center text-xs font-bold text-slate-600">
-                    {row.currentRunout && !isNaN(new Date(row.currentRunout).getTime()) ? format(new Date(row.currentRunout), 'dd/MM') : '-'}
                   </div>
                   <div 
                     onClick={() => {
@@ -483,7 +545,7 @@ export default function AvailabilityBoard() {
                         navigate(`/plan?loomNo=${row.loomNo}`);
                       }
                     }}
-                    className="flex-1 p-2 flex flex-col justify-center truncate cursor-pointer hover:bg-indigo-50/40 transition-colors"
+                    className="flex-1 p-1.5 flex flex-col justify-center truncate cursor-pointer hover:bg-indigo-50/40 transition-colors"
                     title={row.nextBars && row.nextBars.length > 0 ? `Click to Direct Change / Reassign Next Design (${row.nextBars[0].designNo})` : `Click to Create Plan on Loom ${row.loomNo}`}
                   >
                       <span className={`text-[10px] font-black uppercase ${
@@ -495,6 +557,7 @@ export default function AvailabilityBoard() {
                      {row.nextDesign !== '-' && (
                        <span className="text-[11px] font-bold text-slate-700 truncate flex items-center gap-1">
                          » {row.nextDesign}
+                         {row.nextOrderNo && row.nextOrderNo !== '-' && <span className="text-[9px] text-slate-400 font-medium">({row.nextOrderNo})</span>}
                          <span className="text-[9px] px-1 py-0.2 bg-indigo-100 text-indigo-700 rounded font-semibold ml-1">Change</span>
                        </span>
                      )}
@@ -688,6 +751,15 @@ export default function AvailabilityBoard() {
                     .map(row => {
                       const isSelected = targetLoomNo === row.loomNo;
                       const isAvail = row.currentDesign === '-';
+                      const hasNext = row.nextDesign !== '-';
+
+                      const eligLabel = isAvail
+                        ? 'Eligible (Empty Loom)'
+                        : (!hasNext ? 'Eligible (No Next Plan)' : 'Occupied (Will Replace Plan)');
+                      const eligBadge = isAvail
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : (!hasNext ? 'bg-blue-100 text-blue-800 border border-blue-300' : 'bg-amber-100 text-amber-800 border border-amber-300');
+
                       return (
                         <div
                           key={row.loomNo}
@@ -705,24 +777,38 @@ export default function AvailabilityBoard() {
                               className="text-indigo-600"
                             />
                             <div>
-                              <span className="font-black text-slate-900 text-xs">LOOM {row.loomNo}</span>
-                              <span className="text-[11px] text-slate-500 ml-2">({row.loomType || 'Airjet'} - Unit {row.unit})</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-black text-slate-900 text-xs">LOOM {row.loomNo}</span>
+                                <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                  Unit {row.unit} • {row.loomType || 'Airjet'}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1.5">
+                                {isAvail ? (
+                                  <span className="text-emerald-700 font-semibold text-[10px]">Empty / Available</span>
+                                ) : (
+                                  <>
+                                    <span className="font-bold text-slate-800 text-[10px]">Running: {row.currentDesign}</span>
+                                    {row.currentOrderNo && <span className="text-slate-400 text-[10px]">#{row.currentOrderNo}</span>}
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
-                            {isAvail ? (
-                              <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                                Empty / Available
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold text-[10px]" title={`Current: ${row.currentDesign}`}>
-                                Running: {row.currentDesign}
-                              </span>
-                            )}
-                            <span className="text-[10px] text-slate-500">
-                              {row.nextDesign !== '-' ? `(Next: ${row.nextDesign})` : '(No Next Plan)'}
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${eligBadge}`}>
+                              {eligLabel}
                             </span>
+                            <div className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                              {row.currentRunout && !isNaN(new Date(row.currentRunout).getTime()) ? (
+                                <span>Runout: <strong className="text-slate-700">{format(new Date(row.currentRunout), 'dd/MM/yyyy')}</strong> ({row.balanceDays !== null ? `${row.balanceDays}d left` : row.runoutStatus})</span>
+                              ) : (
+                                <span className="text-slate-400">Runout: Not Available</span>
+                              )}
+                              <span>•</span>
+                              <span>{hasNext ? <strong className="text-indigo-700">Next: {row.nextDesign}</strong> : 'No Next Plan'}</span>
+                            </div>
                           </div>
                         </div>
                       );

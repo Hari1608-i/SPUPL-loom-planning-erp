@@ -51,6 +51,12 @@ export interface CompletedRun {
   id: number;
   loomNo: number;
   designNo: string;
+  construction?: string;
+  reed?: string;
+  pick?: string;
+  width?: string;
+  setNo?: string;
+  beamNo?: string;
   startDate: string;
   endDate: string;
   warpMeter: number;
@@ -60,6 +66,8 @@ export interface CompletedRun {
   efficiencyPct: number;
   unit: string;
   sortChangeType?: string | null;
+  orderType?: string | null;
+  ibpoNo?: string | null;
 }
 
 interface AppContextType {
@@ -362,6 +370,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           id: h.id,
           loomNo: h.loom_no,
           designNo: h.design_no_sp_no,
+          construction: h.construction || 'Not Available',
+          reed: h.reed || h.reed_count || 'Not Available',
+          pick: h.pick || 'Not Available',
+          width: h.width || h.greige_width || 'Not Available',
+          setNo: h.set_no || h.setNo || 'Not Available',
+          beamNo: h.beam_no || h.beamNo || 'Not Available',
           startDate: h.start_date,
           endDate: h.end_date,
           warpMeter: h.warp_meter,
@@ -370,7 +384,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           avgDailyProduction: h.avg_daily_production,
           efficiencyPct: h.efficiency_pct,
           unit: h.unit,
-          sortChangeType: h.sort_change_type || (h as any).sortChangeType || null
+          sortChangeType: h.sort_change_type || (h as any).sortChangeType || null,
+          orderType: h.order_type || 'GREY',
+          ibpoNo: h.ibpo_no || ''
         })));
       }
 

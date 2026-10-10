@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ClipboardList, Plus, Search, AlertTriangle, Edit3, Trash2, X, Download,
   CheckCircle, Printer, FileSpreadsheet, AlertCircle
@@ -101,6 +101,7 @@ interface Order {
   production_drop_pct?: number;
   expected_avg_production?: number;
   loomWiseProduction?: LoomWiseProductionItem[];
+  order_type?: string;
 }
 
 interface MultiOrderRowState {
@@ -144,6 +145,7 @@ interface MultiOrderRowState {
   weaving_planned_date: string;
   planned_loom_count: number | string;
   avg_production_per_loom: number | string;
+  order_type?: string;
 }
 
 export default function OrderManagement() {
@@ -230,7 +232,8 @@ export default function OrderManagement() {
     weaving_start_date: '',
     weaving_planned_date: '',
     planned_loom_count: 0,
-    avg_production_per_loom: 0
+    avg_production_per_loom: 0,
+    order_type: 'Grey'
   };
 
 
@@ -323,7 +326,8 @@ export default function OrderManagement() {
     weaving_start_date: format(new Date(), 'yyyy-MM-dd'),
     weaving_planned_date: format(new Date(), 'yyyy-MM-dd'),
     planned_loom_count: 2,
-    avg_production_per_loom: 250
+    avg_production_per_loom: 250,
+    order_type: 'Grey'
   });
 
   const handleOpenMultiEntry = () => {
@@ -675,7 +679,8 @@ export default function OrderManagement() {
         weaving_start_date: wvStart,
         weaving_planned_date: wvStart,
         planned_loom_count: loomCnt,
-        avg_production_per_loom: avgProd
+        avg_production_per_loom: avgProd,
+        order_type: (cols[offset + 20]?.toUpperCase().includes('YD') || cols[offset + 21]?.toUpperCase().includes('YD')) ? 'YD' : 'Grey'
       };
     });
 
@@ -710,13 +715,6 @@ export default function OrderManagement() {
       }
       ibpoSet.add(cleanIbpo);
 
-      // Skip if already active in DB — don't block, just skip
-      const dupDb = orders.find(o => o.ibpo_no && o.ibpo_no.trim().toUpperCase() === cleanIbpo && o.status !== 'ORDER COMPLETED' && o.order_completion_status !== 'COMPLETED');
-      if (dupDb) {
-        skippedIbpos.push(cleanIbpo + ' (already active)');
-        continue;
-      }
-
       if (!r.design_no_sp_no.trim()) {
         setMultiErrorMsg(`Row ${i + 1} (IBPO: ${cleanIbpo}): Design Number is required.`);
         return;
@@ -747,7 +745,7 @@ export default function OrderManagement() {
     }
 
     if (validRows.length === 0) {
-      setMultiErrorMsg(`All ${nonBlankRows.length} rows were skipped (already active or duplicates): ${skippedIbpos.join(', ')}`);
+      setMultiErrorMsg(`All rows were duplicates within batch: ${skippedIbpos.join(', ')}`);
       return;
     }
 
@@ -772,6 +770,8 @@ export default function OrderManagement() {
       }
 
       let totalSaved = 0;
+      let totalCreated = 0;
+      let totalUpdated = 0;
       let totalSkipped = 0;
       const errors = [];
 
@@ -788,14 +788,12 @@ export default function OrderManagement() {
           const d = ct.includes('application/json') ? await chunkRes.json() : { error: await chunkRes.text() };
           if (chunkRes.ok) {
             totalSaved += d.count || 0;
+            totalCreated += d.createdCount || (d.count || 0);
+            totalUpdated += d.updatedCount || 0;
             totalSkipped += d.skippedCount || 0;
           } else {
             const errMsg = d.error || 'Failed to save chunk.';
-            if (errMsg.includes('already exist as active')) {
-              totalSkipped += chunk.length;
-            } else {
-              errors.push(`Chunk ${ci + 1}: ${errMsg}`);
-            }
+            errors.push(`Chunk ${ci + 1}: ${errMsg}`);
           }
         } catch (chunkErr) {
           errors.push(`Chunk ${ci + 1} error: ${chunkErr instanceof Error ? chunkErr.message : String(chunkErr)}`);
@@ -812,12 +810,9 @@ export default function OrderManagement() {
         await loadData();
         await refreshData();
         const msgs = [];
-        if (totalSaved > 0) msgs.push(`✅ Saved ${totalSaved} order(s) successfully.`);
-        if (skippedIbpos.length > 0 || totalSkipped > 0) {
-          const skipTotal = skippedIbpos.length + totalSkipped;
-          msgs.push(`⚠️ Skipped ${skipTotal} already-active IBPO(s).`);
-          if (skippedIbpos.length > 0) msgs.push(skippedIbpos.join('\n'));
-        }
+        if (totalCreated > 0) msgs.push(`✅ Created ${totalCreated} new order(s).`);
+        if (totalUpdated > 0) msgs.push(`🔄 Updated ${totalUpdated} existing order(s) with changed specifications.`);
+        if (totalSkipped > 0) msgs.push(`ℹ️ Skipped ${totalSkipped} unchanged duplicate order(s).`);
         if (errors.length > 0) msgs.push(`⚠️ Some chunks had errors: ${errors.join('; ')}`);
         if (msgs.length > 0) alert(msgs.join('\n'));
       }
@@ -958,7 +953,8 @@ export default function OrderManagement() {
       weaving_start_date: ord.weaving_start_date ? format(new Date(ord.weaving_start_date), 'yyyy-MM-dd') : '',
       weaving_planned_date: ord.weaving_planned_date ? format(new Date(ord.weaving_planned_date), 'yyyy-MM-dd') : '',
       planned_loom_count: ord.planned_loom_count || 2,
-      avg_production_per_loom: ord.avg_production_per_loom || 250
+      avg_production_per_loom: ord.avg_production_per_loom || 250,
+      order_type: ord.order_type || 'Grey'
     });
 
     setShowModal(true);
@@ -1156,7 +1152,15 @@ export default function OrderManagement() {
   };
 
 
+  const [orderTypeFilter, setOrderTypeFilter] = useState<'ALL' | 'GREY' | 'YD'>('ALL');
+
   const filteredOrders = orders.filter(o => {
+    if (orderTypeFilter !== 'ALL') {
+      const isYD = (o.order_type || (o as any).orderType || (o as any).order_type_category || '').toUpperCase().includes('YD');
+      const oType = isYD ? 'YD' : 'GREY';
+      if (oType !== orderTypeFilter) return false;
+    }
+
     const q = (searchTerm || '').trim().toLowerCase();
     const matchesSearch = !q || (
       (o.ibpo_no && o.ibpo_no.toLowerCase().includes(q)) ||
@@ -1385,6 +1389,23 @@ export default function OrderManagement() {
             <option value="WEAVING RUNNING">Weaving Running</option>
             <option value="COMPLETED">Completed</option>
           </select>
+
+          {/* Order Type Filter: ALL / GREY / YD */}
+          <div className="flex bg-slate-100 rounded-xl p-1 border border-slate-200">
+            {(['ALL', 'GREY', 'YD'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setOrderTypeFilter(t)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
+                  orderTypeFilter === t
+                    ? 'bg-spu-secondary text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {t === 'ALL' ? 'All' : t === 'GREY' ? 'Grey' : 'YD'}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Multi Selection Actions Toolbar */}
@@ -1459,6 +1480,7 @@ export default function OrderManagement() {
                 <th className="py-3.5 px-4 text-center bg-indigo-950/80">Actual Start</th>
                 <th className="py-3.5 px-4 text-right bg-indigo-950/80">Actual Avg Prod</th>
                 <th className="py-3.5 px-4 text-center bg-indigo-950/80">Actual Runout / Completion</th>
+                <th className="py-3.5 px-4 text-center">Order Type</th>
                 <th className="py-3.5 px-4 text-center">Status</th>
                 <th className="py-3.5 px-4 text-right print:hidden">Actions</th>
               </tr>
@@ -1466,7 +1488,7 @@ export default function OrderManagement() {
             <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
               {filteredOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={31} className="py-12 text-center text-slate-400 font-bold text-sm">
+                  <td colSpan={32} className="py-12 text-center text-slate-400 font-bold text-sm">
                     No orders found matching the filter criteria.
                   </td>
                 </tr>
@@ -1568,6 +1590,17 @@ export default function OrderManagement() {
                       </td>
                       <td className="py-3 px-4 text-center font-bold text-indigo-900 bg-slate-50/50">
                         {ord.actual_completion_date ? format(new Date(ord.actual_completion_date), 'dd-MM-yyyy') : (ord.actual_loom_count && ord.actual_loom_count > 0 && ord.actual_runout_date ? format(new Date(ord.actual_runout_date), 'dd-MM-yyyy') : 'Not Started')}
+                      </td>
+
+                      {/* Order Type Column */}
+                      <td className="py-3 px-4 text-center">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                          (ord.order_type || (ord as any).orderType || '').toUpperCase().includes('YD')
+                            ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                            : 'bg-sky-100 text-sky-800 border border-sky-200'
+                        }`}>
+                          {(ord.order_type || (ord as any).orderType || '').toUpperCase().includes('YD') ? 'YD' : 'Grey'}
+                        </span>
                       </td>
 
                       {/* Status Column with Production Drop Warning Badge */}
@@ -1897,7 +1930,7 @@ export default function OrderManagement() {
               {/* Planning Parameters */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-4">
                 <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider">Section C — Loom Capacity Planning</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="text-[11px] font-bold text-slate-600 uppercase">Planned Loom Count *</label>
                     <input
@@ -1920,6 +1953,18 @@ export default function OrderManagement() {
                       value={formData.avg_production_per_loom}
                       onChange={(e) => setFormData({ ...formData, avg_production_per_loom: Number(e.target.value) })}
                     />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 uppercase">Order Type (Grey / YD)</label>
+                    <select
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none"
+                      value={formData.order_type || 'Grey'}
+                      onChange={(e) => setFormData({ ...formData, order_type: e.target.value })}
+                    >
+                      <option value="Grey">Grey Fabric</option>
+                      <option value="YD">YD (Yarn Dyed Fabric)</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -2018,6 +2063,7 @@ export default function OrderManagement() {
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[130px]">Target Completion *</th>
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[90px]">Looms *</th>
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[110px]">Avg Prod *</th>
+                    <th className="py-2.5 px-2 border-r border-slate-200 min-w-[110px]">Order Type</th>
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[100px]">Forecast Days</th>
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[110px]">Expected End</th>
                     <th className="py-2.5 px-2 border-r border-slate-200 min-w-[110px]">Priority</th>
@@ -2321,6 +2367,21 @@ export default function OrderManagement() {
                               setMultiRows(prev => { const n = [...prev]; n[idx] = { ...n[idx], avg_production_per_loom: v }; return n; });
                             }}
                           />
+                        </td>
+
+                        {/* Order Type */}
+                        <td className="p-1 border-r border-slate-200">
+                          <select
+                            className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded font-black text-slate-800 outline-none focus:border-indigo-600 text-xs"
+                            value={row.order_type || 'Grey'}
+                            onChange={e => {
+                              const v = e.target.value;
+                              setMultiRows(prev => { const n = [...prev]; n[idx] = { ...n[idx], order_type: v }; return n; });
+                            }}
+                          >
+                            <option value="Grey">Grey</option>
+                            <option value="YD">YD</option>
+                          </select>
                         </td>
 
                         {/* Forecast Days */}

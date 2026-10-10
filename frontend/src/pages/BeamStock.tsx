@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Package, Search, Plus, Download, Trash2, Save, Printer,
-  Calendar, CheckCircle2, AlertCircle, RefreshCw, Copy, Layers, Filter, CheckCircle, AlertTriangle, Eye, X, Edit2, Upload, ArrowRight, ExternalLink
+  Calendar, CheckCircle2, AlertCircle, RefreshCw, Copy, Layers, Filter, CheckCircle, AlertTriangle, Eye, X, Edit2, Upload, ArrowRight, ExternalLink, Sparkles
 } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { API_BASE_URL } from '../config';
@@ -120,6 +120,25 @@ export default function BeamStock() {
     beam_width: '68',
     beam_dia: '800',
     location: 'At Sizing',
+    remarks: ''
+  });
+
+  // Sample Beam Modal State (Auto Design SP26/000, Mandatory Party/IBPO)
+  const [showSampleBeamModal, setShowSampleBeamModal] = useState<boolean>(false);
+  const [isSavingSampleBeam, setIsSavingSampleBeam] = useState<boolean>(false);
+  const [sampleBeamForm, setSampleBeamForm] = useState({
+    date: format(new Date(), 'yyyy-MM-dd'),
+    design_no: 'SP26/000',
+    vendor_name: 'In-House Warping',
+    party_beam_no: '',
+    set_no: '',
+    beam_no: '',
+    beam_type: 'Sample',
+    beam_dia: '900',
+    beam_width: '68',
+    total_ends: '',
+    warp_meter: '',
+    location: 'Beam Storage',
     remarks: ''
   });
 
@@ -858,6 +877,89 @@ export default function BeamStock() {
     }
   };
 
+  const handleOpenSampleBeamModal = () => {
+    setSampleBeamForm({
+      date: format(new Date(), 'yyyy-MM-dd'),
+      design_no: 'SP26/000',
+      vendor_name: 'In-House Warping',
+      party_beam_no: '',
+      set_no: '',
+      beam_no: '',
+      beam_type: 'Sample',
+      beam_dia: '900',
+      beam_width: '68',
+      total_ends: '',
+      warp_meter: '',
+      location: 'Beam Storage',
+      remarks: ''
+    });
+    setShowSampleBeamModal(true);
+  };
+
+  const handleSaveSampleBeam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sampleBeamForm.party_beam_no.trim()) {
+      alert('Validation Error: Party / IBPO No is mandatory for Sample Beam entries.');
+      return;
+    }
+    if (!sampleBeamForm.beam_no.trim()) {
+      alert('Validation Error: Beam No is required.');
+      return;
+    }
+    if (!(Number(sampleBeamForm.warp_meter) > 0)) {
+      alert('Validation Error: Warp Meter must be greater than 0.');
+      return;
+    }
+
+    setIsSavingSampleBeam(true);
+    setErrorMsg(null);
+
+    const payload = {
+      date: sampleBeamForm.date,
+      design_no: 'SP26/000',
+      vendor_name: sampleBeamForm.vendor_name || 'In-House Warping',
+      party_beam_no: sampleBeamForm.party_beam_no.trim(),
+      order_no: sampleBeamForm.party_beam_no.trim(),
+      ibpo: sampleBeamForm.party_beam_no.trim(),
+      set_no: sampleBeamForm.set_no.trim() || null,
+      beam_no: sampleBeamForm.beam_no.trim(),
+      beam_type: 'Sample',
+      beam_dia: Number(sampleBeamForm.beam_dia) || 900,
+      beam_width: Number(sampleBeamForm.beam_width) || null,
+      total_ends: Number(sampleBeamForm.total_ends) || null,
+      ends: Number(sampleBeamForm.total_ends) || null,
+      warp_meter: Number(sampleBeamForm.warp_meter),
+      available_meter: Number(sampleBeamForm.warp_meter),
+      location: sampleBeamForm.location || 'Beam Storage',
+      beam_status: 'Available',
+      remarks: sampleBeamForm.remarks ? `Sample: ${sampleBeamForm.remarks}` : 'Sample Beam Stock'
+    };
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/beam-stock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`Failed to save Sample Beam: ${data.error || 'Server error'}`);
+      } else {
+        setShowSampleBeamModal(false);
+        setSuccessMsg(`🎉 Sample Beam #${sampleBeamForm.beam_no} (Design: SP26/000, Party/IBPO: ${sampleBeamForm.party_beam_no}) saved to Stock successfully!`);
+        await fetchData();
+        if (refreshData) {
+          try { await refreshData(); } catch (e) { }
+        }
+        setTimeout(() => setSuccessMsg(null), 5000);
+      }
+    } catch (err: any) {
+      alert(`Error saving Sample Beam: ${err.message}`);
+    } finally {
+      setIsSavingSampleBeam(false);
+    }
+  };
+
   // Direct Physical Beam Allocation Handler
   const handleAllocateBeamSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1351,10 +1453,21 @@ export default function BeamStock() {
     }
   };
 
+  const [orderTypeFilter, setOrderTypeFilter] = useState<'ALL' | 'GREY' | 'YD'>('ALL');
+
   const filteredRows = rows.filter(r => {
     const bNo = (r.beam_no || '').trim().toUpperCase();
     const normSt = (r.beam_status || '').trim().toUpperCase();
     const rId = typeof r.id === 'number' ? r.id : null;
+
+    if (orderTypeFilter !== 'ALL') {
+      const dClean = (r.design_no || '').trim().toLowerCase();
+      const pClean = (r.party_beam_no || r.order_no || r.ibpo || '').trim().toUpperCase();
+      const ordMatch = orders.find((o: any) => (o.design_no_sp_no || '').trim().toLowerCase() === dClean || (o.ibpo_no || '').trim().toUpperCase() === pClean);
+      const isYD = (ordMatch?.order_type || (ordMatch as any)?.order_type_category || r.beam_type || '').toUpperCase().includes('YD');
+      const oType = isYD ? 'YD' : 'GREY';
+      if (oType !== orderTypeFilter) return false;
+    }
 
     // Blank template rows (e.g. for Excel paste) stay visible in ALL view
     if (!bNo) return statusFilter === 'ALL';
@@ -1741,6 +1854,23 @@ export default function BeamStock() {
               {BEAM_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
 
+            {/* Order Type Filter: ALL / GREY / YD */}
+            <div className="flex bg-slate-100 rounded-xl p-1 border border-slate-200">
+              {(['ALL', 'GREY', 'YD'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setOrderTypeFilter(t)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all ${
+                    orderTypeFilter === t
+                      ? 'bg-spu-primary text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {t === 'ALL' ? 'All' : t === 'GREY' ? 'Grey' : 'YD'}
+                </button>
+              ))}
+            </div>
+
             <button
               onClick={handleAddBlankRow}
               className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl border border-blue-200 transition-all flex items-center"
@@ -1754,6 +1884,14 @@ export default function BeamStock() {
               title="Add Top Beam Set (Two Set Nos, Two Beam Nos, Two Total Ends, One Warp Meter)"
             >
               <Layers className="w-3.5 h-3.5 mr-1 text-purple-600" /> + Add Top Beam
+            </button>
+
+            <button
+              onClick={handleOpenSampleBeamModal}
+              className="px-3.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-black text-xs rounded-xl border border-amber-300 transition-all flex items-center shadow-xs cursor-pointer active:scale-95"
+              title="Add Sample Beam Stock (Auto Design SP26/000, Mandatory Party/IBPO No)"
+            >
+              <Sparkles className="w-3.5 h-3.5 mr-1 text-amber-600" /> + Add Sample Beam
             </button>
 
             <button
@@ -2740,6 +2878,197 @@ export default function BeamStock() {
                     <>
                       <Save className="w-4 h-4 mr-2" />
                       <span>SAVE TOP BEAM STOCK SET</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SAMPLE BEAM STOCK ENTRY MODAL */}
+      {showSampleBeamModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full my-8 overflow-hidden border border-slate-200 animate-in fade-in zoom-in duration-150">
+            {/* Modal Header */}
+            <div className="p-4 bg-gradient-to-r from-amber-900 via-slate-900 to-amber-950 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-white">ADD SAMPLE BEAM STOCK</h3>
+                  <p className="text-[11px] text-amber-200">Design SP26/000 (Auto) • Mandatory Party / IBPO No</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSampleBeamModal(false)}
+                className="text-slate-400 hover:text-white font-bold p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSampleBeam} className="p-5 space-y-4 text-xs font-medium max-h-[85vh] overflow-y-auto custom-scrollbar">
+              <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-xl space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Production / Inward Date *</label>
+                    <input
+                      type="date"
+                      required
+                      value={sampleBeamForm.date}
+                      onChange={e => setSampleBeamForm(prev => ({ ...prev, date: e.target.value }))}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 font-semibold bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Design No (Auto Mentioned) *</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={sampleBeamForm.design_no}
+                      className="w-full p-2.5 border border-amber-300 rounded-xl outline-none bg-amber-100/70 font-black text-amber-950 cursor-not-allowed"
+                      title="Sample design is fixed as SP26/000 per ERP standard"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-amber-950 font-black mb-1">Party / IBPO No * <span className="text-red-500">(Mandatory)</span></label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter Party / IBPO No..."
+                      value={sampleBeamForm.party_beam_no}
+                      onChange={e => setSampleBeamForm(prev => ({ ...prev, party_beam_no: e.target.value }))}
+                      className="w-full p-2.5 border-2 border-amber-500 rounded-xl outline-none focus:ring-2 focus:ring-amber-600 font-black text-slate-900 bg-white"
+                      autoFocus
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Beam No * <span className="text-red-500">(Unique)</span></label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. 91925"
+                      value={sampleBeamForm.beam_no}
+                      onChange={e => setSampleBeamForm(prev => ({ ...prev, beam_no: e.target.value }))}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 font-black text-slate-900 bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Warp Meter *</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      placeholder="e.g. 3500"
+                      value={sampleBeamForm.warp_meter}
+                      onChange={e => setSampleBeamForm(prev => ({ ...prev, warp_meter: e.target.value }))}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 font-black text-slate-900 text-right bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Set No</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1195"
+                      value={sampleBeamForm.set_no}
+                      onChange={e => setSampleBeamForm(prev => ({ ...prev, set_no: e.target.value }))}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 font-semibold bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Beam Type</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={sampleBeamForm.beam_type}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl bg-slate-100 font-bold text-slate-700"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Vendor Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. In-House Warping"
+                      value={sampleBeamForm.vendor_name}
+                      onChange={e => setSampleBeamForm(prev => ({ ...prev, vendor_name: e.target.value }))}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Total Ends</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 4800"
+                      value={sampleBeamForm.total_ends}
+                      onChange={e => setSampleBeamForm(prev => ({ ...prev, total_ends: e.target.value }))}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-right bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Location</label>
+                    <input
+                      type="text"
+                      value={sampleBeamForm.location}
+                      onChange={e => setSampleBeamForm(prev => ({ ...prev, location: e.target.value }))}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Remarks</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Trial Sample Beam"
+                    value={sampleBeamForm.remarks}
+                    onChange={e => setSampleBeamForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-3 border-t border-slate-200 flex justify-end items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowSampleBeamModal(false)}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingSampleBeam}
+                  className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-black rounded-xl shadow-md transition-all flex items-center cursor-pointer active:scale-95"
+                >
+                  {isSavingSampleBeam ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      <span>Saving Sample Beam...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      <span>SAVE SAMPLE BEAM TO STOCK</span>
                     </>
                   )}
                 </button>

@@ -2322,8 +2322,8 @@ export default function MainEntry() {
 
                       {/* 5. Construction */}
                       <td className="p-3 text-xs font-bold text-slate-950 dark:text-slate-100">
-                        <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700/60 rounded-md border border-slate-300 dark:border-slate-600 block truncate max-w-[130px]" title={design?.construction || matchedOrder?.construction || matchedOrder?.designMaster?.construction || 'N/A'}>
-                          {design?.construction || matchedOrder?.construction || matchedOrder?.designMaster?.construction || 'Select Design'}
+                        <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700/60 rounded-md border border-slate-300 dark:border-slate-600 block truncate max-w-[130px]" title={design?.construction || matchedOrder?.construction || matchedOrder?.designMaster?.construction || (entry.designNo ? (entry.designNo.toLowerCase().includes('sample') || entry.designNo.startsWith('SP26/000') ? 'Sample' : 'Not Available') : 'Select Design')}>
+                          {design?.construction || matchedOrder?.construction || matchedOrder?.designMaster?.construction || (entry.designNo ? (entry.designNo.toLowerCase().includes('sample') || entry.designNo.startsWith('SP26/000') ? 'Sample' : 'Not Available') : 'Select Design')}
                         </span>
                       </td>
 
@@ -2360,7 +2360,7 @@ export default function MainEntry() {
                           return (
                             <div className="flex items-center gap-1.5">
                               <span className="font-extrabold text-slate-950 dark:text-slate-100 text-xs font-mono" title={currentReedVal || 'No reed set'}>
-                                {currentReedVal || '—'}
+                                {currentReedVal || (entry.designNo ? (entry.designNo.toLowerCase().includes('sample') || entry.designNo.startsWith('SP26/000') ? 'Sample' : '—') : '—')}
                               </span>
                               <button
                                 type="button"
@@ -2410,7 +2410,7 @@ export default function MainEntry() {
                           return (
                             <div className="flex items-center gap-1.5">
                               <span className="font-extrabold text-slate-950 dark:text-slate-100 text-xs font-mono" title={currentPickVal || 'No pick set'}>
-                                {currentPickVal || '—'}
+                                {currentPickVal || (entry.designNo ? (entry.designNo.toLowerCase().includes('sample') || entry.designNo.startsWith('SP26/000') ? 'Sample' : '—') : '—')}
                               </span>
                               <button
                                 type="button"
@@ -2427,7 +2427,7 @@ export default function MainEntry() {
 
                       {/* 8. Greige Width */}
                       <td className="p-3 border-r border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-950 dark:text-slate-100">
-                        {design?.greigeWidth || design?.greige_width || matchedOrder?.greige_width || matchedOrder?.width || matchedOrder?.required_reed_space || matchedOrder?.designMaster?.greige_width || design?.reedSpace || '—'}
+                        {design?.greigeWidth || design?.greige_width || matchedOrder?.greige_width || matchedOrder?.width || matchedOrder?.required_reed_space || matchedOrder?.designMaster?.greige_width || design?.reedSpace || (entry.designNo ? (entry.designNo.toLowerCase().includes('sample') || entry.designNo.startsWith('SP26/000') ? 'Sample' : '—') : '—')}
                       </td>
 
                       {/* 9. Set No */}
