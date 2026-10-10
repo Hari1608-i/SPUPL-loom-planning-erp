@@ -37,6 +37,19 @@ interface RunningLoomItem {
   crimpPercent: number;
   loomExistsInMaster: boolean;
   designExistsInMaster: boolean;
+  orderType?: string;
+  orderNo?: string;
+  ibpo?: string;
+  customerName?: string;
+  vendorName?: string;
+  plannedWarpingDate?: string | null;
+  plannedSizingDate?: string | null;
+  setNo?: string;
+  beamType?: string;
+  beamDia?: number;
+  beamWidth?: number | string;
+  totalEnds?: number | string;
+  inOrderManagement?: boolean;
 }
 
 interface OrderItem {
@@ -67,6 +80,7 @@ export default function DesignWiseRunningReport() {
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [autoRefresh, setAutoRefresh] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'TABLE' | 'MATRIX'>('TABLE');
+  const [orderTypeFilter, setOrderTypeFilter] = useState<'ALL' | 'GREY' | 'YD'>('ALL');
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -147,6 +161,13 @@ export default function DesignWiseRunningReport() {
   // Filtered running looms based on search query & dropdown filters
   const filteredLooms = useMemo(() => {
     return runningLooms.filter(item => {
+      // Order Type filter
+      if (orderTypeFilter !== 'ALL') {
+        const itemType = (item.orderType || '').toUpperCase();
+        if (orderTypeFilter === 'GREY' && itemType !== 'GREY') return false;
+        if (orderTypeFilter === 'YD' && itemType !== 'YD') return false;
+      }
+
       // Unit filter
       if (selectedUnit !== 'ALL' && item.unit !== selectedUnit) return false;
 
@@ -177,17 +198,21 @@ export default function DesignWiseRunningReport() {
 
       return true;
     });
-  }, [runningLooms, selectedUnit, selectedDesign, selectedLoomType, selectedStatus, searchQuery]);
+  }, [runningLooms, orderTypeFilter, selectedUnit, selectedDesign, selectedLoomType, selectedStatus, searchQuery]);
 
   // Executive Summary Metrics
   const summaryMetrics = useMemo(() => {
     const uniqueLoomNos = new Set(filteredLooms.map(l => l.loomNo));
-    const uniqueDesigns = new Set(filteredLooms.map(l => l.designNo));
+    const validMappedDesigns = filteredLooms.filter(l => l.designNo && l.designNo.toUpperCase() !== 'STANDARD' && !l.designNo.includes('NOT MAPPED'));
+    const uniqueDesigns = new Set(validMappedDesigns.map(l => l.designNo));
     const uniqueUnits = new Set(filteredLooms.map(l => l.unit));
 
-    // Calculate highest running design
+    const greyCount = filteredLooms.filter(l => (l.orderType || '').toUpperCase() === 'GREY').length;
+    const ydCount = filteredLooms.filter(l => (l.orderType || '').toUpperCase() === 'YD').length;
+
+    // Calculate highest running design (excluding STANDARD and placeholders)
     const designCounts: Record<string, number> = {};
-    filteredLooms.forEach(l => {
+    validMappedDesigns.forEach(l => {
       designCounts[l.designNo] = (designCounts[l.designNo] || 0) + 1;
     });
 
@@ -217,6 +242,8 @@ export default function DesignWiseRunningReport() {
 
     return {
       totalRunningLooms: uniqueLoomNos.size,
+      greyRunningLooms: greyCount,
+      ydRunningLooms: ydCount,
       totalRunningDesigns: uniqueDesigns.size,
       totalActiveUnits: uniqueUnits.size,
       highestRunningDesign: topDesign !== 'None' ? `${topDesign} (${topDesignCount} Looms)` : 'N/A',
@@ -313,17 +340,32 @@ export default function DesignWiseRunningReport() {
 
     // Sheet 2: Detailed List
     const detailExportRows: any[] = [];
-    Object.entries(groupedData.unitsMap).forEach(([unit, designs]) => {
-      Object.entries(designs).forEach(([designNo, looms]) => {
-        const sortedLoomNos = looms.map(l => `L-${l.loomNo}`).sort().join(', ');
-        detailExportRows.push({
-          Unit: unit,
-          'Design No / SP No': designNo,
-          'Loom Nos': sortedLoomNos,
-          'Total Looms': looms.length,
-          'Construction': looms[0]?.construction || '',
-          'Weave': looms[0]?.weave || ''
-        });
+    filteredLooms.forEach(l => {
+      const activeRun = (activeRuns as any)[l.loomNo];
+      detailExportRows.push({
+        'Unit': l.unit,
+        'Loom No': `L-${l.loomNo}`,
+        'Running Status': l.status,
+        'Loom Start Date': l.loomStartDate ? format(parseISO(l.loomStartDate), 'dd-MMM-yyyy') : 'NA',
+        'Design No / SP No': l.designNo,
+        'Order No': l.orderNo || 'NA',
+        'IBPO': l.ibpo || 'NA',
+        'Order Type': (l.orderType || 'NA').toUpperCase(),
+        'Customer': l.customerName || 'NA',
+        'Vendor Name': l.vendorName || 'NA',
+        'Planned Warping/Gaiting Date': l.plannedWarpingDate || 'NA',
+        'Planned Sizing Date': l.plannedSizingDate || 'NA',
+        'Set No': l.setNo || 'NA',
+        'Beam No': l.currentBeamNo || 'NA',
+        'Beam Type': l.beamType || 'NA',
+        'Beam Dia': l.beamDia || 'NA',
+        'Width': l.beamWidth || 'NA',
+        'Ends': l.totalEnds || 'NA',
+        'Warp Meters': l.warpedMeter || 'NA',
+        'Balance Meters': activeRun?.netBalanceMeter ? Number(activeRun.netBalanceMeter).toFixed(0) : 'NA',
+        'Balance Days': activeRun?.balanceDays ? (Number(activeRun.balanceDays) > 900000 ? 'NA' : `${Math.ceil(Number(activeRun.balanceDays))}d`) : 'NA',
+        'Runout Date': activeRun?.expectedRunoutDate ? format(new Date(activeRun.expectedRunoutDate), 'dd-MMM-yyyy') : 'NA',
+        'Validation Status': !l.designNo || l.designNo.includes('NOT MAPPED') ? 'NA — DESIGN NOT MAPPED' : (!l.inOrderManagement ? 'NA — NOT IN ORDER MANAGEMENT' : 'VERIFIED')
       });
     });
 
@@ -332,7 +374,7 @@ export default function DesignWiseRunningReport() {
     const detailWorksheet = XLSX.utils.json_to_sheet(detailExportRows);
 
     XLSX.utils.book_append_sheet(workbook, matrixWorksheet, 'Matrix View');
-    XLSX.utils.book_append_sheet(workbook, detailWorksheet, 'Loom Details');
+    XLSX.utils.book_append_sheet(workbook, detailWorksheet, 'Running Looms Register');
 
     XLSX.writeFile(workbook, `Design_Wise_Loom_Running_Report_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
   };
@@ -423,12 +465,22 @@ export default function DesignWiseRunningReport() {
             </button>
             <button
               onClick={handleExportPDF}
-              title="Print / Save PDF"
+              title="Print / Save Page PDF"
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-700 hover:bg-amber-50 hover:text-amber-700 dark:hover:bg-amber-950 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold transition-all border border-slate-200 dark:border-slate-600 shadow-2xs"
             >
               <Download className="w-3.5 h-3.5 text-amber-600" />
-              <span>PDF</span>
+              <span>Page PDF</span>
             </button>
+            <a
+              href={`${API_BASE_URL}/api/reports/running-looms/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Download Complete 224 Running Looms Official Register PDF"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs ml-1"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Official Register PDF</span>
+            </a>
           </div>
         </div>
       </div>
@@ -454,81 +506,102 @@ export default function DesignWiseRunningReport() {
       )}
 
       {/* ── Summary KPI Cards ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 print:hidden">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 print:hidden">
         {/* Card 1: TOTAL RUNNING LOOMS */}
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-black uppercase tracking-wider">Total Running Looms</span>
-            <div className="p-2 bg-spu-primary/10 text-spu-primary rounded-lg">
-              <Zap className="w-4 h-4" />
+            <span className="text-[11px] font-black uppercase tracking-wider">Total Running</span>
+            <div className="p-1.5 bg-spu-primary/10 text-spu-primary rounded-lg">
+              <Zap className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-slate-900 dark:text-white">
+          <div className="mt-2 flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-slate-900 dark:text-white">
               {summaryMetrics.totalRunningLooms}
             </span>
-            <span className="text-xs font-semibold text-slate-400">
-              / 224 Total
+            <span className="text-[11px] font-semibold text-slate-400">
+              / 224
             </span>
           </div>
         </div>
 
-        {/* Card 2: TOTAL RUNNING DESIGNS */}
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+        {/* Card 2: GREY RUNNING LOOMS */}
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-black uppercase tracking-wider">Running Designs</span>
-            <div className="p-2 bg-blue-50 text-blue-600 dark:bg-blue-950/40 rounded-lg">
-              <Layers className="w-4 h-4" />
+            <span className="text-[11px] font-black uppercase tracking-wider">Grey Looms</span>
+            <div className="p-1.5 bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200 rounded-lg">
+              <Layers className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
-            <span className="text-3xl font-black text-slate-900 dark:text-white">
+          <div className="mt-2 flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-slate-800 dark:text-slate-100">
+              {summaryMetrics.greyRunningLooms}
+            </span>
+            <span className="text-[11px] font-semibold text-slate-400">
+              Looms
+            </span>
+          </div>
+        </div>
+
+        {/* Card 3: YD RUNNING LOOMS */}
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+            <span className="text-[11px] font-black uppercase tracking-wider">YD Looms</span>
+            <div className="p-1.5 bg-purple-50 text-purple-600 dark:bg-purple-950/40 rounded-lg">
+              <Layers className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="mt-2 flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-purple-600 dark:text-purple-400">
+              {summaryMetrics.ydRunningLooms}
+            </span>
+            <span className="text-[11px] font-semibold text-purple-400">
+              Looms
+            </span>
+          </div>
+        </div>
+
+        {/* Card 4: TOTAL RUNNING DESIGNS */}
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+            <span className="text-[11px] font-black uppercase tracking-wider">Designs</span>
+            <div className="p-1.5 bg-blue-50 text-blue-600 dark:bg-blue-950/40 rounded-lg">
+              <Layers className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="mt-2">
+            <span className="text-2xl font-black text-slate-900 dark:text-white">
               {summaryMetrics.totalRunningDesigns}
             </span>
           </div>
         </div>
 
-        {/* Card 3: TOTAL ACTIVE UNITS */}
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+        {/* Card 5: TOTAL ACTIVE UNITS */}
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-black uppercase tracking-wider">Active Units</span>
-            <div className="p-2 bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 rounded-lg">
-              <Building2 className="w-4 h-4" />
+            <span className="text-[11px] font-black uppercase tracking-wider">Active Units</span>
+            <div className="p-1.5 bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 rounded-lg">
+              <Building2 className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
-            <span className="text-3xl font-black text-slate-900 dark:text-white">
+          <div className="mt-2">
+            <span className="text-2xl font-black text-slate-900 dark:text-white">
               {summaryMetrics.totalActiveUnits}
             </span>
           </div>
         </div>
 
-        {/* Card 4: HIGHEST RUNNING DESIGN */}
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+        {/* Card 6: HIGHEST RUNNING DESIGN */}
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-black uppercase tracking-wider">Highest Running Design</span>
-            <div className="p-2 bg-amber-50 text-amber-600 dark:bg-amber-950/40 rounded-lg">
-              <ArrowUpRight className="w-4 h-4" />
+            <span className="text-[11px] font-black uppercase tracking-wider">Top Design</span>
+            <div className="p-1.5 bg-amber-50 text-amber-600 dark:bg-amber-950/40 rounded-lg">
+              <ArrowUpRight className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
-            <span className="text-base font-black text-slate-900 dark:text-white truncate block" title={summaryMetrics.highestRunningDesign}>
+          <div className="mt-2">
+            <span className="text-xs font-black text-slate-900 dark:text-white truncate block" title={summaryMetrics.highestRunningDesign}>
               {summaryMetrics.highestRunningDesign}
-            </span>
-          </div>
-        </div>
-
-        {/* Card 5: HIGHEST RUNNING UNIT */}
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-black uppercase tracking-wider">Highest Running Unit</span>
-            <div className="p-2 bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 rounded-lg">
-              <Building2 className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <span className="text-base font-black text-slate-900 dark:text-white truncate block" title={summaryMetrics.highestRunningUnit}>
-              {summaryMetrics.highestRunningUnit}
             </span>
           </div>
         </div>
@@ -538,6 +611,25 @@ export default function DesignWiseRunningReport() {
       <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4 print:hidden">
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
           
+          {/* Order Type Toggle: All | Grey | YD */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+            {(['ALL', 'GREY', 'YD'] as const).map(type => (
+              <button
+                key={type}
+                onClick={() => setOrderTypeFilter(type)}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all ${
+                  orderTypeFilter === type
+                    ? type === 'GREY' ? 'bg-slate-800 text-white shadow-xs'
+                      : type === 'YD' ? 'bg-purple-600 text-white shadow-xs'
+                      : 'bg-spu-primary text-white shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400'
+                }`}
+              >
+                {type === 'ALL' ? 'All Looms' : type === 'GREY' ? 'Grey Looms' : 'YD Looms'}
+              </button>
+            ))}
+          </div>
+
           {/* Search Input */}
           <div className="relative flex-1 min-w-[280px]">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -546,7 +638,7 @@ export default function DesignWiseRunningReport() {
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Search Loom No, Design No, Unit, Construction, Weave..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-spu-primary/30"
+              className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-spu-primary/30"
             />
             {searchQuery && (
               <button 
@@ -1165,9 +1257,49 @@ export default function DesignWiseRunningReport() {
                 <span className="font-black text-slate-800 dark:text-white">{selectedLoomDetail.designNo}</span>
               </div>
               <div className="p-2.5 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Order Type</span>
+                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-black ${
+                  (selectedLoomDetail.orderType || '').toUpperCase() === 'GREY' 
+                    ? 'bg-slate-200 text-slate-800' 
+                    : (selectedLoomDetail.orderType || '').toUpperCase() === 'YD' 
+                      ? 'bg-purple-100 text-purple-700' 
+                      : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {selectedLoomDetail.orderType ? selectedLoomDetail.orderType.toUpperCase() : 'NA'}
+                </span>
+              </div>
+              <div className="p-2.5 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">IBPO / Order No</span>
+                <span className="font-bold text-slate-800 dark:text-white">
+                  {selectedLoomDetail.ibpo || selectedLoomDetail.orderNo || 'NA — NOT IN ORDER MANAGEMENT'}
+                </span>
+              </div>
+              <div className="p-2.5 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Vendor Name</span>
+                <span className="font-bold text-slate-800 dark:text-white">{selectedLoomDetail.vendorName || 'NA'}</span>
+              </div>
+              <div className="p-2.5 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
                 <span className="text-slate-400 block text-[10px] uppercase font-bold">Loom Start Date</span>
                 <span className="font-bold text-slate-800 dark:text-white">
                   {selectedLoomDetail.loomStartDate ? format(new Date(selectedLoomDetail.loomStartDate), 'dd-MMM-yyyy') : 'N/A'}
+                </span>
+              </div>
+              <div className="p-2.5 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Planned Warping / Sizing</span>
+                <span className="font-bold text-slate-800 dark:text-white">
+                  {selectedLoomDetail.plannedWarpingDate || 'NA'} (Loom Start -4d)
+                </span>
+              </div>
+              <div className="p-2.5 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Set / Beam No</span>
+                <span className="font-bold text-slate-800 dark:text-white">
+                  Set: {selectedLoomDetail.setNo || 'NA'} | Beam: {selectedLoomDetail.currentBeamNo || 'NA'}
+                </span>
+              </div>
+              <div className="p-2.5 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Beam Specs (Dia/Width/Ends)</span>
+                <span className="font-bold text-slate-800 dark:text-white">
+                  {selectedLoomDetail.beamDia || '900'} / {selectedLoomDetail.beamWidth || 'NA'}" / {selectedLoomDetail.totalEnds || 'NA'} ends
                 </span>
               </div>
               <div className="p-2.5 bg-slate-50 dark:bg-slate-700/50 rounded-xl">

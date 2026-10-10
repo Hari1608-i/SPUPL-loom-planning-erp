@@ -34,6 +34,13 @@ export interface ActiveRun {
   remarks?: string;
   sortChangeType?: string | null;
   prepStatus?: string | null;
+  orderType?: string | null;
+  vendorName?: string | null;
+  orderNo?: string | null;
+  ibpoNo?: string | null;
+  customerName?: string | null;
+  plannedWarpingDate?: string | null;
+  plannedSizingDate?: string | null;
 }
 
 export interface NextPlanState {
@@ -295,6 +302,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const todayRpm = (todayLog && todayLog.rpm !== undefined && todayLog.rpm !== null && Number(todayLog.rpm) > 0) ? Number(todayLog.rpm) : null;
           const todayEff = (todayLog && todayLog.efficiency !== undefined && todayLog.efficiency !== null && Number(todayLog.efficiency) > 0) ? Number(todayLog.efficiency) : null;
 
+          const cleanDesignStr = (run.design_no_sp_no || '').trim().toLowerCase();
+          let resolvedOrderType = 'Grey';
+          if (matchedOrder?.order_type) {
+            resolvedOrderType = matchedOrder.order_type.toUpperCase().includes('YD') ? 'YD' : 'Grey';
+          } else if (matchedBeam?.order_type) {
+            resolvedOrderType = matchedBeam.order_type.toUpperCase().includes('YD') ? 'YD' : 'Grey';
+          } else if (cleanDesignStr.includes('sp26') || cleanDesignStr.includes('yd')) {
+            resolvedOrderType = 'YD';
+          }
+
+          let plannedWarpingDate: string | null = null;
+          let plannedSizingDate: string | null = null;
+          if (loomStartDate) {
+            try {
+              const lStart = new Date(loomStartDate);
+              if (!isNaN(lStart.getTime())) {
+                const pDate = new Date(lStart.getTime() - (4 * 24 * 60 * 60 * 1000));
+                plannedWarpingDate = pDate.toISOString();
+                plannedSizingDate = pDate.toISOString();
+              }
+            } catch (e) {}
+          }
+
           const activeRunPayload = {
             loomNo: run.loom_no,
             designNo: run.design_no_sp_no,
@@ -308,8 +338,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
             efficiency: todayEff,
             crimpPercent: crimp,
             remarks: run.remarks || '',
-            sortChangeType: run.sort_change_type || run.sortChangeType || null,
-            prepStatus: run.prep_status || run.prepStatus || null
+            sortChangeType: run.sort_change_type || run.sortChangeType || 'GAITING',
+            prepStatus: run.prep_status || run.prepStatus || null,
+            orderType: resolvedOrderType,
+            vendorName: matchedBeam?.vendor_name || matchedOrder?.vendor_name || (run as any).vendor_name || 'In-House Warping',
+            orderNo: matchedOrder?.order_no || run.order_no || '',
+            ibpoNo: matchedOrder?.ibpo_no || run.order_no || (matchedBeam ? matchedBeam.ibpo : null) || 'NA — NOT IN ORDER MANAGEMENT',
+            customerName: matchedOrder?.customer_name || run.customer_name || '',
+            plannedWarpingDate,
+            plannedSizingDate
           };
 
           const calc = getMainEntryLoomRun({

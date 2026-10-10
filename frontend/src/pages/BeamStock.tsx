@@ -1064,6 +1064,48 @@ export default function BeamStock() {
         } catch (e) { }
       }
 
+      // IBPO / Party Beam No Auto-Recognition from Order Management Master
+      if (field === 'party_beam_no' || field === 'ibpo') {
+        const cleanIbpo = String(value || '').trim().toUpperCase();
+        if (cleanIbpo) {
+          const matchedOrd = orders.find((o: any) => 
+            (o.ibpo_no && o.ibpo_no.trim().toUpperCase() === cleanIbpo) ||
+            (o.order_no && o.order_no.trim().toUpperCase() === cleanIbpo)
+          );
+          if (matchedOrd) {
+            if (matchedOrd.design_no_sp_no && !updatedRow.design_no) {
+              updatedRow.design_no = matchedOrd.design_no_sp_no;
+            }
+            if (matchedOrd.order_no) updatedRow.order_no = matchedOrd.order_no;
+            updatedRow.ibpo = matchedOrd.ibpo_no || cleanIbpo;
+            if ((matchedOrd.vendor_name || (matchedOrd as any).warper_name) && !updatedRow.vendor_name) {
+              updatedRow.vendor_name = matchedOrd.vendor_name || (matchedOrd as any).warper_name;
+            }
+            if (!updatedRow.location) {
+              updatedRow.location = 'At Sizing';
+            }
+          }
+        }
+      }
+
+      // Design No Auto-Recognition
+      if (field === 'design_no') {
+        const cleanDesign = String(value || '').trim().toLowerCase();
+        if (cleanDesign && !updatedRow.party_beam_no) {
+          const matchedOrd = orders.find((o: any) => 
+            (o.design_no_sp_no && o.design_no_sp_no.trim().toLowerCase() === cleanDesign)
+          );
+          if (matchedOrd) {
+            updatedRow.party_beam_no = matchedOrd.ibpo_no || matchedOrd.order_no || '';
+            updatedRow.order_no = matchedOrd.order_no || '';
+            updatedRow.ibpo = matchedOrd.ibpo_no || '';
+            if (matchedOrd.vendor_name && !updatedRow.vendor_name) {
+              updatedRow.vendor_name = matchedOrd.vendor_name;
+            }
+          }
+        }
+      }
+
       return updatedRow;
     }));
   };
@@ -1165,6 +1207,22 @@ export default function BeamStock() {
           }
         });
 
+        // Run auto-lookup on pasted IBPO
+        if (updatedRow.party_beam_no) {
+          const cleanP = updatedRow.party_beam_no.trim().toUpperCase();
+          const matchedOrd = orders.find((o: any) => 
+            (o.ibpo_no && o.ibpo_no.trim().toUpperCase() === cleanP) ||
+            (o.order_no && o.order_no.trim().toUpperCase() === cleanP)
+          );
+          if (matchedOrd) {
+            if (matchedOrd.design_no_sp_no && !updatedRow.design_no) updatedRow.design_no = matchedOrd.design_no_sp_no;
+            if (matchedOrd.order_no) updatedRow.order_no = matchedOrd.order_no;
+            updatedRow.ibpo = matchedOrd.ibpo_no || cleanP;
+            if (matchedOrd.vendor_name && !updatedRow.vendor_name) updatedRow.vendor_name = matchedOrd.vendor_name;
+            if (!updatedRow.location) updatedRow.location = 'At Sizing';
+          }
+        }
+
         newRows[targetRowIndex] = updatedRow;
         pastedCount++;
       }
@@ -1182,6 +1240,24 @@ export default function BeamStock() {
       setErrorMsg('Please enter a valid Beam No for at least one row before saving.');
       setTimeout(() => setErrorMsg(null), 4000);
       return;
+    }
+
+    // MANDATORY VALIDATION: All entered IBPOs must exist in Order Management master (except Sample beam SP26/000)
+    for (const r of validRows) {
+      const ibpoKey = String(r.party_beam_no || r.ibpo || r.order_no || '').trim().toUpperCase();
+      const isSample = (r.design_no || '').trim().toUpperCase() === 'SP26/000' || (r.beam_type || '').toLowerCase().includes('sample');
+
+      if (ibpoKey && !isSample) {
+        const existsInMaster = orders.some((o: any) => 
+          (o.ibpo_no && o.ibpo_no.trim().toUpperCase() === ibpoKey) ||
+          (o.order_no && o.order_no.trim().toUpperCase() === ibpoKey)
+        );
+        if (!existsInMaster) {
+          setErrorMsg(`IBPO NOT FOUND IN ORDER MANAGEMENT MASTER: "${ibpoKey}". This record is not in master data. Please create the order in Order Management first, then retry saving.`);
+          window.alert(`❌ IBPO NOT FOUND IN ORDER MANAGEMENT MASTER!\n\nIBPO "${ibpoKey}" does not exist in Order Management master data.\n\nRule: All non-sample beams must be created in Order Management before saving in Beam Stock.\nPlease create the order in Order Management first, then return here to save.`);
+          return;
+        }
+      }
     }
 
     setIsSaving(true);
@@ -1369,23 +1445,37 @@ export default function BeamStock() {
   const handleExportExcel = () => {
     const exportData = filteredRows
       .filter(r => r.beam_no !== '')
-      .map(r => ({
-        'Date': r.date,
-        'Design No': r.design_no,
-        'Vendor Name': r.vendor_name,
-        'Party Beam No': r.party_beam_no,
-        'Set No': r.set_no,
-        'Beam No': r.beam_no,
-        'Beam Type': r.beam_type,
-        'Beam Dia': r.beam_dia,
-        'Beam Width': r.beam_width,
-        'Total Ends': r.total_ends,
-        'Warp Mtr': r.warp_meter,
-        'Age (Days)': r.age_of_beam,
-        'Location': r.location,
-        'Beam Status': r.beam_status,
-        'Remark': r.remarks
-      }));
+      .map(r => {
+        const pClean = (r.party_beam_no || r.ibpo || r.order_no || '').trim().toUpperCase();
+        const dClean = (r.design_no || '').trim().toLowerCase();
+        const matchedOrd = orders.find((o: any) => 
+          (o.ibpo_no && o.ibpo_no.trim().toUpperCase() === pClean) ||
+          (o.order_no && o.order_no.trim().toUpperCase() === pClean) ||
+          (o.design_no_sp_no && o.design_no_sp_no.trim().toLowerCase() === dClean)
+        );
+        const orderType = matchedOrd 
+          ? ((matchedOrd.order_type || '').toUpperCase().includes('YD') ? 'YD' : 'GREY')
+          : ((r.beam_type || '').toUpperCase().includes('YD') ? 'YD' : 'GREY');
+
+        return {
+          'Date': r.date,
+          'Design No': r.design_no,
+          'Vendor Name': r.vendor_name,
+          'Party Beam No': r.party_beam_no,
+          'Set No': r.set_no,
+          'Beam No': r.beam_no,
+          'Beam Type': r.beam_type,
+          'Beam Dia': r.beam_dia,
+          'Beam Width': r.beam_width,
+          'Total Ends': r.total_ends,
+          'Warp Mtr': r.warp_meter,
+          'Age (Days)': r.age_of_beam,
+          'Location': r.location,
+          'Order Type': orderType,
+          'Beam Status': r.beam_status,
+          'Remark': r.remarks
+        };
+      });
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
@@ -1983,6 +2073,7 @@ export default function BeamStock() {
                 <th className="p-2 min-w-[100px] text-right text-emerald-300">Warp Mtr *</th>
                 <th className="p-2 min-w-[70px] text-center">Age (Days)</th>
                 <th className="p-2 min-w-[100px]">Location</th>
+                <th className="p-2 min-w-[90px] text-center text-blue-300">Order Type</th>
                 <th className="p-2 min-w-[110px]">Beam Status</th>
                 <th className="p-2 min-w-[130px]">Remarks</th>
                 <th className="p-2 text-center w-28 print:hidden">Action</th>
@@ -1992,6 +2083,17 @@ export default function BeamStock() {
 
             <tbody className="divide-y divide-slate-200">
               {filteredRows.map((row, index) => {
+                const pClean = String(row.party_beam_no || row.ibpo || row.order_no || '').trim().toUpperCase();
+                const dClean = String(row.design_no || '').trim().toLowerCase();
+                const matchedOrd = orders.find((o: any) => 
+                  (o.ibpo_no && o.ibpo_no.trim().toUpperCase() === pClean) ||
+                  (o.order_no && o.order_no.trim().toUpperCase() === pClean) ||
+                  (o.design_no_sp_no && o.design_no_sp_no.trim().toLowerCase() === dClean)
+                );
+                const isYD = (matchedOrd?.order_type || (matchedOrd as any)?.order_type_category || row.beam_type || '').toUpperCase().includes('YD');
+                const computedOrderType = matchedOrd ? (isYD ? 'YD' : 'GREY') : (row.beam_type && row.beam_type.toUpperCase().includes('YD') ? 'YD' : (row.beam_no ? 'GREY' : '—'));
+                const isSample = dClean === 'sp26/000' || (row.beam_type || '').toLowerCase().includes('sample');
+
                 return (
                   <tr key={row.id} className="hover:bg-blue-50/40 transition-colors">
                     <td className="p-2 text-center print:hidden">
@@ -2049,8 +2151,23 @@ export default function BeamStock() {
                         value={row.party_beam_no}
                         onChange={e => handleRowChange(row.id, 'party_beam_no', e.target.value)}
                         onPaste={e => handlePaste(e, row.id, 'party_beam_no')}
-                        className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"
+                        className={`w-full p-1.5 border rounded text-xs outline-none focus:ring-1 ${
+                          pClean && !matchedOrd && !isSample
+                            ? 'border-red-400 bg-red-50 text-red-950 focus:ring-red-500'
+                            : 'border-slate-300 focus:ring-blue-500'
+                        }`}
                       />
+                      {pClean && !isSample && (
+                        matchedOrd ? (
+                          <span className="text-[9px] text-emerald-600 font-bold block mt-0.5 truncate">
+                            ✓ Master ({isYD ? 'YD' : 'Grey'})
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-red-600 font-black block mt-0.5 truncate" title="IBPO not found in Order Management Master">
+                            ⚠️ Not in Master Data
+                          </span>
+                        )
+                      )}
                     </td>
 
                     <td className="p-1">
@@ -2143,6 +2260,18 @@ export default function BeamStock() {
                         onPaste={e => handlePaste(e, row.id, 'location')}
                         className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"
                       />
+                    </td>
+
+                    <td className="p-1 text-center">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                        computedOrderType === 'YD'
+                          ? 'bg-purple-100 text-purple-700 border border-purple-300'
+                          : computedOrderType === 'GREY'
+                            ? 'bg-slate-200 text-slate-800 border border-slate-300'
+                            : 'bg-amber-50 text-amber-700 border border-amber-300'
+                      }`}>
+                        {computedOrderType}
+                      </span>
                     </td>
 
                     <td className="p-1">

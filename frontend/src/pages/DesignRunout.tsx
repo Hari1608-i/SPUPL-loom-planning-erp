@@ -12,17 +12,19 @@ export default function DesignRunout() {
   const { activeRuns, designs, looms } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [searchType, setSearchType] = useState<SearchTypeOption>('DESIGN');
+  const [orderTypeFilter, setOrderTypeFilter] = useState<'ALL' | 'GREY' | 'YD'>('ALL');
   const [expandedDesign, setExpandedDesign] = useState<string | null>(null);
 
   const groupedData = useMemo(() => {
     const runsWithCalc = Object.values(activeRuns).map(run => {
       const loom = looms.find(l => l.loomNo === run.loomNo);
 
-      // AppProvider already computed the correct runout via getMainEntryLoomRun with full production logs.
-      // Read those pre-calculated fields directly — no double-calculation.
       return {
         ...run,
         unit: loom?.unit || 'Unknown',
+        orderType: ((run as any).orderType || 'GREY').toUpperCase(),
+        ibpo: (run as any).ibpoNo || (run as any).ibpo || '',
+        vendorName: (run as any).vendorName || '',
         producedMeter: run.producedMeter ?? 0,
         warpBalanceGross: run.grossBalanceMeter ?? 0,
         netBalanceMeter: run.netBalanceMeter ?? 0,
@@ -42,6 +44,7 @@ export default function DesignRunout() {
       if (!groups[run.designNo]) {
         groups[run.designNo] = {
           designNo: run.designNo,
+          orderType: run.orderType,
           runningLoomCount: 0,
           totalNetBalance: 0,
           totalGrossBalance: 0,
@@ -75,11 +78,26 @@ export default function DesignRunout() {
     return Object.values(groups).sort((a, b) => a.earliestRunout.getTime() - b.earliestRunout.getTime());
   }, [activeRuns, designs, looms]);
 
-  const filteredData = useMemo(() => {
-    const q = (searchTerm || '').trim().toLowerCase();
-    if (!q) return groupedData;
+  // Overall counts for tabs
+  const designCounts = useMemo(() => {
+    const total = groupedData.length;
+    const grey = groupedData.filter(d => (d.orderType || '').toUpperCase() === 'GREY').length;
+    const yd = groupedData.filter(d => (d.orderType || '').toUpperCase() === 'YD').length;
+    return { total, grey, yd };
+  }, [groupedData]);
 
-    return groupedData.filter(d => {
+  const filteredData = useMemo(() => {
+    let data = groupedData;
+
+    // Filter by Order Type
+    if (orderTypeFilter !== 'ALL') {
+      data = data.filter(d => (d.orderType || '').toUpperCase() === orderTypeFilter);
+    }
+
+    const q = (searchTerm || '').trim().toLowerCase();
+    if (!q) return data;
+
+    return data.filter(d => {
       if (searchType === 'DESIGN') {
         return (d.designNo || '').toLowerCase().includes(q);
       }
@@ -95,10 +113,12 @@ export default function DesignRunout() {
         (l.setNo || l.set_no || '').toString().toLowerCase().includes(q) ||
         (l.currentBeamNo || l.beam_no || '').toString().toLowerCase().includes(q) ||
         (l.orderNo || l.order_no || '').toString().toLowerCase().includes(q) ||
+        (l.ibpo || '').toString().toLowerCase().includes(q) ||
+        (l.vendorName || '').toString().toLowerCase().includes(q) ||
         (l.unit || '').toLowerCase().includes(q)
       );
     });
-  }, [groupedData, searchTerm, searchType]);
+  }, [groupedData, orderTypeFilter, searchTerm, searchType]);
 
   const searchSuggestions: SearchResultItem[] = useMemo(() => {
     if (!searchTerm.trim()) return [];
@@ -202,15 +222,16 @@ export default function DesignRunout() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-12">
       <CompanyPrintHeader title="Design-Wise Runout Report" subtitle="Aggregated Warp Balance & Runout Schedule by Design" />
 
-      <div className="flex justify-between items-center mb-6 print:hidden">
+      {/* ── Page Header & Actions ── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2 print:hidden">
         <div>
-          <h1 className="text-2xl font-bold text-industrial-900 flex items-center">
-            <BarChart2 className="w-6 h-6 mr-3 text-industrial-500" /> Design-Wise Runout
+          <h1 className="text-2xl font-black text-industrial-900 flex items-center">
+            <BarChart2 className="w-6 h-6 mr-3 text-spu-primary" /> Design-Wise Runout
           </h1>
-          <p className="text-industrial-500 text-sm mt-1">Aggregated warp balance and runout dates grouped by Design No.</p>
+          <p className="text-industrial-500 text-xs mt-1">Aggregated warp balance and runout dates grouped by Design No with Grey / YD / All analysis.</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -241,8 +262,104 @@ export default function DesignRunout() {
         </div>
       </div>
 
+      {/* ── 3 Summary KPI Cards: All, Grey, YD Designs ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 print:hidden">
+        {/* Card 1: All Designs */}
+        <div 
+          onClick={() => setOrderTypeFilter('ALL')}
+          className={`cursor-pointer p-5 rounded-2xl border transition-all ${
+            orderTypeFilter === 'ALL'
+              ? 'bg-spu-primary/5 border-spu-primary shadow-sm'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black uppercase text-slate-500 tracking-wider">All Designs Runout</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-900 text-white">ALL</span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-black text-slate-900">{designCounts.total}</span>
+            <span className="text-xs font-semibold text-slate-400">Active Designs</span>
+          </div>
+        </div>
+
+        {/* Card 2: Grey Designs */}
+        <div 
+          onClick={() => setOrderTypeFilter('GREY')}
+          className={`cursor-pointer p-5 rounded-2xl border transition-all ${
+            orderTypeFilter === 'GREY'
+              ? 'bg-slate-100 border-slate-700 shadow-sm'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black uppercase text-slate-500 tracking-wider">Grey Designs</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-700 text-white">GREY</span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-black text-slate-800">{designCounts.grey}</span>
+            <span className="text-xs font-semibold text-slate-400">Grey Designs</span>
+          </div>
+        </div>
+
+        {/* Card 3: YD Designs */}
+        <div 
+          onClick={() => setOrderTypeFilter('YD')}
+          className={`cursor-pointer p-5 rounded-2xl border transition-all ${
+            orderTypeFilter === 'YD'
+              ? 'bg-purple-50 border-purple-600 shadow-sm'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black uppercase text-purple-700 tracking-wider">YD Designs</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-600 text-white">YD</span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-black text-purple-600">{designCounts.yd}</span>
+            <span className="text-xs font-semibold text-purple-400">Yarn Dyed Designs</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Table & Search Container ── */}
       <div className="bg-white rounded-xl shadow-sm border border-industrial-100 overflow-hidden flex flex-col print:border-none print:shadow-none print:overflow-visible">
         <div className="p-4 border-b border-industrial-100 bg-industrial-50 flex flex-wrap justify-between items-center gap-3 print:hidden">
+          
+          {/* Segmented Filter: All | Grey | YD */}
+          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-2xs">
+            <button
+              onClick={() => setOrderTypeFilter('ALL')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all ${
+                orderTypeFilter === 'ALL'
+                  ? 'bg-spu-primary text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All Designs ({designCounts.total})
+            </button>
+            <button
+              onClick={() => setOrderTypeFilter('GREY')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all ${
+                orderTypeFilter === 'GREY'
+                  ? 'bg-slate-800 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Grey Designs ({designCounts.grey})
+            </button>
+            <button
+              onClick={() => setOrderTypeFilter('YD')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all ${
+                orderTypeFilter === 'YD'
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-purple-700'
+              }`}
+            >
+              YD Designs ({designCounts.yd})
+            </button>
+          </div>
+
           <GlobalSearchFilter
             searchType={searchType}
             onSearchTypeChange={setSearchType}
@@ -250,20 +367,21 @@ export default function DesignRunout() {
             onSearchTermChange={setSearchTerm}
             suggestions={searchSuggestions}
           />
-          <div className="text-sm text-industrial-500 font-medium">Active Designs: {filteredData.length}</div>
+          <div className="text-xs text-industrial-600 font-bold">Showing {filteredData.length} Designs</div>
         </div>
         
         <div className="overflow-auto flex-1 max-h-[calc(100vh-230px)] custom-scrollbar rounded-b-xl print:max-h-none print:overflow-visible">
-          <table className="w-full text-left border-collapse whitespace-nowrap">
+          <table className="w-full text-left border-collapse whitespace-nowrap text-xs">
             <thead className="bg-slate-900 text-white sticky top-0 shadow-md z-20 print:static print:bg-slate-100 print:text-black print:shadow-none">
               <PrintTableHeaderRow 
                 title="Design-Wise Runout Report" 
-                subtitle="Aggregated Warp Balance & Runout Schedule by Design" 
-                colSpan={7} 
+                subtitle={`Aggregated Warp Balance & Runout Schedule (${orderTypeFilter} Designs)`} 
+                colSpan={8} 
               />
               <tr className="border-b border-slate-700 bg-slate-900 text-white font-bold uppercase sticky top-0 print:border-black print:bg-slate-100 print:text-black">
                 <th className="py-3 px-4 w-10 sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent print:py-1 print:px-2">#</th>
                 <th className="py-3 px-6 text-xs font-bold uppercase sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent">Design No / SP No</th>
+                <th className="py-3 px-6 text-xs font-bold uppercase sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent">Type</th>
                 <th className="py-3 px-6 text-xs font-bold uppercase text-right sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent">Running Looms</th>
                 <th className="py-3 px-6 text-xs font-bold uppercase text-right sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent">Total Net Balance</th>
                 <th className="py-3 px-6 text-xs font-bold uppercase text-right sticky top-0 bg-slate-900 text-white print:text-black print:bg-transparent">Avg Production</th>
@@ -286,6 +404,14 @@ export default function DesignRunout() {
                       {row.designNo}
                       {row.criticalLooms > 0 && <span className="ml-2 bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{row.criticalLooms} Critical</span>}
                     </td>
+                    <td className="py-3 px-6">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                        row.orderType === 'GREY' ? 'bg-slate-200 text-slate-800' :
+                        row.orderType === 'YD' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {row.orderType}
+                      </span>
+                    </td>
                     <td className="py-3 px-6 text-industrial-600 text-right font-mono font-bold text-blue-600">{row.runningLoomCount}</td>
                     <td className="py-3 px-6 text-industrial-800 text-right font-mono font-bold">{Math.round(row.totalNetBalance).toLocaleString()} m</td>
                     <td className="py-3 px-6 text-industrial-800 text-right font-mono font-medium">{Math.round(row.totalAvgProduction).toLocaleString()} m/day</td>
@@ -295,13 +421,14 @@ export default function DesignRunout() {
                   
                   {expandedDesign === row.designNo && (
                     <tr className="bg-industrial-50/50">
-                      <td colSpan={7} className="p-0 border-b border-industrial-200">
+                      <td colSpan={8} className="p-0 border-b border-industrial-200">
                         <div className="px-14 py-4 bg-industrial-50/50 inner-shadow">
-                          <table className="w-full text-sm text-left">
+                          <table className="w-full text-xs text-left">
                             <thead>
                               <tr className="text-industrial-500 uppercase font-semibold text-[10px]">
                                 <th className="pb-2 pr-4">Loom No</th>
                                 <th className="pb-2 pr-4">Unit</th>
+                                <th className="pb-2 pr-4">IBPO / Vendor</th>
                                 <th className="pb-2 pr-4">Running Days</th>
                                 <th className="pb-2 pr-4">Balance Days</th>
                                 <th className="pb-2 pr-4">Runout Date</th>
@@ -311,10 +438,16 @@ export default function DesignRunout() {
                             <tbody className="divide-y divide-industrial-100">
                               {row.looms.map((l: any) => (
                                 <tr key={l.loomNo} className="text-industrial-700">
-                                  <td className="py-2 pr-4 font-bold">{l.loomNo}</td>
+                                  <td className="py-2 pr-4 font-bold text-industrial-900">L-{l.loomNo}</td>
                                   <td className="py-2 pr-4">{l.unit}</td>
+                                  <td className="py-2 pr-4 text-slate-600">
+                                    <div className="font-semibold text-slate-800">{l.ibpo || 'NA'}</div>
+                                    <div className="text-[10px] text-slate-400">{l.vendorName || '—'}</div>
+                                  </td>
                                   <td className="py-2 pr-4">{l.runningDays}</td>
-                                  <td className="py-2 pr-4 font-mono font-bold">{l.balanceDays.toFixed(1)}</td>
+                                  <td className="py-2 pr-4 font-mono font-bold">
+                                    {l.balanceDays > 900000 ? '—' : `${Math.ceil(l.balanceDays)}d`}
+                                  </td>
                                   <td className="py-2 pr-4 font-medium">{format(l.expectedRunoutDate, 'dd MMM yyyy')}</td>
                                   <td className="py-2 pr-4">
                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${l.balanceDays <= 2 ? 'bg-red-100 text-red-700' : 'bg-industrial-200 text-industrial-600'}`}>

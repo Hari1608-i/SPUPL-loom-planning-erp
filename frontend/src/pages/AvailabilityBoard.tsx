@@ -440,11 +440,11 @@ export default function AvailabilityBoard() {
         <div className="flex-1 overflow-auto custom-scrollbar flex flex-col relative">
           
           <div className="flex border-b border-slate-200 bg-slate-50 flex-shrink-0 shadow-sm z-30 sticky top-0 min-w-max">
-            <div className="flex w-[480px] flex-shrink-0 divide-x divide-slate-200 sticky left-0 z-40 bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-300">
-              <div className="w-16 p-3 text-[10px] font-black uppercase text-slate-500 text-center">Loom</div>
-              <div className="w-32 p-3 text-[10px] font-black uppercase text-slate-500">Current Design</div>
-              <div className="w-24 p-3 text-[10px] font-black uppercase text-slate-500 text-center">Runout & Days</div>
-              <div className="flex-1 p-3 text-[10px] font-black uppercase text-slate-500">Planning Status</div>
+            <div className="flex w-[540px] flex-shrink-0 divide-x divide-slate-200 sticky left-0 z-40 bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-300">
+              <div className="w-14 p-2 text-[10px] font-black uppercase text-slate-500 text-center">Loom</div>
+              <div className="w-40 p-2 text-[10px] font-black uppercase text-slate-500">Current Design</div>
+              <div className="w-28 p-2 text-[10px] font-black uppercase text-slate-500 text-center">Runout & Days</div>
+              <div className="flex-1 p-2 text-[10px] font-black uppercase text-slate-500">Planning Status</div>
             </div>
             
             <div 
@@ -464,7 +464,7 @@ export default function AvailabilityBoard() {
           </div>
 
           <div className="flex flex-col min-h-full pb-10 min-w-max relative z-10">
-            <div className="absolute top-0 bottom-0 pointer-events-none z-0 left-[480px]" style={{ minWidth: timelineWidth }}>
+            <div className="absolute top-0 bottom-0 pointer-events-none z-0 left-[540px]" style={{ minWidth: timelineWidth }}>
                {timelineTicks.map(tick => (
                  <div key={tick.left} className="absolute top-0 bottom-0 border-l border-slate-100" style={{ left: `${tick.left}%` }} />
                ))}
@@ -474,23 +474,30 @@ export default function AvailabilityBoard() {
             {filteredData.map(row => (
               <div key={row.loomNo} className="flex border-b border-slate-100 hover:bg-slate-50 transition-colors group relative z-10 h-[44px]">
                 
-                <div className="flex w-[480px] flex-shrink-0 bg-white group-hover:bg-slate-50 divide-x divide-slate-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-300">
+                <div className="flex w-[540px] flex-shrink-0 bg-white group-hover:bg-slate-50 divide-x divide-slate-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-300">
                   <div 
                     onClick={() => navigate(`/plan?loomNo=${row.loomNo}`)}
-                    className="w-16 p-1.5 flex flex-col items-center justify-center font-black text-slate-800 text-xs cursor-pointer hover:text-indigo-600 hover:bg-indigo-50/50 transition-colors"
+                    className="w-14 p-1 flex flex-col items-center justify-center font-black text-slate-800 text-xs cursor-pointer hover:text-indigo-600 hover:bg-indigo-50/50 transition-colors"
                     title={`Click to Create/Assign Plan on Loom ${row.loomNo}`}
                   >
                     <span>L-{row.loomNo}</span>
                     <span className="text-[9px] text-slate-400 font-bold">U{row.unit}</span>
                   </div>
-                  <div className="w-32 p-1.5 flex flex-col justify-center truncate">
+                  <div className="w-40 p-1 flex flex-col justify-center truncate">
                     {row.currentDesign !== '-' ? (
                       <>
-                        <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-black truncate ${getDesignColor(row.currentDesign).split(' ')[0]}`} title={`Running: ${row.currentDesign}`}>
-                          {row.currentDesign}
-                        </span>
+                        <div className="flex items-center gap-1 truncate">
+                          <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-black truncate ${getDesignColor(row.currentDesign).split(' ')[0]}`} title={`Running: ${row.currentDesign}`}>
+                            {row.currentDesign}
+                          </span>
+                          <span className={`text-[8px] font-black px-1 py-0.2 rounded uppercase ${
+                            row.orderType === 'YD' ? 'bg-purple-100 text-purple-700' : 'bg-slate-200 text-slate-700'
+                          }`}>
+                            {row.orderType}
+                          </span>
+                        </div>
                         {row.currentOrderNo && (
-                          <span className="text-[10px] text-slate-500 font-semibold truncate mt-0.5" title={`IBPO: ${row.currentOrderNo}`}>
+                          <span className="text-[9.5px] text-slate-500 font-semibold truncate mt-0.5" title={`IBPO: ${row.currentOrderNo}`}>
                             #{row.currentOrderNo}
                           </span>
                         )}
@@ -500,8 +507,8 @@ export default function AvailabilityBoard() {
                     )}
                   </div>
                   <div
-                    className="w-24 p-1.5 flex flex-col items-center justify-center text-xs font-bold text-slate-600"
-                    title={row.currentRunout ? `Expected Runout: ${format(new Date(row.currentRunout), 'dd/MM/yyyy')}\nEst. Days Left: ${row.balanceDays !== null ? row.balanceDays : 'N/A'}\nNet Warp Balance: ${Math.round(row.netBalanceMeter)}m\nAvg Prod: ${Math.round(row.loomDailyProd)}m/d` : 'No Active Run'}
+                    className="w-28 p-1 flex flex-col items-center justify-center text-xs font-bold text-slate-600"
+                    title={row.currentRunout ? `Expected Runout: ${format(new Date(row.currentRunout), 'dd/MM/yyyy')}\nEst. Days Left: ${row.balanceDays !== null && row.balanceDays < 900000 ? Math.ceil(row.balanceDays) + 'd' : 'N/A'}\nNet Warp Balance: ${Math.round(row.netBalanceMeter)}m\nAvg Prod: ${Math.round(row.loomDailyProd)}m/d` : 'No Active Run'}
                   >
                     {row.currentRunout && !isNaN(new Date(row.currentRunout).getTime()) ? (
                       <>
@@ -509,16 +516,17 @@ export default function AvailabilityBoard() {
                           <span className="text-slate-900 font-black text-[11px]">{format(new Date(row.currentRunout), 'dd/MM')}</span>
                           {row.balanceDays !== null && (
                             <span className={`text-[9px] px-1 py-0.2 rounded font-black ${
+                              row.balanceDays > 900000 ? 'bg-slate-100 text-slate-400' :
                               row.balanceDays <= 1 ? 'bg-red-100 text-red-700' :
                               row.balanceDays <= 3 ? 'bg-amber-100 text-amber-700' :
                               'bg-slate-100 text-slate-700'
                             }`}>
-                              {row.balanceDays <= 0 ? 'Due' : `${row.balanceDays}d`}
+                              {row.balanceDays > 900000 ? 'NA' : (row.balanceDays <= 0 ? 'Due' : `${Math.ceil(row.balanceDays)}d`)}
                             </span>
                           )}
                         </div>
                         <div className="text-[9px] text-slate-400 font-medium">
-                          {row.netBalanceMeter > 0 ? `${Math.round(row.netBalanceMeter).toLocaleString()}m` : row.runoutStatus}
+                          {row.netBalanceMeter > 0 ? `${Math.round(row.netBalanceMeter).toLocaleString()}m` : (row.balanceDays !== null && row.balanceDays > 900000 ? 'DATA REQUIRED' : row.runoutStatus)}
                         </div>
                       </>
                     ) : (
@@ -545,17 +553,17 @@ export default function AvailabilityBoard() {
                         navigate(`/plan?loomNo=${row.loomNo}`);
                       }
                     }}
-                    className="flex-1 p-1.5 flex flex-col justify-center truncate cursor-pointer hover:bg-indigo-50/40 transition-colors"
+                    className="flex-1 min-w-[160px] p-1.5 flex flex-col justify-center truncate cursor-pointer hover:bg-indigo-50/40 transition-colors"
                     title={row.nextBars && row.nextBars.length > 0 ? `Click to Direct Change / Reassign Next Design (${row.nextBars[0].designNo})` : `Click to Create Plan on Loom ${row.loomNo}`}
                   >
-                      <span className={`text-[10px] font-black uppercase ${
+                      <span className={`text-[10px] font-black uppercase truncate ${
                         row.planningStatus === 'AVAILABLE FOR PLANNING' ? 'text-slate-400' :
                         row.planningStatus === 'READY TO START' ? 'text-emerald-600' :
                         row.planningStatus === 'WAITING FOR BEAM' ? 'text-yellow-600' :
                         row.planningStatus === 'CONFIRMED - WAITING RUNOUT' ? 'text-blue-600 font-black' : 'text-purple-600'
                       }`}>{row.planningStatus}</span>
                      {row.nextDesign !== '-' && (
-                       <span className="text-[11px] font-bold text-slate-700 truncate flex items-center gap-1">
+                       <span className="text-[11px] font-bold text-slate-700 truncate flex items-center gap-1 mt-0.5">
                          » {row.nextDesign}
                          {row.nextOrderNo && row.nextOrderNo !== '-' && <span className="text-[9px] text-slate-400 font-medium">({row.nextOrderNo})</span>}
                          <span className="text-[9px] px-1 py-0.2 bg-indigo-100 text-indigo-700 rounded font-semibold ml-1">Change</span>

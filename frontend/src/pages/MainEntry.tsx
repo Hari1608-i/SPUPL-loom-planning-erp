@@ -1214,7 +1214,7 @@ export default function MainEntry() {
         // Allow saving production for looms without active design/beam
         const run = {
           loomNo,
-          designNo: (activeRuns[loomNo] as any)?.designNo || 'STANDARD',
+          designNo: (activeRuns[loomNo] as any)?.designNo || 'NA — DESIGN NOT MAPPED',
           currentBeamNo: (activeRuns[loomNo] as any)?.currentBeamNo || '',
           loomStartDate: entry.loomStartDate,
           warpedMeter: Number(entry.warpedMeter || 0),

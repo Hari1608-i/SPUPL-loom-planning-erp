@@ -9,6 +9,7 @@ const { backupDatabase } = require('./backup_db');
 const fs = require('fs');
 const path = require('path');
 const warpPreparationService = require('./services/warpPreparationService');
+const { generateRunningLoomsPdf } = require('./reports/runningLoomPdfGenerator');
 
 let dbUrl = process.env.DATABASE_URL || '';
 if (dbUrl.includes('connection_limit=1')) {
@@ -4405,19 +4406,33 @@ app.get('/api/loom-logs/export', async (req, res) => {
 // ----------------------------------------------------
 app.get('/api/reports/design-running', async (req, res) => {
   try {
-    const [activeRuns, loomMasters, designMasters, orderMasters, dailyLogs] = await Promise.all([
-      prisma.loomRunEntry.findMany(),
+    const [activeRuns, loomMasters, designMasters, orderMasters, dailyLogs, beamStocks] = await Promise.all([
+      prisma.loomRunEntry.findMany({ orderBy: { loom_no: 'asc' } }),
       prisma.loomMaster.findMany(),
       prisma.designMaster.findMany(),
       prisma.orderMaster.findMany(),
-      prisma.dailyProductionLog.findMany()
+      prisma.dailyProductionLog.findMany(),
+      prisma.beamStockMaster.findMany()
     ]);
 
     const loomMap = new Map();
     loomMasters.forEach(l => loomMap.set(l.loom_no, l));
 
     const designMap = new Map();
-    designMasters.forEach(d => designMap.set(d.design_no_sp_no, d));
+    designMasters.forEach(d => designMap.set((d.design_no_sp_no || '').trim().toLowerCase(), d));
+
+    const orderMapByIbpo = new Map();
+    const orderMapByDesign = new Map();
+    orderMasters.forEach(o => {
+      if (o.ibpo_no) orderMapByIbpo.set(o.ibpo_no.trim().toLowerCase(), o);
+      if (o.order_no) orderMapByIbpo.set(o.order_no.trim().toLowerCase(), o);
+      if (o.design_no_sp_no) orderMapByDesign.set(o.design_no_sp_no.trim().toLowerCase(), o);
+    });
+
+    const beamMap = new Map();
+    beamStocks.forEach(b => {
+      if (b.beam_no) beamMap.set(b.beam_no.trim().toLowerCase(), b);
+    });
 
     const validationWarnings = {
       unmappedLooms: [],
@@ -4429,13 +4444,22 @@ app.get('/api/reports/design-running', async (req, res) => {
     activeRuns.forEach(run => {
       if (!run.design_no_sp_no || !run.design_no_sp_no.trim()) return;
 
+      const cleanDesign = (run.design_no_sp_no || '').trim().toLowerCase();
       const loomInfo = loomMap.get(run.loom_no);
-      const designInfo = designMap.get(run.design_no_sp_no);
+      const designInfo = designMap.get(cleanDesign);
+
+      // Check order master matching
+      const cleanOrderNo = (run.order_no || '').trim().toLowerCase();
+      const matchedOrder = orderMapByIbpo.get(cleanOrderNo) || orderMapByDesign.get(cleanDesign);
+
+      // Check beam stock matching
+      const cleanBeamNo = (run.current_beam_no || '').trim().toLowerCase();
+      const matchedBeam = beamMap.get(cleanBeamNo);
 
       if (!loomInfo) {
         validationWarnings.unmappedLooms.push(run.loom_no);
       }
-      if (!designInfo) {
+      if (!designInfo && !cleanDesign.includes('standard')) {
         validationWarnings.unmappedDesigns.push(run.design_no_sp_no);
       }
 
@@ -4447,7 +4471,7 @@ app.get('/api/reports/design-running', async (req, res) => {
 
       const loomLogs = dailyLogs.filter(dl =>
         Number(dl.loom_no) === Number(run.loom_no) &&
-        (dl.design_no || '').trim().toLowerCase() === (run.design_no_sp_no || '').trim().toLowerCase()
+        (dl.design_no || '').trim().toLowerCase() === cleanDesign
       );
       const cumulativeProduced = loomLogs.reduce((acc, l) => acc + (Number(l.produced_meter) || 0), 0);
       let avgDailyProd = Number(run.daily_production) || 0;
@@ -4459,11 +4483,37 @@ app.get('/api/reports/design-running', async (req, res) => {
       }
       if (avgDailyProd <= 0) avgDailyProd = Number(run.daily_production) || 150;
 
+      // Planned Warping/Gaiting & Sizing Dates: Loom Start Date - 4 calendar days
+      let plannedWarpingDate = null;
+      let plannedSizingDate = null;
+      if (run.loom_start_date) {
+        try {
+          const lStart = new Date(run.loom_start_date);
+          if (!isNaN(lStart.getTime())) {
+            const pDate = new Date(lStart.getTime() - (4 * 24 * 60 * 60 * 1000));
+            plannedWarpingDate = pDate.toISOString();
+            plannedSizingDate = pDate.toISOString();
+          }
+        } catch (e) {}
+      }
+
+      // Order type: Grey or YD
+      let orderType = 'Grey';
+      if (matchedOrder?.order_type) {
+        orderType = matchedOrder.order_type.toUpperCase().includes('YD') ? 'YD' : 'Grey';
+      } else if (matchedBeam?.order_type) {
+        orderType = matchedBeam.order_type.toUpperCase().includes('YD') ? 'YD' : 'Grey';
+      } else if (cleanDesign.includes('sp26') || cleanDesign.includes('yd')) {
+        orderType = 'YD';
+      }
+
+      const ibpoVal = matchedOrder?.ibpo_no || run.order_no || (matchedBeam ? matchedBeam.ibpo : null);
+
       runningLoomsList.push({
         loomNo: run.loom_no,
         designNo: run.design_no_sp_no,
         loomStartDate: run.loom_start_date,
-        warpedMeter: run.warped_meter || 0,
+        warpedMeter: run.warped_meter || matchedBeam?.available_meter || 0,
         dailyProduction: avgDailyProd,
         producedMeter: cumulativeProduced,
         rpm: run.rpm !== undefined ? run.rpm : (loomInfo?.rpm || null),
@@ -4474,16 +4524,25 @@ app.get('/api/reports/design-running', async (req, res) => {
         productionOverride: run.production_override || null,
         overrideReason: run.override_reason || '',
         currentReedNo: run.current_reed_no || '',
-        currentBeamNo: run.current_beam_no || '',
-        setNo: run.set_no || '',
-        orderNo: run.order_no || '',
-        customerName: run.customer_name || '',
+        currentBeamNo: run.current_beam_no || matchedBeam?.beam_no || '',
+        setNo: run.set_no || matchedBeam?.set_no || '',
+        orderNo: matchedOrder?.order_no || run.order_no || '',
+        ibpo: ibpoVal || 'NA — NOT IN ORDER MANAGEMENT',
+        orderType: orderType,
+        customerName: matchedOrder?.customer_name || run.customer_name || '',
+        vendorName: matchedBeam?.vendor_name || matchedOrder?.vendor_name || 'In-House Warping',
+        plannedWarpingDate,
+        plannedSizingDate,
+        beamType: matchedBeam?.beam_type || 'RF-900',
+        beamDia: matchedBeam?.beam_dia || 900,
+        beamWidth: matchedBeam?.beam_width || designInfo?.greige_width || '',
+        totalEnds: matchedBeam?.ends || designInfo?.total_ends || '',
         unit: formattedUnit,
         loomType: loomInfo?.loom_type || 'AIRJET',
         make: loomInfo?.make || '',
         model: loomInfo?.model || '',
         status: loomInfo?.status || 'Running',
-        construction: designInfo?.construction || 'N/A',
+        construction: designInfo?.construction || matchedOrder?.construction || 'N/A',
         weave: designInfo?.weave_type || 'N/A',
         frames: designInfo?.frames || 0,
         weftColours: designInfo?.weft_colours || 1,
@@ -4491,12 +4550,13 @@ app.get('/api/reports/design-running', async (req, res) => {
         pick: designInfo?.pick || 'N/A',
         greigeWidth: designInfo?.greige_width || 'N/A',
         crimpPercent: designInfo?.crimp_percent || 0.05,
-        sort_change_type: run.sort_change_type || null,
-        sortChangeType: run.sort_change_type || null,
+        sort_change_type: run.sort_change_type || 'GAITING',
+        sortChangeType: run.sort_change_type || 'GAITING',
         prep_status: run.prep_status || null,
         prepStatus: run.prep_status || null,
         loomExistsInMaster: !!loomInfo,
-        designExistsInMaster: !!designInfo
+        designExistsInMaster: !!designInfo,
+        inOrderManagement: !!matchedOrder
       });
     });
 
@@ -4511,6 +4571,151 @@ app.get('/api/reports/design-running', async (req, res) => {
     });
   } catch (error) {
     console.error('Error in /api/reports/design-running:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// COMPLETE RUNNING LOOM REGISTER PDF EXPORT API
+// ----------------------------------------------------
+app.get('/api/reports/running-looms/pdf', async (req, res) => {
+  try {
+    const [activeRuns, loomMasters, designMasters, orderMasters, dailyLogs, beamStocks] = await Promise.all([
+      prisma.loomRunEntry.findMany({ orderBy: { loom_no: 'asc' } }),
+      prisma.loomMaster.findMany(),
+      prisma.designMaster.findMany(),
+      prisma.orderMaster.findMany(),
+      prisma.dailyProductionLog.findMany(),
+      prisma.beamStockMaster.findMany()
+    ]);
+
+    const loomMap = new Map();
+    loomMasters.forEach(l => loomMap.set(l.loom_no, l));
+
+    const designMap = new Map();
+    designMasters.forEach(d => designMap.set((d.design_no_sp_no || '').trim().toLowerCase(), d));
+
+    const orderMapByIbpo = new Map();
+    const orderMapByDesign = new Map();
+    orderMasters.forEach(o => {
+      if (o.ibpo_no) orderMapByIbpo.set(o.ibpo_no.trim().toLowerCase(), o);
+      if (o.order_no) orderMapByIbpo.set(o.order_no.trim().toLowerCase(), o);
+      if (o.design_no_sp_no) orderMapByDesign.set(o.design_no_sp_no.trim().toLowerCase(), o);
+    });
+
+    const beamMap = new Map();
+    beamStocks.forEach(b => {
+      if (b.beam_no) beamMap.set(b.beam_no.trim().toLowerCase(), b);
+    });
+
+    const runningLoomsList = [];
+
+    activeRuns.forEach(run => {
+      if (!run.design_no_sp_no || !run.design_no_sp_no.trim()) return;
+
+      const cleanDesign = (run.design_no_sp_no || '').trim().toLowerCase();
+      const loomInfo = loomMap.get(run.loom_no);
+      const designInfo = designMap.get(cleanDesign);
+
+      const cleanOrderNo = (run.order_no || '').trim().toLowerCase();
+      const matchedOrder = orderMapByIbpo.get(cleanOrderNo) || orderMapByDesign.get(cleanDesign);
+
+      const cleanBeamNo = (run.current_beam_no || '').trim().toLowerCase();
+      const matchedBeam = beamMap.get(cleanBeamNo);
+
+      let rawUnit = (loomInfo && (loomInfo.unit || loomInfo.shed_name)) ? (loomInfo.unit || loomInfo.shed_name) : 'UNIT 1';
+      let formattedUnit = String(rawUnit).trim().toUpperCase();
+      if (!formattedUnit.startsWith('UNIT')) {
+        formattedUnit = `UNIT ${formattedUnit}`;
+      }
+
+      const loomLogs = dailyLogs.filter(dl =>
+        Number(dl.loom_no) === Number(run.loom_no) &&
+        (dl.design_no || '').trim().toLowerCase() === cleanDesign
+      );
+      const cumulativeProduced = loomLogs.reduce((acc, l) => acc + (Number(l.produced_meter) || 0), 0);
+      let avgDailyProd = Number(run.daily_production) || 0;
+      if (loomLogs.length > 0) {
+        const validLogs = loomLogs.filter(l => Number(l.produced_meter) > 0);
+        if (validLogs.length > 0) {
+          avgDailyProd = Math.round(cumulativeProduced / validLogs.length);
+        }
+      }
+      if (avgDailyProd <= 0) avgDailyProd = Number(run.daily_production) || 150;
+
+      let plannedWarpingDate = null;
+      let plannedSizingDate = null;
+      if (run.loom_start_date) {
+        try {
+          const lStart = new Date(run.loom_start_date);
+          if (!isNaN(lStart.getTime())) {
+            const pDate = new Date(lStart.getTime() - (4 * 24 * 60 * 60 * 1000));
+            plannedWarpingDate = pDate.toISOString();
+            plannedSizingDate = pDate.toISOString();
+          }
+        } catch (e) {}
+      }
+
+      let orderType = 'Grey';
+      if (matchedOrder?.order_type) {
+        orderType = matchedOrder.order_type.toUpperCase().includes('YD') ? 'YD' : 'Grey';
+      } else if (matchedBeam?.order_type) {
+        orderType = matchedBeam.order_type.toUpperCase().includes('YD') ? 'YD' : 'Grey';
+      } else if (cleanDesign.includes('sp26') || cleanDesign.includes('yd')) {
+        orderType = 'YD';
+      }
+
+      const ibpoVal = matchedOrder?.ibpo_no || run.order_no || (matchedBeam ? matchedBeam.ibpo : null);
+
+      const warpedMtr = run.warped_meter || matchedBeam?.available_meter || 0;
+      const netBal = Math.max(0, warpedMtr - cumulativeProduced);
+      const balanceDays = avgDailyProd > 0 ? (netBal / avgDailyProd) : null;
+      let expRunoutDate = null;
+      if (balanceDays !== null && balanceDays < 900000) {
+        expRunoutDate = new Date();
+        expRunoutDate.setDate(expRunoutDate.getDate() + Math.ceil(balanceDays));
+      }
+
+      runningLoomsList.push({
+        loomNo: run.loom_no,
+        designNo: run.design_no_sp_no,
+        loomStartDate: run.loom_start_date,
+        warpedMeter: warpedMtr,
+        dailyProduction: avgDailyProd,
+        producedMeter: cumulativeProduced,
+        balanceDays: balanceDays,
+        expectedRunoutDate: expRunoutDate ? expRunoutDate.toISOString() : null,
+        currentReedNo: run.current_reed_no || '',
+        currentBeamNo: run.current_beam_no || matchedBeam?.beam_no || '',
+        setNo: run.set_no || matchedBeam?.set_no || '',
+        orderNo: matchedOrder?.order_no || run.order_no || '',
+        ibpo: ibpoVal || 'NA — NOT IN ORDER MANAGEMENT',
+        orderType: orderType,
+        customerName: matchedOrder?.customer_name || run.customer_name || '',
+        vendorName: matchedBeam?.vendor_name || matchedOrder?.vendor_name || 'In-House Warping',
+        plannedWarpingDate,
+        plannedSizingDate,
+        beamType: matchedBeam?.beam_type || 'RF-900',
+        beamDia: matchedBeam?.beam_dia || 900,
+        beamWidth: matchedBeam?.beam_width || designInfo?.greige_width || '',
+        totalEnds: matchedBeam?.ends || designInfo?.total_ends || '',
+        unit: formattedUnit,
+        loomType: loomInfo?.loom_type || 'AIRJET',
+        status: loomInfo?.status || 'Running',
+        sort_change_type: run.sort_change_type || 'GAITING',
+        loomExistsInMaster: !!loomInfo,
+        designExistsInMaster: !!designInfo,
+        inOrderManagement: !!matchedOrder
+      });
+    });
+
+    const filename = `SPUPL_Running_Looms_Register_${new Date().toISOString().split('T')[0]}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    generateRunningLoomsPdf(runningLoomsList, res);
+  } catch (error) {
+    console.error('Error generating running looms PDF:', error);
     res.status(500).json({ error: error.message });
   }
 });
