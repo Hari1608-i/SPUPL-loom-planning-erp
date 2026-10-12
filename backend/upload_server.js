@@ -4748,14 +4748,22 @@ app.post('/api/active-runs', async (req, res) => {
 
         const existingRun = existingRunsMap.get(loomNoNum);
 
+        const parsedWarpMeter = parseFloat(run.warpedMeter);
+        const parsedDailyProd = parseFloat(run.dailyProduction);
+
         const updateData = {
-          design_no_sp_no: run.designNo,
+          design_no_sp_no: run.designNo || (existingRun ? existingRun.design_no_sp_no : ''),
           loom_start_date: run.loomStartDate
             ? new Date(run.loomStartDate)
             : ((existingRun && existingRun.loom_start_date) ? existingRun.loom_start_date : new Date()),
-          warped_meter: parseFloat(run.warpedMeter) || 0,
-          daily_production: parseFloat(run.dailyProduction) || 0,
-          remarks: run.remarks || ''
+          warped_meter: (!isNaN(parsedWarpMeter) && parsedWarpMeter > 0)
+            ? parsedWarpMeter
+            : (existingRun ? existingRun.warped_meter : 0),
+          daily_production: !isNaN(parsedDailyProd)
+            ? parsedDailyProd
+            : (existingRun ? existingRun.daily_production : 0),
+          order_no: run.order_no || run.orderNo || (existingRun ? existingRun.order_no : null),
+          remarks: run.remarks !== undefined ? run.remarks : (existingRun ? existingRun.remarks : '')
         };
 
         if (run.rpm !== undefined && run.rpm !== null && run.rpm !== '') {
