@@ -18,10 +18,11 @@ if (dbUrl.includes('connection_limit=1')) {
 
 // Global Prisma Client instance to prevent connection exhaustion
 const globalForPrisma = global;
-const prisma = globalForPrisma.prisma || new PrismaClient(
+const prisma = globalForPrisma.prisma || globalForPrisma.globalPrisma || new PrismaClient(
   dbUrl ? { datasources: { db: { url: dbUrl } } } : undefined
 );
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+globalForPrisma.prisma = prisma;
+globalForPrisma.globalPrisma = prisma;
 
 const app = express();
 app.set('trust proxy', 1);
@@ -10523,17 +10524,31 @@ async function reconcileBeamAssignmentsOnStartup() {
   }
 }
 
+// Catch-all for undefined /api routes — always return JSON 404
+app.use('/api', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `API route not found: ${req.method} ${req.originalUrl || req.path}`
+  });
+});
+
+// Centralized Express error handler — always return JSON 500
+app.use((err, req, res, next) => {
+  console.error('Unhandled API Error:', err);
+  if (!res.headersSent) {
+    res.status(err.status || 500).json({
+      success: false,
+      error: err.message || 'Internal server error'
+    });
+  }
+});
+
 const PORT = process.env.PORT || 3002;
 if (require.main === module) {
   app.listen(PORT, async () => {
     console.log(`API server running on port ${PORT}`);
     await reconcileBeamAssignmentsOnStartup();
   });
-} else {
-  // Called by Vercel's api/index.js — reconcile on first cold start
-  reconcileBeamAssignmentsOnStartup().catch(err =>
-    console.error('Startup reconcile error (serverless):', err.message)
-  );
 }
 
 module.exports = app;

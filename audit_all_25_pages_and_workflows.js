@@ -1,12 +1,14 @@
+const http = require('http');
 const https = require('https');
 
-const BASE_URL = 'https://spupl-loom-planning-erp.vercel.app';
+const BASE_URL = process.env.TARGET_URL || 'https://spupl-loom-planning-erp-cyan.vercel.app';
 let authToken = null;
 
 function request(method, path, body = null, headers = {}) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const url = new URL(path, BASE_URL);
+    const client = url.protocol === 'https:' ? https : http;
     const reqHeaders = {
       'Accept': 'application/json',
       ...headers
@@ -18,7 +20,7 @@ function request(method, path, body = null, headers = {}) {
       reqHeaders['Authorization'] = `Bearer ${authToken}`;
     }
 
-    const req = https.request(url, {
+    const req = client.request(url, {
       method: method,
       headers: reqHeaders,
       timeout: 15000

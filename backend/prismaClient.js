@@ -12,28 +12,17 @@ if (connectionUrl.includes('connection_limit=1')) {
   connectionUrl = connectionUrl.replace('connection_limit=1', 'connection_limit=10&pool_timeout=30');
 }
 
-let prisma;
-
-if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-  prisma = new PrismaClient({
+if (!global.globalPrisma && !global.prisma) {
+  global.globalPrisma = new PrismaClient({
     datasources: {
       db: {
         url: connectionUrl,
       },
     },
   });
-} else {
-  if (!global.globalPrisma) {
-    global.globalPrisma = new PrismaClient({
-      datasources: {
-        db: {
-          url: connectionUrl,
-        },
-      },
-    });
-  }
-
-  prisma = global.globalPrisma;
+  global.prisma = global.globalPrisma;
 }
+
+const prisma = global.globalPrisma || global.prisma;
 
 module.exports = prisma;

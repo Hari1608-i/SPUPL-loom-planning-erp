@@ -519,11 +519,41 @@ async function getLiveStatus(queryDate = null) {
   };
 }
 
+let schedulerTimer = null;
+
+function startScheduler() {
+  if (process.env.VERCEL) {
+    // Vercel serverless functions are ephemeral; do not start persistent interval
+    return;
+  }
+  if (schedulerTimer) return;
+  schedulerTimer = setInterval(async () => {
+    try {
+      await runAlertCycle();
+    } catch (err) {
+      console.error('Daily Entry Alert Cycle error:', err.message);
+    }
+  }, 60000);
+  if (schedulerTimer && typeof schedulerTimer.unref === 'function') {
+    schedulerTimer.unref();
+  }
+  console.log('Daily Entry Alert Scheduler initialized (60s interval)');
+}
+
+function stopScheduler() {
+  if (schedulerTimer) {
+    clearInterval(schedulerTimer);
+    schedulerTimer = null;
+  }
+}
+
 module.exports = {
   getISTDateTime,
   format12Hour,
   getDepartmentScheduleSlots,
   checkDepartmentCompleted,
   runAlertCycle,
-  getLiveStatus
+  getLiveStatus,
+  startScheduler,
+  stopScheduler
 };
