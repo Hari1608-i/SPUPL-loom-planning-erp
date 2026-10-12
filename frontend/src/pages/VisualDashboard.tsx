@@ -296,7 +296,7 @@ export default function VisualDashboard() {
       const compPct = plan.orderQty > 0 ? Math.min(100, Math.round((plan.producedQty / plan.orderQty) * 100)) : 0;
 
       return {
-        orderNo: ord.ibpo_no || ord.order_no || ord.orderNo || `ORD-2026-00${i + 1}`,
+        orderNo: ord.ibpo_no || ord.order_no || ord.orderNo || '—',
         customer: ord.customer_name || ord.customer || ['Reliance Textiles', 'Raymond Corp', 'Arvind Mills', 'Welspun India', 'Vardhman Fabrics'][i % 5],
         designNo: ord.design_no_sp_no || ord.designNo || designs[i % Math.max(1, designs.length)]?.designNo || `DES-${100 + i}`,
         orderQty: plan.orderQty,

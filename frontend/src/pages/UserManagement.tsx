@@ -26,7 +26,9 @@ const screens = [
   "Availability Board",
   "Smart Recommendation",
   "Order Management",
-  "Order Tracking & Planning Analytics",
+  "Order Tracking & Analytics",
+  "Daily & Monthly Reports",
+  "Daily Entry Alert",
   "Loom Planning Setup",
   "Alert Center",
   "Runout Monitor",
@@ -38,10 +40,9 @@ const screens = [
   "Design Master",
   "Reed Stock",
   "Beam Stock",
-  "Sizing Dashboard",
-  "Daily Entry Alert",
   "User Management",
-  "System Health"
+  "System Health",
+  "Database Studio"
 ];
 
 const actions = ["view", "create", "edit", "delete", "approve", "export", "print", "excel"];

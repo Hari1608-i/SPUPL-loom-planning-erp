@@ -107,7 +107,7 @@ export default function OrderCompletion() {
         if (!combined.some(h => h.id === co.id || (co.ibpo_no && h.ibpo_no === co.ibpo_no))) {
           combined.push({
             id: co.id,
-            order_no: co.order_no || co.ibpo_no || `ORD-${co.id}`,
+            order_no: co.order_no || co.ibpo_no || '—',
             ibpo_no: co.ibpo_no,
             customer_name: co.customer_name,
             buyer_name: co.buyer_name,

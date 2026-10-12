@@ -1654,8 +1654,8 @@ app.post('/api/orders', async (req, res) => {
       }
     }
 
-    // 2. Generate unique order_no if not provided
-    const orderNo = body.order_no || `ORD-${Date.now().toString().slice(-6)}`;
+    // 2. Use real order_no or IBPO if not provided (no fake #ORD- generators)
+    const orderNo = body.order_no || ibpoNo || (designNo ? `${designNo}` : '—');
 
     // 3. Create OrderMaster
     const newOrder = await prisma.orderMaster.create({
@@ -1886,7 +1886,7 @@ app.post('/api/orders/bulk', async (req, res) => {
       const orderDataList = ordersToCreate.map((body, i) => {
         const ibpoNo = body.ibpo_no ? String(body.ibpo_no).trim().toUpperCase() : null;
         const designNo = String(body.design_no_sp_no || '').trim();
-        const orderNo = body.order_no || `ORD-${Date.now().toString().slice(-6)}-${i + 1}`;
+        const orderNo = body.order_no || ibpoNo || (designNo ? `${designNo}` : '—');
         const clrWarp = parseColorCountServer(body.no_of_clr_warp);
         const clrWeft = parseColorCountServer(body.no_of_clr_weft || body.weft_colours);
 
@@ -2492,7 +2492,7 @@ app.post('/api/orders/bulk-complete', async (req, res) => {
         await prisma.$transaction(async (tx) => {
           // A. Upsert OrderCompletionHistory
           if (tx.orderCompletionHistory) {
-            const histKey = order.order_no || order.ibpo_no || `ORD-${order.id}`;
+            const histKey = order.order_no || order.ibpo_no || String(order.id);
             await tx.orderCompletionHistory.upsert({
               where: { order_no: histKey },
               update: {
@@ -2944,9 +2944,9 @@ app.get('/api/beam-stock/allocated', async (req, res) => {
         return {
           ...b,
           loom_no_assigned: loomNoAssigned,
-          order_no: plan?.order_no || b.order_no || b.ibpo,
-          ibpo: plan?.order_no || b.ibpo || b.order_no,
-          design_no: plan?.next_design || b.design_no,
+          order_no: b.party_beam_no || b.ibpo || plan?.order_no || b.order_no || '—',
+          ibpo: b.party_beam_no || b.ibpo || plan?.order_no || b.order_no || '—',
+          design_no: b.design_no || plan?.next_design || '—',
           reserved_for: plan ? `Loom ${plan.loom_no} - Plan #${plan.id}` : b.reserved_for,
           plan_status: plan?.status || (b.status ? b.status.toUpperCase() : 'ALLOCATED'),
           plan_id: plan?.id || null,
@@ -5548,10 +5548,30 @@ app.post('/api/confirm-plan', async (req, res) => {
     const hasNextDesign = !!(nextDesign && nextDesign !== '—' && nextDesign.trim() !== '' && nextDesign !== 'AVAILABLE (No Plan Queued)');
     const shouldPromote = !isClearOnly && (req.body.promoteNext === true || (req.body.promoteNext === undefined && hasNextDesign));
     const finalNextDesign = shouldPromote && hasNextDesign ? nextDesign.trim() : '';
-    const finalBeamNo = finalNextDesign ? (beamNo || planEntry?.reserved_beam_no || null) : null;
-    const finalSetNo = finalNextDesign ? (setNo || planEntry?.reserved_set_no || null) : null;
+    let finalBeamNo = finalNextDesign ? (beamNo || planEntry?.reserved_beam_no || null) : null;
+    let finalSetNo = finalNextDesign ? (setNo || planEntry?.reserved_set_no || null) : null;
     const finalBeamId = finalNextDesign ? (beamId ? parseInt(beamId, 10) : (planEntry?.reserved_beam_id || null)) : null;
-    const finalWarpMeter = finalNextDesign ? (Number(warpMeter) || Number(planEntry?.planned_warp_meter) || 1800) : 0;
+    
+    let finalWarpMeter = 0;
+    if (finalNextDesign) {
+      if (Number(warpMeter) > 0) {
+        finalWarpMeter = Number(warpMeter);
+      } else if (finalBeamId) {
+        const allocatedB = await prisma.beamStockMaster.findUnique({ where: { id: finalBeamId } });
+        if (allocatedB) {
+          if (!finalBeamNo && allocatedB.beam_no) finalBeamNo = allocatedB.beam_no;
+          if (!finalSetNo && allocatedB.set_no) finalSetNo = allocatedB.set_no;
+          const bm = Number(allocatedB.available_meter || allocatedB.warp_meter || allocatedB.total_warped_meter || 0);
+          if (bm > 0) finalWarpMeter = bm;
+        }
+      }
+      if (!finalWarpMeter && planEntry?.planned_warp_meter) {
+        finalWarpMeter = Number(planEntry.planned_warp_meter);
+      }
+      if (!finalWarpMeter) {
+        finalWarpMeter = 1800;
+      }
+    }
     const finalSortChange = req.body.sort_change_type || req.body.sortChangeType || planEntry?.WarpPreparationProcess?.[0]?.confirmed_process || planEntry?.WarpPreparationProcess?.[0]?.process_type || null;
 
     // 3. Promote new run to Active OR completely remove active run if no next design
@@ -6369,7 +6389,7 @@ async function evaluateSuitability(designNo, orderNo) {
         (!runDesignNo || !l.design_no || l.design_no.trim().toLowerCase() === runDesignNo.trim().toLowerCase())
       );
       const totalProd = loomLogs.reduce((sum, l) => sum + (Number(l.produced_meter) || 0), 0);
-      const warpedMeter = Number(run.warped_meter) || 10000;
+      const warpedMeter = Number(run.warped_meter) || 0;
 
       const designRec = allDesigns.find(d =>
         (d.design_no && runDesignNo && d.design_no.trim().toLowerCase() === runDesignNo.trim().toLowerCase()) ||
@@ -6436,7 +6456,7 @@ async function evaluateSuitability(designNo, orderNo) {
     }
 
     const expectedStart = new Date(runoutDate);
-    const orderQty = order ? order.order_qty : 10000;
+    const orderQty = order ? (Number(order.order_qty) || 0) : 0;
     const plannedLooms = order ? (order.planned_loom_count || 1) : 1;
     const daysToComplete = Math.ceil(orderQty / (plannedLooms * (dailyProd || 200)));
     const expectedFinish = new Date(expectedStart.getTime() + daysToComplete * 24 * 60 * 60 * 1000);
@@ -6597,6 +6617,12 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
         where: { id: Number(beamIdInput) }
       });
     }
+    if (!allocatedBeam && (req.body.beamNo || req.body.beam_no)) {
+      const bNo = String(req.body.beamNo || req.body.beam_no).trim();
+      allocatedBeam = await prisma.beamStockMaster.findFirst({
+        where: { beam_no: bNo }
+      });
+    }
 
     const beam = allocatedBeam || await prisma.beamStockMaster.findFirst({
       where: { design_no: cleanDesign, status: 'Available' }
@@ -6608,14 +6634,18 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
       where: { reed_count: reqReedCount, status: 'Available', available_qty: { gt: 0 } }
     });
 
+    const actualPlannedWarpMeter = allocatedBeam
+      ? Number(allocatedBeam.available_meter || allocatedBeam.warp_meter || allocatedBeam.total_warped_meter || 0)
+      : (Number(req.body.plannedWarpMeter || req.body.warpMeter || req.body.warp_meter || 0) || (order ? Number(order.warp_qty || 0) : 0) || 1800);
+
     const assignmentData = {
       loom_no: loomNum,
       current_design: isLoomRunning ? currentRun.design_no_sp_no : 'AVAILABLE',
       next_design: cleanDesign,
-      order_no: cleanIbpo || 'SPUPL-ORD-NEXT',
+      order_no: cleanIbpo || '—',
       planned_start_date: new Date(expectedStartDate || targetRunoutDate || new Date()),
-      planned_warp_meter: 10000,
-      planned_avg_daily_production: 200,
+      planned_warp_meter: actualPlannedWarpMeter,
+      planned_avg_daily_production: Number(req.body.plannedAvgDailyProduction) || 200,
       status: 'PLANNED',
       reserved_beam_id: allocatedBeam ? allocatedBeam.id : null,
       reserved_beam_no: allocatedBeam ? allocatedBeam.beam_no : null,
@@ -7295,7 +7325,9 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
       where: { OR: [{ order_no: orderNo }, { ibpo_no: orderNo }] }
     }) : null;
 
-    const startingWarpMeter = allocatedBeamObj?.available_meter || (orderObj ? orderObj.warp_qty : 10000);
+    const startingWarpMeter = allocatedBeamObj
+      ? Number(allocatedBeamObj.available_meter || allocatedBeamObj.warp_meter || allocatedBeamObj.total_warped_meter || 0)
+      : (orderObj ? Number(orderObj.warp_qty || 0) : 1800);
     const dailyProdRate = orderObj ? (orderObj.avg_production_per_loom || 300) : 300;
     const customerName = orderObj ? orderObj.customer_name : 'STANDARD';
 
@@ -7323,7 +7355,7 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
           current_beam_no: beamNo || `BM-2026-${String(loomNum).padStart(3, '0')}`,
           set_no: setNo || `SET-101`,
           current_reed_no: reedNo || `RD-${String(500 + loomNum).padStart(3, '0')}`,
-          order_no: orderNo || (orderObj ? orderObj.order_no : `ORD-${100000 + loomNum}`),
+          order_no: orderNo || (orderObj ? (orderObj.ibpo_no || orderObj.order_no) : '—'),
           customer_name: customerName,
           loom_start_date: startDate ? new Date(startDate) : new Date(),
           warped_meter: startingWarpMeter,
@@ -7342,7 +7374,7 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
           current_beam_no: beamNo || `BM-2026-${String(loomNum).padStart(3, '0')}`,
           set_no: setNo || `SET-101`,
           current_reed_no: reedNo || `RD-${String(500 + loomNum).padStart(3, '0')}`,
-          order_no: orderNo || (orderObj ? orderObj.order_no : `ORD-${100000 + loomNum}`),
+          order_no: orderNo || (orderObj ? (orderObj.ibpo_no || orderObj.order_no) : '—'),
           customer_name: customerName,
           loom_start_date: startDate ? new Date(startDate) : new Date(),
           warped_meter: startingWarpMeter,
@@ -7372,7 +7404,7 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
         loom_no: loomNum,
         current_design: nextDesign,
         next_design: nextDesign,
-        order_no: orderNo || 'SPUPL-ORD-CONFIRMED',
+        order_no: orderNo || (orderObj ? (orderObj.ibpo_no || orderObj.order_no) : '—'),
         planned_start_date: startDate ? new Date(startDate) : new Date(),
         planned_warp_meter: startingWarpMeter,
         planned_avg_daily_production: dailyProdRate,
@@ -7454,7 +7486,7 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
       loom_no: loomNum,
       current_design: currentRun.design_no_sp_no,
       next_design: nextDesign,
-      order_no: orderNo || 'SPUPL-ORD-CONFIRMED',
+      order_no: orderNo || (orderObj ? (orderObj.ibpo_no || orderObj.order_no) : '—'),
       planned_start_date: startDate ? new Date(startDate) : new Date(),
       planned_warp_meter: startingWarpMeter,
       planned_avg_daily_production: dailyProdRate,
@@ -7738,7 +7770,7 @@ app.post('/api/planning/next-plan/start', async (req, res) => {
         current_beam_no: assignment.reserved_beam_no,
         order_no: assignment.order_no,
         loom_start_date: now,
-        warped_meter: assignment.planned_warp_meter || 10000,
+        warped_meter: assignment.planned_warp_meter || (allocatedBeamObj ? Number(allocatedBeamObj.available_meter || allocatedBeamObj.warp_meter) : 1800),
         daily_production: assignment.planned_avg_daily_production || 200,
         next_plan_design: ''
       },
@@ -7977,7 +8009,7 @@ app.get('/api/order-completion/history', async (req, res) => {
 
     const formatted = completedOrders.map(o => ({
       id: o.id,
-      order_no: o.order_no || o.ibpo_no || `ORD-${o.id}`,
+      order_no: o.order_no || o.ibpo_no || '—',
       ibpo_no: o.ibpo_no,
       customer_name: o.customer_name,
       buyer_name: o.buyer_name,
@@ -8450,7 +8482,7 @@ async function evaluateErpAlerts() {
         (!designNo || !l.design_no || l.design_no.trim().toLowerCase() === designNo.trim().toLowerCase())
       );
       const totalProd = loomLogs.reduce((sum, l) => sum + (Number(l.produced_meter) || 0), 0);
-      const warpedMeter = Number(run.warped_meter) || 10000;
+      const warpedMeter = Number(run.warped_meter) || 0;
 
       const designRec = designs.find(d =>
         (d.design_no && designNo && d.design_no.trim().toLowerCase() === designNo.trim().toLowerCase()) ||
@@ -9352,7 +9384,7 @@ app.get('/api/order-completion/history', async (req, res) => {
 
     const formatted = completedOrders.map(o => ({
       id: o.id,
-      order_no: o.order_no || o.ibpo_no || `ORD-${o.id}`,
+      order_no: o.order_no || o.ibpo_no || '—',
       ibpo_no: o.ibpo_no,
       customer_name: o.customer_name,
       buyer_name: o.buyer_name,

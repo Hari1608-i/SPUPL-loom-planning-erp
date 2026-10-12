@@ -2305,7 +2305,8 @@ export default function BeamStock() {
                           const targetDesign = String(row.design_no || '').trim().replace(/^[-_\s/]+/, '');
                           const targetBeamNo = String(row.beam_no || '').trim().replace(/^[-_\s/]+/, '');
                           const targetBeamId = row.id ? String(row.id).trim() : '';
-                          navigate(`/plan?ibpo=${encodeURIComponent(targetIbpo)}&designNo=${encodeURIComponent(targetDesign)}&beamNo=${encodeURIComponent(targetBeamNo)}&beamId=${encodeURIComponent(targetBeamId)}&openAssign=true`);
+                          const targetWarpMtr = row.warp_meter ? String(row.warp_meter).trim() : '';
+                          navigate(`/plan?ibpo=${encodeURIComponent(targetIbpo)}&designNo=${encodeURIComponent(targetDesign)}&beamNo=${encodeURIComponent(targetBeamNo)}&beamId=${encodeURIComponent(targetBeamId)}&warpMeter=${encodeURIComponent(targetWarpMtr)}&openAssign=true`);
                         }}
                         className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] rounded-lg shadow-sm transition-all flex items-center justify-center mx-auto gap-1"
                         title={`Allocate Beam #${row.beam_no} in Loom Planning Setup`}
@@ -3329,7 +3330,7 @@ export default function BeamStock() {
                     const beamNoEnc = encodeURIComponent(allocatingBeam.beam_no || '');
                     const designEnc = encodeURIComponent(allocatingBeam.design_no || '');
                     const ibpoEnc = encodeURIComponent(allocForm.order_no || allocatingBeam.party_beam_no || allocatingBeam.ibpo || '');
-                    navigate(`/plan?beamId=${allocatingBeam.id}&beamNo=${beamNoEnc}&designNo=${designEnc}&ibpo=${ibpoEnc}`);
+                    navigate(`/plan?beamId=${allocatingBeam.id}&beamNo=${beamNoEnc}&designNo=${designEnc}&ibpo=${ibpoEnc}&warpMeter=${encodeURIComponent(allocForm.warp_meter || allocatingBeam.warp_meter || '')}&openAssign=true`);
                   }}
                   className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1"
                   title="Open full Loom Planning Setup page"

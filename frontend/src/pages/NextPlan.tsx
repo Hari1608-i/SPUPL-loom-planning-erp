@@ -145,26 +145,62 @@ export default function NextPlan() {
   const urlBeamNo = (searchParams.get('beamNo') || '').trim().replace(/^[-_\s/]+/, '');
   const urlLoomNo = searchParams.get('loomNo');
 
+  const urlWarpMeter = searchParams.get('warpMeter');
+
   // Set selected order if beam/order context is in URL, or default if none selected
   useEffect(() => {
     if (activeOrders.length > 0) {
       if (cleanUrlIbpo || cleanUrlDesignNo) {
         const cleanIbpo = cleanUrlIbpo.toLowerCase();
         const cleanDesign = cleanUrlDesignNo.toLowerCase();
-        const matched = activeOrders.find(o => {
+
+        // 1. Strict exact match: Both IBPO and Design match
+        let matched = activeOrders.find(o => {
           const oIbpo = String(o.ibpo_no || o.order_no || '').trim().replace(/^[-_\s/]+/, '').toLowerCase();
           const oDesign = String(o.design_no_sp_no || '').trim().replace(/^[-_\s/]+/, '').toLowerCase();
-          if (cleanIbpo && (oIbpo === cleanIbpo || oIbpo.includes(cleanIbpo) || cleanIbpo.includes(oIbpo))) {
-            return true;
-          }
-          if (cleanDesign && (oDesign === cleanDesign || oDesign.includes(cleanDesign) || cleanDesign.includes(oDesign))) {
-            return true;
-          }
-          return false;
+          const matchI = cleanIbpo && (oIbpo === cleanIbpo || oIbpo.includes(cleanIbpo) || cleanIbpo.includes(oIbpo));
+          const matchD = cleanDesign && (oDesign === cleanDesign || oDesign.includes(cleanDesign) || cleanDesign.includes(oDesign));
+          return matchI && matchD;
         });
+
+        // 2. If not both, try matching exact design
+        if (!matched && cleanDesign) {
+          matched = activeOrders.find(o => {
+            const oDesign = String(o.design_no_sp_no || '').trim().replace(/^[-_\s/]+/, '').toLowerCase();
+            return oDesign === cleanDesign || oDesign.includes(cleanDesign) || cleanDesign.includes(oDesign);
+          });
+        }
+
+        // 3. If no physical beam is passed, allow matching by IBPO
+        if (!matched && cleanIbpo && !urlBeamNo && !urlBeamId) {
+          matched = activeOrders.find(o => {
+            const oIbpo = String(o.ibpo_no || o.order_no || '').trim().replace(/^[-_\s/]+/, '').toLowerCase();
+            return oIbpo === cleanIbpo || oIbpo.includes(cleanIbpo) || cleanIbpo.includes(oIbpo);
+          });
+        }
+
         if (matched) {
           setSelectedOrder(matched);
           setOrderSearchTerm(cleanUrlIbpo || matched.ibpo_no || matched.order_no || '');
+          if (searchParams.get('openAssign') === 'true') {
+            setShowAssignModal(true);
+          }
+          return;
+        } else if (cleanUrlDesignNo || cleanUrlIbpo) {
+          // If no order in activeOrders matched, create virtual selectedOrder based on beam details
+          const virtualOrder = {
+            id: 0,
+            order_no: cleanUrlIbpo || '—',
+            ibpo_no: cleanUrlIbpo || '—',
+            design_no_sp_no: cleanUrlDesignNo || cleanUrlIbpo,
+            customer_name: 'In-House Beam Allocation',
+            order_qty: Number(urlWarpMeter) || 3280,
+            warp_qty: Number(urlWarpMeter) || 3280,
+            planned_loom_count: 1,
+            avg_production_per_loom: 250
+          };
+          setSelectedOrder(virtualOrder as any);
+          setOrderSearchTerm(cleanUrlIbpo || cleanUrlDesignNo);
           if (searchParams.get('openAssign') === 'true') {
             setShowAssignModal(true);
           }
@@ -175,7 +211,7 @@ export default function NextPlan() {
         setSelectedOrder(activeOrders[0]);
       }
     }
-  }, [activeOrders, cleanUrlIbpo, cleanUrlDesignNo, searchParams]);
+  }, [activeOrders, cleanUrlIbpo, cleanUrlDesignNo, searchParams, urlBeamNo, urlBeamId, urlWarpMeter]);
 
   // Pre-select Loom No and open assign modal if loomNo is provided in query params
   useEffect(() => {
@@ -384,9 +420,10 @@ export default function NextPlan() {
 
   // Handle Loom Plan Setup Save
   const handleSaveLoomAssignment = async (loomNo: number) => {
-    if (!selectedOrder) return;
-    const targetIbpo = selectedOrder.ibpo_no || selectedOrder.order_no;
-    const targetDesign = selectedOrder.design_no_sp_no || targetIbpo;
+    if (!selectedOrder && !cleanUrlDesignNo) return;
+    const targetIbpo = cleanUrlIbpo || selectedOrder?.ibpo_no || selectedOrder?.order_no || '—';
+    const targetDesign = cleanUrlDesignNo || selectedOrder?.design_no_sp_no || targetIbpo;
+    const beamWarpMtr = urlWarpMeter ? Number(urlWarpMeter) : undefined;
 
     if (requirementSummary.remainingLooms === 0) {
       const confirmOverplan = window.confirm(
@@ -410,6 +447,9 @@ export default function NextPlan() {
           expectedStartDate: assignStartDate,
           remarks: assignRemarks || (urlBeamNo ? `Assigned with Beam #${urlBeamNo}` : 'Assigned via Loom Planning Setup'),
           beamId: urlBeamId ? Number(urlBeamId) : undefined,
+          beamNo: urlBeamNo || undefined,
+          plannedWarpMeter: beamWarpMtr,
+          warpMeter: beamWarpMtr,
           allowOverplan: requirementSummary.remainingLooms === 0
         })
       });

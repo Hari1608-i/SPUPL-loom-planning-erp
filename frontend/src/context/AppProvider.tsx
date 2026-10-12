@@ -263,7 +263,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (lDateStr && lDateStr > todayStr) continue;
 
             const lDesign = (l.design_no || '').trim().toLowerCase();
-            if (!loomStartDate && currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
+            if (currentDesignClean && lDesign && !isMatchingDesign(lDesign, currentDesignClean)) continue;
 
             const pMtr = Number(l.produced_meter) || 0;
             relevantLogs.push(pMtr);
