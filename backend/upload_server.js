@@ -259,7 +259,10 @@ async function initSeedData() {
     console.error('Error synchronizing loom statuses on startup:', err.message);
   }
 }
-initSeedData().catch(console.error);
+
+if (require.main === module) {
+  initSeedData().catch(console.error);
+}
 
 
 // ----------------------------------------------------
