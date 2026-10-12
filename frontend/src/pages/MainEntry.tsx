@@ -782,19 +782,14 @@ export default function MainEntry() {
       setUnlockedLoomDates(prev => ({ ...prev, [loomNo]: false }));
       return;
     }
-    if (!isAdmin) {
-      setErrorMsg(`Loom L-${loomNo}: Only Administrator ID can unlock and modify Loom Start Date.`);
-      setTimeout(() => setErrorMsg(null), 4000);
+    if (isAdmin) {
+      setUnlockedLoomDates(prev => ({ ...prev, [loomNo]: true }));
+      setSuccessMsg(`Loom L-${loomNo}: Start Date unlocked for editing.`);
+      setTimeout(() => setSuccessMsg(null), 2500);
       return;
     }
-    setAdminUnlockModal({
-      isOpen: true,
-      loomNo,
-      targetField: 'startDate',
-      password: '',
-      error: null,
-      isVerifying: false
-    });
+    setErrorMsg(`Loom L-${loomNo}: Only Administrator ID can unlock and modify Loom Start Date.`);
+    setTimeout(() => setErrorMsg(null), 4000);
   }, [unlockedLoomDates, isAdmin]);
 
   // Request Admin unlock for Loom Reed & Pick
@@ -804,19 +799,14 @@ export default function MainEntry() {
       setUnlockedLoomSpecs(prev => ({ ...prev, [loomNo]: false }));
       return;
     }
-    if (!isAdmin) {
-      setErrorMsg(`Loom L-${loomNo}: Only Administrator ID can unlock and modify Reed & Pick.`);
-      setTimeout(() => setErrorMsg(null), 4000);
+    if (isAdmin) {
+      setUnlockedLoomSpecs(prev => ({ ...prev, [loomNo]: true }));
+      setSuccessMsg(`Loom L-${loomNo}: Reed & Pick unlocked for editing.`);
+      setTimeout(() => setSuccessMsg(null), 2500);
       return;
     }
-    setAdminUnlockModal({
-      isOpen: true,
-      loomNo,
-      targetField: 'specs',
-      password: '',
-      error: null,
-      isVerifying: false
-    });
+    setErrorMsg(`Loom L-${loomNo}: Only Administrator ID can unlock and modify Reed & Pick.`);
+    setTimeout(() => setErrorMsg(null), 4000);
   }, [unlockedLoomSpecs, isAdmin]);
 
   // Verify Admin password to unlock Start Date or Reed & Pick
@@ -1114,9 +1104,12 @@ export default function MainEntry() {
       efficiency: entry.efficiency ? Number(entry.efficiency) : null,
       crimpPercent: design && Number(design.crimpPercent) > 0 ? (design.crimpPercent > 1 ? design.crimpPercent / 100 : design.crimpPercent) : 0.05,
       sortChangeType: (activeRuns[loomNo] as any)?.sortChangeType || (activeRuns[loomNo] as any)?.sort_change_type || prepRecordsByLoom[loomNo]?.confirmed_process || (entry as any).sortChangeType || (entry.currentBeamNo ? 'GAITING' : null),
-      prepStatus: prepRecordsByLoom[loomNo]?.status || (activeRuns[loomNo] as any)?.prepStatus || (activeRuns[loomNo] as any)?.prep_status || null,
       current_reed_no: (entry.reed !== undefined && String(entry.reed).trim() !== '') ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
+      currentReedNo: (entry.reed !== undefined && String(entry.reed).trim() !== '') ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
+      reed: (entry.reed !== undefined && String(entry.reed).trim() !== '') ? entry.reed : ((activeRuns[loomNo] as any)?.current_reed_no || (activeRuns[loomNo] as any)?.reed || null),
       current_pick: (entry.pick !== undefined && String(entry.pick).trim() !== '') ? String(entry.pick) : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
+      currentPick: (entry.pick !== undefined && String(entry.pick).trim() !== '') ? String(entry.pick) : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
+      pick: (entry.pick !== undefined && String(entry.pick).trim() !== '') ? String(entry.pick) : ((activeRuns[loomNo] as any)?.current_pick || (activeRuns[loomNo] as any)?.pick || null),
       user: user?.username || 'ADMIN',
       remarks: entry.remarks
     };
@@ -2925,9 +2918,10 @@ export default function MainEntry() {
                             <span>Logs</span>
                           </button>
                           <button
+                            type="button"
                             onClick={() => executePlan(loom.loomNo)}
-                            disabled={beamMismatch}
-                            className="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-colors disabled:opacity-40"
+                            title={beamMismatch ? 'Notice: Beam design variation. Click to save production & specs.' : 'Save Loom Production & Specs'}
+                            className="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-colors cursor-pointer shadow-xs"
                           >
                             Save
                           </button>

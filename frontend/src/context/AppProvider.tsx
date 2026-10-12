@@ -341,9 +341,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
             sortChangeType: run.sort_change_type || run.sortChangeType || 'GAITING',
             prepStatus: run.prep_status || run.prepStatus || null,
             orderType: resolvedOrderType,
-            vendorName: matchedBeam?.vendor_name || matchedOrder?.vendor_name || (run as any).vendor_name || 'In-House Warping',
-            orderNo: matchedOrder?.order_no || run.order_no || '',
-            ibpoNo: matchedOrder?.ibpo_no || run.order_no || (matchedBeam ? matchedBeam.ibpo : null) || 'NA — NOT IN ORDER MANAGEMENT',
+            orderNo: (() => {
+              if (run.order_no && !String(run.order_no).startsWith('ORD-')) return String(run.order_no);
+              if (matchedOrder?.ibpo_no && !String(matchedOrder.ibpo_no).startsWith('ORD-')) return String(matchedOrder.ibpo_no);
+              if (matchedOrder?.order_no && !String(matchedOrder.order_no).startsWith('ORD-')) return String(matchedOrder.order_no);
+              const desIbpo = (run.design_no_sp_no || '').split('-')[1]?.trim();
+              if (desIbpo && !desIbpo.startsWith('ORD-')) return desIbpo;
+              return '';
+            })(),
+            ibpoNo: (() => {
+              if (matchedOrder?.ibpo_no && !String(matchedOrder.ibpo_no).startsWith('ORD-')) return String(matchedOrder.ibpo_no);
+              if (run.order_no && !String(run.order_no).startsWith('ORD-')) return String(run.order_no);
+              const desIbpo = (run.design_no_sp_no || '').split('-')[1]?.trim();
+              if (desIbpo && !desIbpo.startsWith('ORD-')) return desIbpo;
+              if (matchedBeam?.ibpo && !String(matchedBeam.ibpo).startsWith('ORD-')) return String(matchedBeam.ibpo);
+              return 'NA — NOT IN ORDER MANAGEMENT';
+            })(),
             customerName: matchedOrder?.customer_name || run.customer_name || '',
             plannedWarpingDate,
             plannedSizingDate

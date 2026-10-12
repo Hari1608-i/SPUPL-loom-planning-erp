@@ -4777,11 +4777,12 @@ app.post('/api/active-runs', async (req, res) => {
         if (run.prepStatus !== undefined || run.prep_status !== undefined) {
           updateData.prep_status = run.prepStatus || run.prep_status;
         }
-        if (run.currentReedNo !== undefined || run.reed !== undefined) {
-          updateData.current_reed_no = run.currentReedNo !== undefined ? run.currentReedNo : run.reed;
+        if (run.current_reed_no !== undefined || run.currentReedNo !== undefined || run.reed !== undefined) {
+          updateData.current_reed_no = run.current_reed_no !== undefined ? run.current_reed_no : (run.currentReedNo !== undefined ? run.currentReedNo : run.reed);
         }
-        if (run.currentPick !== undefined || run.pick !== undefined) {
-          updateData.current_pick = run.currentPick !== undefined ? String(run.currentPick) : String(run.pick);
+        if (run.current_pick !== undefined || run.currentPick !== undefined || run.pick !== undefined) {
+          const pVal = run.current_pick !== undefined ? run.current_pick : (run.currentPick !== undefined ? run.currentPick : run.pick);
+          updateData.current_pick = pVal !== null && pVal !== undefined ? String(pVal) : null;
         }
 
         // Record audit log for Reed or Pick changes without touching OrderMaster

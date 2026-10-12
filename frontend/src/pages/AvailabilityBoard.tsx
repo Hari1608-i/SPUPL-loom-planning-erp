@@ -296,7 +296,14 @@ export default function AvailabilityBoard() {
         isRunning,
         currentBeamNo: activeRun?.currentBeamNo || activeRun?.beam_no || '',
         currentSetNo: activeRun?.setNo || activeRun?.set_no || '',
-        currentOrderNo: activeRun?.orderNo || activeRun?.order_no || activeRun?.ibpo_no || matchedOrder?.ibpo_no || '',
+        currentOrderNo: (() => {
+          const raw = activeRun?.orderNo || activeRun?.order_no || activeRun?.ibpo_no || matchedOrder?.ibpo_no || '';
+          if (raw && !String(raw).startsWith('ORD-')) return String(raw);
+          const desIbpo = (currentDesign || '').split('-')[1]?.trim();
+          if (desIbpo && !desIbpo.startsWith('ORD-')) return desIbpo;
+          if (matchedOrder?.ibpo_no && !matchedOrder.ibpo_no.startsWith('ORD-')) return matchedOrder.ibpo_no;
+          return '';
+        })(),
         loomType: loom?.loomType || loom?.make || '',
         netBalanceMeter: activeRun?.netBalanceMeter ?? activeRun?.warpBalanceGross ?? 0,
         loomDailyProd: loomDailyProd,
@@ -496,7 +503,7 @@ export default function AvailabilityBoard() {
                             {row.orderType}
                           </span>
                         </div>
-                        {row.currentOrderNo && (
+                        {row.currentOrderNo && !row.currentOrderNo.startsWith('ORD-') && (
                           <span className="text-[9.5px] text-slate-500 font-semibold truncate mt-0.5" title={`IBPO: ${row.currentOrderNo}`}>
                             #{row.currentOrderNo}
                           </span>
@@ -797,7 +804,7 @@ export default function AvailabilityBoard() {
                                 ) : (
                                   <>
                                     <span className="font-bold text-slate-800 text-[10px]">Running: {row.currentDesign}</span>
-                                    {row.currentOrderNo && <span className="text-slate-400 text-[10px]">#{row.currentOrderNo}</span>}
+                                    {row.currentOrderNo && !row.currentOrderNo.startsWith('ORD-') && <span className="text-slate-400 text-[10px]">#{row.currentOrderNo}</span>}
                                   </>
                                 )}
                               </div>
