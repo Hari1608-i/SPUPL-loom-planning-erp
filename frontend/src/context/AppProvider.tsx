@@ -226,7 +226,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const matchedDesign = loadedDesigns.find(d => 
             d.designNo === run.design_no_sp_no || 
             d.design_no_sp_no === run.design_no_sp_no ||
-            (d.designNo && run.design_no_sp_no && d.designNo.trim().toLowerCase() === run.design_no_sp_no.trim().toLowerCase())
+            (d.designNo && run.design_no_sp_no && d.designNo.trim().toLowerCase() === run.design_no_sp_no.trim().toLowerCase()) ||
+            (d.designNo && run.design_no_sp_no && isMatchingDesign(d.designNo, run.design_no_sp_no))
           );
           const rawCrimp = matchedDesign ? Number(matchedDesign.crimpPercent || matchedDesign.crimp_percent || 0) : 0;
           const crimp = rawCrimp > 0 ? (rawCrimp > 1 ? rawCrimp / 100 : rawCrimp) : 0.05;

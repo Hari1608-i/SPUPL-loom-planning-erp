@@ -101,8 +101,8 @@ export const LoomRow = React.memo(function LoomRow({
   handleRequestUnlockStartDate
 }: LoomRowProps) {
   const cleanDesignNo = (entry.designNo || '').trim().toLowerCase();
-                const design = designsMap.get(cleanDesignNo);
-                const matchedOrder = ordersMap.get(cleanDesignNo);
+                let design = designsMap.get(cleanDesignNo);
+                let matchedOrder = ordersMap.get(cleanDesignNo);
                 const nextPlan = nextPlans[loom.loomNo];
 
                 // Beam stock & Set No connection via fast indexed map
@@ -119,11 +119,24 @@ export const LoomRow = React.memo(function LoomRow({
                       setNoDisplay = beamInfo.setNo || beamInfo.set_no || 'N/A';
                     }
                     const bDesign = beamInfo.designNo || beamInfo.design_no || beamInfo.design;
-                    if (bDesign && entry.designNo && bDesign.trim().toLowerCase() !== entry.designNo.trim().toLowerCase()) {
+                    if (bDesign && entry.designNo && bDesign.trim().toLowerCase() !== entry.designNo.trim().toLowerCase() && !isMatchingDesign(bDesign, entry.designNo)) {
                       beamMismatch = true;
                     }
                   } else if (setNoDisplay === 'N/A') {
                     setNoDisplay = entry.currentBeamNo;
+                  }
+                }
+
+                if (!matchedOrder || !design) {
+                  const beamParty = (beamInfo?.party_beam_no || beamInfo?.ibpo || (activeRunObj as any)?.order_no || '').trim().toLowerCase();
+                  if (beamParty) {
+                    if (!matchedOrder) matchedOrder = ordersMap.get(`${cleanDesignNo}-${beamParty}`) || ordersMap.get(beamParty);
+                    if (!design) design = designsMap.get(`${cleanDesignNo}-${beamParty}`);
+                  }
+                  if (cleanDesignNo.includes('-')) {
+                    const basePart = cleanDesignNo.split('-')[0].trim();
+                    if (!matchedOrder) matchedOrder = ordersMap.get(basePart);
+                    if (!design) design = designsMap.get(basePart);
                   }
                 }
 
@@ -315,17 +328,33 @@ export const LoomRow = React.memo(function LoomRow({
 
                       {/* 4. Current Running Design */}
                       <td className="p-3">
-                        <select
-                          value={entry.designNo}
-                          onChange={e => handleEntryChange(loom.loomNo, 'designNo', e.target.value)}
-                          onPaste={e => handlePaste(e as any, loom.loomNo, 'designNo')}
-                          className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-black text-slate-950 dark:text-white focus:ring-2 focus:ring-spu-primary/30 focus:border-indigo-600 shadow-sm"
-                        >
-                          <option value="">-- Select Design --</option>
-                          {activeDesigns.map(d => (
-                            <option key={d.designNo} value={d.designNo}>{d.designNo}</option>
-                          ))}
-                        </select>
+                        {(() => {
+                          const matchingOption = activeDesigns.find(d => {
+                            const dLower = (d.designNo || '').toLowerCase();
+                            const eLower = (entry.designNo || '').toLowerCase();
+                            if (dLower === eLower) return true;
+                            if (eLower && dLower.startsWith(eLower + '-')) return true;
+                            if (dLower && eLower.startsWith(dLower + '-')) return true;
+                            return false;
+                          });
+                          const selectedVal = matchingOption ? matchingOption.designNo : entry.designNo;
+                          return (
+                            <select
+                              value={selectedVal}
+                              onChange={e => handleEntryChange(loom.loomNo, 'designNo', e.target.value)}
+                              onPaste={e => handlePaste(e as any, loom.loomNo, 'designNo')}
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-black text-slate-950 dark:text-white focus:ring-2 focus:ring-spu-primary/30 focus:border-indigo-600 shadow-sm"
+                            >
+                              <option value="">-- Select Design --</option>
+                              {selectedVal && !activeDesigns.some(d => d.designNo.toLowerCase() === selectedVal.toLowerCase()) && (
+                                <option value={selectedVal}>{selectedVal}</option>
+                              )}
+                              {activeDesigns.map(d => (
+                                <option key={d.designNo} value={d.designNo}>{d.designNo}</option>
+                              ))}
+                            </select>
+                          );
+                        })()}
                       </td>
 
                       {/* 5. Construction */}

@@ -3067,6 +3067,97 @@ app.post('/api/beam-stock/confirm-beam', async (req, res) => {
       }
     }).catch(() => {});
 
+    // If target loom is free / available, immediately promote to Running in Main Entry
+    const targetLoomNo = beam.loom_no_assigned || (await prisma.plannedAssignment.findFirst({
+      where: {
+        OR: [
+          { reserved_beam_id: beam.id },
+          { reserved_beam_no: beam.beam_no }
+        ],
+        status: { notIn: ['COMPLETED', 'CANCELLED'] }
+      }
+    }))?.loom_no;
+
+    if (targetLoomNo) {
+      const activeRun = await prisma.loomRunEntry.findUnique({ where: { loom_no: targetLoomNo } });
+      const isLoomRunning = activeRun && activeRun.design_no_sp_no && activeRun.design_no_sp_no.trim() !== '' && !activeRun.design_no_sp_no.includes('AVAILABLE');
+
+      if (!isLoomRunning) {
+        const ibpoVal = beam.party_beam_no || beam.ibpo || beam.order_no || '';
+        let compositeDesign = (beam.design_no || '').trim();
+        if (ibpoVal && !compositeDesign.includes('-')) {
+          compositeDesign = `${compositeDesign}-${ibpoVal}`;
+        }
+
+        await prisma.beamStockMaster.update({
+          where: { id: beam.id },
+          data: {
+            status: 'Running',
+            reserved_for: `Loom ${targetLoomNo} - Running`,
+            loom_no_assigned: targetLoomNo
+          }
+        });
+
+        const startingWarpMtr = Number(beam.available_meter || beam.total_warped_meter || 0) || 1800;
+
+        await prisma.loomRunEntry.upsert({
+          where: { loom_no: targetLoomNo },
+          create: {
+            loom_no: targetLoomNo,
+            design_no_sp_no: compositeDesign,
+            current_beam_no: beam.beam_no,
+            beam_id: beam.id,
+            set_no: beam.set_no || null,
+            order_no: ibpoVal || '—',
+            customer_name: beam.customer || 'STANDARD',
+            loom_start_date: new Date(),
+            warped_meter: startingWarpMtr,
+            daily_production: 0,
+            rpm: 720,
+            efficiency: 92,
+            shift_hours: 24,
+            working_hours: 24,
+            machine_utilization: 92,
+            sort_change_type: 'GAITING',
+            prep_status: 'PENDING',
+            remarks: 'Promoted from Confirmed Beam Stock'
+          },
+          update: {
+            design_no_sp_no: compositeDesign,
+            current_beam_no: beam.beam_no,
+            beam_id: beam.id,
+            set_no: beam.set_no || null,
+            order_no: ibpoVal || '—',
+            customer_name: beam.customer || 'STANDARD',
+            loom_start_date: new Date(),
+            warped_meter: startingWarpMtr,
+            sort_change_type: 'GAITING',
+            remarks: 'Promoted from Confirmed Beam Stock'
+          }
+        });
+
+        await prisma.loomMaster.update({
+          where: { loom_no: targetLoomNo },
+          data: { status: 'Running' }
+        }).catch(() => {});
+
+        await prisma.plannedAssignment.updateMany({
+          where: {
+            loom_no: targetLoomNo,
+            OR: [
+              { reserved_beam_id: beam.id },
+              { reserved_beam_no: beam.beam_no }
+            ]
+          },
+          data: {
+            status: 'COMPLETED',
+            confirmation_status: 'COMPLETED',
+            readiness_status: 'RUNNING IN MAIN ENTRY'
+          }
+        }).catch(() => {});
+      }
+    }
+
     try {
       await prisma.systemAuditLog.create({
         data: {
@@ -4454,7 +4545,10 @@ app.get('/api/reports/design-running', async (req, res) => {
 
       // Check order master matching
       const cleanOrderNo = (run.order_no || '').trim().toLowerCase();
-      const matchedOrder = orderMapByIbpo.get(cleanOrderNo) || orderMapByDesign.get(cleanDesign);
+      let matchedOrder = orderMapByIbpo.get(cleanOrderNo) || orderMapByDesign.get(cleanDesign);
+      if (!matchedOrder && cleanDesign.includes('-')) {
+        matchedOrder = orderMapByDesign.get(cleanDesign.split('-')[0].trim());
+      }
 
       // Check beam stock matching
       const cleanBeamNo = (run.current_beam_no || '').trim().toLowerCase();
@@ -4463,7 +4557,17 @@ app.get('/api/reports/design-running', async (req, res) => {
       if (!loomInfo) {
         validationWarnings.unmappedLooms.push(run.loom_no);
       }
-      if (!designInfo && !cleanDesign.includes('standard')) {
+      const isValidDesign = !!(
+        designInfo ||
+        matchedOrder ||
+        orderMapByDesign.has(cleanDesign) ||
+        cleanDesign.includes('standard') ||
+        cleanDesign.includes('sample') ||
+        cleanDesign.startsWith('sp26/000') ||
+        cleanDesign.startsWith('sp26/none') ||
+        (cleanDesign.includes('-') && (designMap.has(cleanDesign.split('-')[0].trim()) || orderMapByDesign.has(cleanDesign.split('-')[0].trim())))
+      );
+      if (!isValidDesign) {
         validationWarnings.unmappedDesigns.push(run.design_no_sp_no);
       }
 
@@ -5585,8 +5689,15 @@ app.post('/api/confirm-plan', async (req, res) => {
 
     // 3. Promote new run to Active OR completely remove active run if no next design
     if (finalNextDesign) {
+      let resolvedDesign = finalNextDesign;
+      const planIbpo = planEntry?.order_no || req.body.order_no || '';
+      if (resolvedDesign && !resolvedDesign.includes('-') && planIbpo) {
+        resolvedDesign = `${resolvedDesign}-${planIbpo}`;
+      }
+
       const runPayload = {
-        design_no_sp_no: finalNextDesign,
+        design_no_sp_no: resolvedDesign,
+        order_no: planIbpo || undefined,
         loom_start_date: new Date(startDate || new Date()),
         warped_meter: finalWarpMeter,
         daily_production: 0,
@@ -7356,11 +7467,17 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
         });
       }
 
+      const partyIbpo = (orderObj?.ibpo_no || orderNo || allocatedBeamObj?.party_beam_no || allocatedBeamObj?.ibpo || '').trim();
+      let compositeNextDesign = nextDesign;
+      if (partyIbpo && !compositeNextDesign.includes('-')) {
+        compositeNextDesign = `${compositeNextDesign}-${partyIbpo}`;
+      }
+
       const activeRun = await prisma.loomRunEntry.upsert({
         where: { loom_no: loomNum },
         create: {
           loom_no: loomNum,
-          design_no_sp_no: nextDesign,
+          design_no_sp_no: compositeNextDesign,
           current_beam_no: beamNo || `BM-2026-${String(loomNum).padStart(3, '0')}`,
           set_no: setNo || `SET-101`,
           current_reed_no: reedNo || `RD-${String(500 + loomNum).padStart(3, '0')}`,
@@ -7379,7 +7496,7 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
           remarks: remarks || 'Confirmed & Started in Main Entry'
         },
         update: {
-          design_no_sp_no: nextDesign,
+          design_no_sp_no: compositeNextDesign,
           current_beam_no: beamNo || `BM-2026-${String(loomNum).padStart(3, '0')}`,
           set_no: setNo || `SET-101`,
           current_reed_no: reedNo || `RD-${String(500 + loomNum).padStart(3, '0')}`,

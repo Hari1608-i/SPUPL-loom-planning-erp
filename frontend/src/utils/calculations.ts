@@ -571,7 +571,12 @@ export function normalizeDesignStr(d?: string | null): string {
 
 export function isMatchingDesign(d1?: string | null, d2?: string | null): boolean {
   if (!d1 || !d2) return false;
-  return normalizeDesignStr(d1) === normalizeDesignStr(d2);
+  const s1 = normalizeDesignStr(d1);
+  const s2 = normalizeDesignStr(d2);
+  if (s1 === s2) return true;
+  if (s1.includes('-') && !s2.includes('-') && s1.startsWith(s2 + '-')) return true;
+  if (s2.includes('-') && !s1.includes('-') && s2.startsWith(s1 + '-')) return true;
+  return false;
 }
 
 export interface CalculatedLoomRun {
