@@ -29,6 +29,7 @@ const screens = [
   "Order Tracking & Analytics",
   "Daily & Monthly Reports",
   "Daily Entry Alert",
+  "Total Order Allocation",
   "Loom Planning Setup",
   "Alert Center",
   "Runout Monitor",

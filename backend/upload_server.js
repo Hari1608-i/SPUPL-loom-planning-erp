@@ -71,6 +71,9 @@ app.use('/api/analytics', require('./routes/analytics'));
 // Daily Entry Alert Module Routes
 app.use('/api/daily-entry-alert', require('./routes/dailyEntryAlertRoutes'));
 
+// Total Order Allocation Module Routes (Dedicated & Isolated)
+app.use('/api/total-order-allocation', require('./routes/totalOrderAllocationRoutes'));
+
 // Daily Entry Alert Background Scheduler (checks every minute)
 const { startScheduler } = require('./services/dailyEntryAlertScheduler');
 try {

@@ -874,6 +874,188 @@ model DailyEntryAlertLog {
   @@index([status])
 }
 
+// ==========================================
+// TOTAL ORDER ALLOCATION SYSTEM (TOA MODULE)
+// ==========================================
+
+model ToaOrder {
+  id               Int       @id @default(autoincrement())
+  ibpo             String    @unique
+  customer         String?
+  order_no         String?
+  sp_no            String
+  order_type       String    @default("YD")
+  construction     String?
+  order_qty        Float
+  grey_req         Float?
+  product_group    String?
+  ppi              Int?
+  kpx              Float?
+  kpx_factor       Float?    @default(1.0)
+  corrected_kpx    Float?
+  width            String?
+  reed_count       String?
+  pick             String?
+  frames           Int?
+  weft_colours     Int?
+  received_date    DateTime  @default(now())
+  target_date      DateTime?
+  priority         String    @default("Medium")
+  status           String    @default("PENDING")
+  allocation_type  String    @default("UNALLOCATED")
+  remarks          String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  allocations      ToaAllocation[]
+  productionLogs   ToaProductionLog[]
+  completionReview ToaCompletionReview?
+
+  @@index([ibpo])
+  @@index([sp_no])
+  @@index([status])
+  @@index([received_date])
+}
+
+model ToaVendor {
+  id                   Int             @id @default(autoincrement())
+  vendor_name          String          @unique
+  vendor_code          String?         @unique
+  contact_person       String?
+  phone                String?
+  email                String?
+  total_declared_looms Int             @default(0)
+  remarks              String?
+  active               Boolean         @default(true)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  looms                ToaVendorLoom[]
+  allocations          ToaAllocation[]
+
+  @@index([vendor_name])
+  @@index([active])
+}
+
+model ToaVendorLoom {
+  id               Int             @id @default(autoincrement())
+  vendor_id        Int
+  loom_no          String
+  loom_type        String?
+  width            String?
+  max_reed_space   Float?
+  frame_capacity   Int?
+  max_weft_colours Int?
+  max_ppi          Int?
+  rpm              Int?
+  avg_daily_prod   Float           @default(150.0)
+  status           String          @default("AVAILABLE")
+  remarks          String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  vendor           ToaVendor       @relation(fields: [vendor_id], references: [id], onDelete: Cascade)
+  allocations      ToaAllocation[]
+
+  @@unique([vendor_id, loom_no])
+  @@index([vendor_id])
+  @@index([status])
+}
+
+model ToaAllocation {
+  id                    Int                @id @default(autoincrement())
+  order_id              Int
+  ibpo                  String
+  allocation_type       String             // "IN_HOUSE" or "VENDOR"
+  loom_no               Int?               // References In-House LoomMaster loom_no
+  vendor_id             Int?
+  vendor_loom_id        Int?
+  allocated_meters      Float
+  estimated_start_date  DateTime
+  estimated_runout_date DateTime
+  avg_daily_prod        Float
+  days_taken            Int
+  status                String             @default("CONFIRMED")
+  remarks               String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  order                 ToaOrder           @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  vendor                ToaVendor?         @relation(fields: [vendor_id], references: [id])
+  vendorLoom            ToaVendorLoom?     @relation(fields: [vendor_loom_id], references: [id])
+  productionLogs        ToaProductionLog[]
+
+  @@index([order_id])
+  @@index([ibpo])
+  @@index([loom_no])
+  @@index([vendor_id])
+  @@index([status])
+}
+
+model ToaProductionLog {
+  id              Int            @id @default(autoincrement())
+  allocation_id   Int?
+  order_id        Int
+  ibpo            String
+  allocation_type String         // "IN_HOUSE" or "VENDOR"
+  loom_no         Int?
+  vendor_id       Int?
+  vendor_loom_id  Int?
+  production_date DateTime
+  produced_meter  Float
+  entered_by      String         @default("System")
+  remarks         String?
+  createdAt       DateTime       @default(now())
+
+  order           ToaOrder       @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  allocation      ToaAllocation? @relation(fields: [allocation_id], references: [id], onDelete: SetNull)
+
+  @@index([order_id])
+  @@index([ibpo])
+  @@index([production_date])
+  @@index([loom_no])
+}
+
+model ToaCompletionReview {
+  id                   Int       @id @default(autoincrement())
+  order_id             Int       @unique
+  ibpo                 String    @unique
+  ordered_meter        Float
+  in_house_meter       Float     @default(0)
+  vendor_meter         Float     @default(0)
+  total_produced_meter Float
+  variance_meter       Float     // total_produced_meter - ordered_meter
+  variance_pct         Float     // (variance_meter / ordered_meter) * 100
+  is_approved          Boolean   @default(false)
+  approval_reason      String?
+  approved_by          String?
+  closed_by            String
+  closed_at            DateTime  @default(now())
+  is_reopened          Boolean   @default(false)
+  reopened_by          String?
+  reopened_at          DateTime?
+  reopen_reason        String?
+
+  order                ToaOrder  @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([ibpo])
+}
+
+model ToaAuditLog {
+  id        Int      @id @default(autoincrement())
+  ibpo      String?
+  action    String
+  entity    String
+  details   String?
+  user      String   @default("System")
+  timestamp DateTime @default(now())
+
+  @@index([ibpo])
+  @@index([action])
+  @@index([timestamp])
+}
+
+
 
 
 

@@ -626,6 +626,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             <SidebarItem to="/planned-looms"  icon={ListTodo}         label="Next Planned Looms"          menuName="Next Planned Looms"                 isCollapsed={isCollapsed} />
           </SidebarGroup>
 
+          <SidebarGroup title="Total Order Allocation" isCollapsed={isCollapsed}>
+            <SidebarItem to="/total-order-allocation" icon={Layers} label="Total Order Allocation" menuName="Total Order Allocation" isCollapsed={isCollapsed} />
+          </SidebarGroup>
+
           <SidebarGroup title="History & Completion" isCollapsed={isCollapsed}>
             <SidebarItem to="/order-completion" icon={CheckCircle} label="Order Completion & History" menuName="Order Completion & History" isCollapsed={isCollapsed} />
             <SidebarItem to="/history"          icon={HistoryIcon} label="Completed Warp History"     menuName="Completed Warp History"     isCollapsed={isCollapsed} />
