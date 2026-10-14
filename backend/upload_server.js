@@ -11,7 +11,7 @@ const path = require('path');
 const warpPreparationService = require('./services/warpPreparationService');
 const { generateRunningLoomsPdf } = require('./reports/runningLoomPdfGenerator');
 
-let dbUrl = process.env.DATABASE_URL || '';
+let dbUrl = process.env.DATABASE_URL || process.env.DIRECT_URL || '';
 if (dbUrl.includes('connection_limit=1')) {
   dbUrl = dbUrl.replace('connection_limit=1', 'connection_limit=10&pool_timeout=30');
 }
@@ -58,7 +58,7 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/api', (req, res) => {
+app.get(['/api', '/api/index', '/api/index.js'], (req, res) => {
   res.json({
     status: 'online',
     system: 'SPU Loom ERP API',
@@ -476,6 +476,129 @@ app.post('/api/auth/verify-admin-password', async (req, res) => {
     return res.json({ success: true, message: 'Administrator password verified' });
   } catch (error) {
     console.error('Error verifying admin password:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// User-Specific Field Unlock Endpoint for Main Entry: Start Date, Reed, Pick
+app.post('/api/auth/verify-field-unlock', async (req, res) => {
+  try {
+    const { username, password, field, loomNo } = req.body;
+    if (!username || !password || !field) {
+      return res.status(400).json({ success: false, error: 'Username, password, and field are required' });
+    }
+
+    const cleanUsername = String(username).trim();
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { username: cleanUsername },
+          { username: cleanUsername.toUpperCase() },
+          { username: cleanUsername.toLowerCase() }
+        ]
+      }
+    });
+
+    if (!user) {
+      return res.status(401).json({ success: false, error: `User "${cleanUsername}" not found. Please verify your username.` });
+    }
+
+    if (user.status && user.status.toUpperCase() !== 'ACTIVE') {
+      return res.status(403).json({ success: false, error: `Account for "${user.username}" is inactive.` });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ success: false, error: 'Incorrect password. Verification failed.' });
+    }
+
+    const roleUpper = (user.role || '').toUpperCase();
+    const isAdmin = ['ADMIN', 'ADMINISTRATOR', 'SYSTEM ADMINISTRATOR'].includes(roleUpper) || user.username.toLowerCase() === 'admin';
+
+    let isPermitted = isAdmin;
+    let perms = {};
+    if (!isPermitted && user.permissions) {
+      try {
+        perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions;
+      } catch (e) {
+        perms = {};
+      }
+
+      if (field === 'startDate' || field === 'loomStartDate') {
+        isPermitted = !!(
+          perms['can_unlock_start_date'] ||
+          perms['main_entry_start_date'] ||
+          perms.fieldPermissions?.startDate ||
+          perms['Main Entry - Start Date']?.edit ||
+          perms['Main Entry - Start Date']?.view ||
+          perms['Main Entry']?.edit
+        );
+      } else if (field === 'reed') {
+        isPermitted = !!(
+          perms['can_unlock_reed'] ||
+          perms['main_entry_reed'] ||
+          perms.fieldPermissions?.reed ||
+          perms['Main Entry - Reed']?.edit ||
+          perms['Main Entry - Reed']?.view ||
+          perms['Main Entry']?.edit
+        );
+      } else if (field === 'pick') {
+        isPermitted = !!(
+          perms['can_unlock_pick'] ||
+          perms['main_entry_pick'] ||
+          perms.fieldPermissions?.pick ||
+          perms['Main Entry - Pick']?.edit ||
+          perms['Main Entry - Pick']?.view ||
+          perms['Main Entry']?.edit
+        );
+      }
+    }
+
+    const fieldName = (field === 'startDate' || field === 'loomStartDate') ? 'Start Date' : field === 'reed' ? 'Reed' : 'Pick';
+
+    if (!isPermitted) {
+      try {
+        await prisma.systemAuditLog.create({
+          data: {
+            username: user.username,
+            screen: 'Main Entry',
+            action: 'FIELD_UNLOCK_DENIED',
+            oldValue: null,
+            newValue: JSON.stringify({ field: fieldName, loomNo, status: 'DENIED' })
+          }
+        });
+      } catch (e) {}
+
+      return res.status(403).json({
+        success: false,
+        error: `User "${user.username}" does not have permission to unlock ${fieldName}. Please configure this permission in User Management.`
+      });
+    }
+
+    try {
+      await prisma.systemAuditLog.create({
+        data: {
+          username: user.username,
+          screen: 'Main Entry',
+          action: 'FIELD_UNLOCK_GRANTED',
+          oldValue: null,
+          newValue: JSON.stringify({ field: fieldName, loomNo, duration: '5m' })
+        }
+      });
+    } catch (e) {}
+
+    return res.json({
+      success: true,
+      allowed: true,
+      field,
+      loomNo,
+      username: user.username,
+      durationSeconds: 300,
+      expiresAt: Date.now() + 300 * 1000,
+      message: `${fieldName} successfully unlocked for 5 minutes by ${user.username}`
+    });
+  } catch (error) {
+    console.error('Field unlock error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

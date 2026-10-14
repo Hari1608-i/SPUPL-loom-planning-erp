@@ -6,6 +6,15 @@ import {
 import * as XLSX from 'xlsx';
 import { API_BASE_URL } from '../../config';
 
+export function getProductGroupFactor(group: string): number {
+  if (!group) return 1.25;
+  const g = group.trim().toLowerCase();
+  if (g.includes('linen')) return 1.66;
+  if (g.includes('special')) return 1.65;
+  if (g.includes('grey') || g.includes('greige')) return 1.00;
+  return 1.25;
+}
+
 interface ToaOrderEntryProps {
   onOrderSaved?: (ibpo: string) => void;
 }
@@ -26,7 +35,7 @@ export default function ToaOrderEntry({ onOrderSaved }: ToaOrderEntryProps) {
     product_group: 'Normal YD',
     ppi: '',
     kpx: '',
-    kpx_factor: '1.0',
+    kpx_factor: '1.25',
     width: '',
     reed_count: '',
     pick: '',
@@ -422,13 +431,17 @@ export default function ToaOrderEntry({ onOrderSaved }: ToaOrderEntryProps) {
               </label>
               <select
                 value={formData.product_group}
-                onChange={e => setFormData({ ...formData, product_group: e.target.value })}
+                onChange={e => {
+                  const grp = e.target.value;
+                  const factor = getProductGroupFactor(grp);
+                  setFormData({ ...formData, product_group: grp, kpx_factor: String(factor) });
+                }}
                 className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value="Normal YD">Normal YD</option>
-                <option value="Normal Grey">Normal Grey</option>
-                <option value="Linen Blend">Linen Blend</option>
-                <option value="Special">Special</option>
+                <option value="Normal YD">Normal YD (Factor: 1.25)</option>
+                <option value="Normal Grey">Normal Grey (Factor: 1.00)</option>
+                <option value="Linen Blend">Linen Blind / Blend (Factor: 1.66)</option>
+                <option value="Special">Special (Factor: 1.65)</option>
               </select>
             </div>
           </div>
@@ -507,6 +520,46 @@ export default function ToaOrderEntry({ onOrderSaved }: ToaOrderEntryProps) {
               </div>
             </div>
           </div>
+
+          {/* Live KPX Engine Calculation Preview */}
+          {(() => {
+            const reqQty = Number(formData.grey_req || formData.order_qty || 0);
+            const ppiVal = Number(formData.ppi || 0);
+            const factorVal = Number(formData.kpx_factor || getProductGroupFactor(formData.product_group));
+            const baseKpx = ppiVal > 0 && reqQty > 0 ? (reqQty * ppiVal * 39.37) / 1000 : 0;
+            const corrKpx = baseKpx * factorVal;
+            return (
+              <div className="p-4 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-2xl border border-indigo-200 dark:border-indigo-800/60 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="px-3 py-1.5 bg-indigo-600 text-white rounded-xl font-black text-xs tracking-wider">
+                    KPX 2026
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-black text-slate-800 dark:text-white">
+                      Live KPX Engine Preview (Balance: {reqQty.toLocaleString()} MTR &bull; PPI: {ppiVal || '—'})
+                    </h5>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      Exact Formula: Balance &times; PPI &times; 39.37 &divide; 1,000 &bull; Factor: {factorVal} ({formData.product_group})
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-5 text-right">
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">Base KPX</span>
+                    <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+                      {baseKpx ? (Math.round(baseKpx * 100) / 100).toLocaleString() : '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-indigo-500 font-bold block uppercase tracking-wider">Corrected KPX</span>
+                    <span className="text-sm font-mono font-black text-indigo-600 dark:text-indigo-400">
+                      {corrKpx ? (Math.round(corrKpx * 100) / 100).toLocaleString() : '—'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">
             <button

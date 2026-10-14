@@ -53,18 +53,23 @@ export default function MainEntry() {
   const { activeRuns, setActiveRuns, looms, designs, beams, reeds, orders, nextPlans, rawNextPlans, refreshData } = useAppContext();
   const [entries, setEntries] = useState<Record<number, EntryState>>({});
   const [unlockedLoomDates, setUnlockedLoomDates] = useState<Record<number, boolean>>({});
-  const [unlockedLoomSpecs, setUnlockedLoomSpecs] = useState<Record<number, boolean>>({});
-  const [adminUnlockModal, setAdminUnlockModal] = useState<{
+  const [unlockedLoomReeds, setUnlockedLoomReeds] = useState<Record<number, boolean>>({});
+  const [unlockedLoomPicks, setUnlockedLoomPicks] = useState<Record<number, boolean>>({});
+  const [fieldUnlockModal, setFieldUnlockModal] = useState<{
     isOpen: boolean;
     loomNo: number | null;
-    targetField?: 'startDate' | 'specs';
+    field: 'startDate' | 'reed' | 'pick';
+    fieldName: string;
+    username: string;
     password: string;
     error: string | null;
     isVerifying: boolean;
   }>({
     isOpen: false,
     loomNo: null,
-    targetField: 'startDate',
+    field: 'startDate',
+    fieldName: 'Start Date',
+    username: '',
     password: '',
     error: null,
     isVerifying: false
@@ -783,94 +788,122 @@ export default function MainEntry() {
     return Array.from(set).sort();
   }, [looms]);
 
-  // Request Admin unlock for Loom Start Date
-  const handleRequestUnlockStartDate = useCallback((loomNo: number) => {
-    // If already unlocked, clicking toggles back to locked
-    if (unlockedLoomDates[loomNo]) {
+  // Request unlock for Main Entry restricted fields (Start Date, Reed, Pick)
+  const handleRequestUnlockField = useCallback((loomNo: number, field: 'startDate' | 'reed' | 'pick') => {
+    // If already unlocked, clicking toggles back to locked immediately
+    if (field === 'startDate' && unlockedLoomDates[loomNo]) {
       setUnlockedLoomDates(prev => ({ ...prev, [loomNo]: false }));
-      return;
-    }
-    if (isAdmin) {
-      setUnlockedLoomDates(prev => ({ ...prev, [loomNo]: true }));
-      setSuccessMsg(`Loom L-${loomNo}: Start Date unlocked for editing.`);
+      setSuccessMsg(`Loom L-${loomNo}: Start Date re-locked.`);
       setTimeout(() => setSuccessMsg(null), 2500);
       return;
     }
-    setErrorMsg(`Loom L-${loomNo}: Only Administrator ID can unlock and modify Loom Start Date.`);
-    setTimeout(() => setErrorMsg(null), 4000);
-  }, [unlockedLoomDates, isAdmin]);
-
-  // Request Admin unlock for Loom Reed & Pick
-  const handleRequestUnlockSpecs = useCallback((loomNo: number) => {
-    // If already unlocked, clicking toggles back to locked
-    if (unlockedLoomSpecs[loomNo]) {
-      setUnlockedLoomSpecs(prev => ({ ...prev, [loomNo]: false }));
-      return;
-    }
-    if (isAdmin) {
-      setUnlockedLoomSpecs(prev => ({ ...prev, [loomNo]: true }));
-      setSuccessMsg(`Loom L-${loomNo}: Reed & Pick unlocked for editing.`);
+    if (field === 'reed' && unlockedLoomReeds[loomNo]) {
+      setUnlockedLoomReeds(prev => ({ ...prev, [loomNo]: false }));
+      setSuccessMsg(`Loom L-${loomNo}: Reed Count re-locked.`);
       setTimeout(() => setSuccessMsg(null), 2500);
       return;
     }
-    setErrorMsg(`Loom L-${loomNo}: Only Administrator ID can unlock and modify Reed & Pick.`);
-    setTimeout(() => setErrorMsg(null), 4000);
-  }, [unlockedLoomSpecs, isAdmin]);
+    if (field === 'pick' && unlockedLoomPicks[loomNo]) {
+      setUnlockedLoomPicks(prev => ({ ...prev, [loomNo]: false }));
+      setSuccessMsg(`Loom L-${loomNo}: Pick Count re-locked.`);
+      setTimeout(() => setSuccessMsg(null), 2500);
+      return;
+    }
 
-  // Verify Admin password to unlock Start Date or Reed & Pick
-  const handleVerifyAdminPassword = async (e?: React.FormEvent) => {
+    const fieldLabel = field === 'startDate' ? '11. Start Date' : field === 'reed' ? '6. Reed Count' : '7. Pick Count';
+
+    // Always open verification modal asking for user credentials
+    setFieldUnlockModal({
+      isOpen: true,
+      loomNo,
+      field,
+      fieldName: fieldLabel,
+      username: user?.username || 'ADMIN',
+      password: '',
+      error: null,
+      isVerifying: false
+    });
+  }, [unlockedLoomDates, unlockedLoomReeds, unlockedLoomPicks, user]);
+
+  // Verify User credentials to unlock Start Date, Reed, or Pick
+  const handleVerifyFieldUnlock = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!adminUnlockModal.loomNo || !adminUnlockModal.password) {
-      setAdminUnlockModal(prev => ({ ...prev, error: 'Please enter Administrator Password' }));
+    if (!fieldUnlockModal.loomNo || !fieldUnlockModal.username || !fieldUnlockModal.password) {
+      setFieldUnlockModal(prev => ({ ...prev, error: 'Please enter both Username and Password' }));
       return;
     }
 
-    setAdminUnlockModal(prev => ({ ...prev, isVerifying: true, error: null }));
+    setFieldUnlockModal(prev => ({ ...prev, isVerifying: true, error: null }));
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/verify-admin-password`, {
+      const res = await fetch(`${API_BASE_URL}/api/auth/verify-field-unlock`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
-          password: adminUnlockModal.password,
-          username: user?.username || 'ADMIN'
+          username: fieldUnlockModal.username.trim(),
+          password: fieldUnlockModal.password,
+          field: fieldUnlockModal.field,
+          loomNo: fieldUnlockModal.loomNo
         })
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
-        const targetLoom = adminUnlockModal.loomNo;
-        if (adminUnlockModal.targetField === 'specs') {
-          setUnlockedLoomSpecs(prev => ({ ...prev, [targetLoom]: true }));
-          setAdminUnlockModal({ isOpen: false, loomNo: null, targetField: 'startDate', password: '', error: null, isVerifying: false });
-          setSuccessMsg(`Loom L-${targetLoom}: Reed & Pick unlocked! You can now edit Reed and Pick for this running loom. It will relock on Save.`);
-        } else {
+        const targetLoom = fieldUnlockModal.loomNo;
+        const targetField = fieldUnlockModal.field;
+        const targetLabel = fieldUnlockModal.fieldName;
+
+        if (targetField === 'startDate') {
           setUnlockedLoomDates(prev => ({ ...prev, [targetLoom]: true }));
-          setAdminUnlockModal({ isOpen: false, loomNo: null, targetField: 'startDate', password: '', error: null, isVerifying: false });
-          setSuccessMsg(`Loom L-${targetLoom} Start Date unlocked! Modify the date and click SAVE to lock it.`);
+          // Auto-relock after 5 minutes
+          setTimeout(() => {
+            setUnlockedLoomDates(prev => ({ ...prev, [targetLoom]: false }));
+          }, 300000);
+        } else if (targetField === 'reed') {
+          setUnlockedLoomReeds(prev => ({ ...prev, [targetLoom]: true }));
+          setTimeout(() => {
+            setUnlockedLoomReeds(prev => ({ ...prev, [targetLoom]: false }));
+          }, 300000);
+        } else if (targetField === 'pick') {
+          setUnlockedLoomPicks(prev => ({ ...prev, [targetLoom]: true }));
+          setTimeout(() => {
+            setUnlockedLoomPicks(prev => ({ ...prev, [targetLoom]: false }));
+          }, 300000);
         }
+
+        setFieldUnlockModal(prev => ({ ...prev, isOpen: false, password: '', error: null, isVerifying: false }));
+        setSuccessMsg(`Loom L-${targetLoom}: ${targetLabel} unlocked for 5 minutes by ${data.username || fieldUnlockModal.username}!`);
         setTimeout(() => setSuccessMsg(null), 4000);
       } else {
-        setAdminUnlockModal(prev => ({ ...prev, isVerifying: false, error: data.error || 'Incorrect Administrator Password. Please try again.' }));
+        setFieldUnlockModal(prev => ({
+          ...prev,
+          isVerifying: false,
+          error: data.error || 'Verification failed. Please check credentials and permissions.'
+        }));
       }
     } catch (err: any) {
-      setAdminUnlockModal(prev => ({ ...prev, isVerifying: false, error: 'Connection error while verifying password.' }));
+      setFieldUnlockModal(prev => ({ ...prev, isVerifying: false, error: 'Connection error while verifying credentials.' }));
     }
   };
 
   // Handle entry changes with strict Master validation
   const handleEntryChange = useCallback((loomNo: number, field: keyof EntryState, value: string | number) => {
-    // Start Date cannot be changed once set for an active run, UNLESS unlocked via Admin Password
+    // Start Date cannot be changed once set for an active run, UNLESS unlocked via User Verification
     if (field === 'loomStartDate' && activeRuns[loomNo]?.loomStartDate && !unlockedLoomDates[loomNo]) {
-      setErrorMsg(`Loom L-${loomNo}: Loom Start Date is locked. Click the Lock button and enter Admin Password to unlock.`);
+      setErrorMsg(`Loom L-${loomNo}: Loom Start Date is locked. Click the Lock button to enter authorized credentials.`);
       setTimeout(() => setErrorMsg(null), 4000);
       return;
     }
-    // Reed & Pick cannot be changed once set for an active run, UNLESS unlocked via Admin Password
-    if ((field === 'reed' || field === 'pick') && !unlockedLoomSpecs[loomNo]) {
-      setErrorMsg(`Loom L-${loomNo}: Reed and Pick are locked. Click the Lock button and enter Admin Password to unlock.`);
+    // Reed & Pick cannot be changed once set for an active run, UNLESS unlocked via User Verification
+    if (field === 'reed' && !unlockedLoomReeds[loomNo]) {
+      setErrorMsg(`Loom L-${loomNo}: Reed Count is locked. Click the Lock button to enter authorized credentials.`);
+      setTimeout(() => setErrorMsg(null), 4000);
+      return;
+    }
+    if (field === 'pick' && !unlockedLoomPicks[loomNo]) {
+      setErrorMsg(`Loom L-${loomNo}: Pick Count is locked. Click the Lock button to enter authorized credentials.`);
       setTimeout(() => setErrorMsg(null), 4000);
       return;
     }
@@ -1150,7 +1183,8 @@ export default function MainEntry() {
       await refreshData();
       // Auto-relock Loom Start Date & Specs after saving
       setUnlockedLoomDates(prev => ({ ...prev, [loomNo]: false }));
-      setUnlockedLoomSpecs(prev => ({ ...prev, [loomNo]: false }));
+      setUnlockedLoomReeds(prev => ({ ...prev, [loomNo]: false }));
+      setUnlockedLoomPicks(prev => ({ ...prev, [loomNo]: false }));
       setSuccessMsg(`Loom ${loomNo} production & spec entry for ${format(new Date(selectedProductionDate), 'dd-MMM-yyyy')} saved!`);
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (e) {
@@ -1284,7 +1318,8 @@ export default function MainEntry() {
       await Promise.all([refreshData(), fetchLogs()]);
       // Auto-relock all start dates and specs after saving
       setUnlockedLoomDates({});
-      setUnlockedLoomSpecs({});
+      setUnlockedLoomReeds({});
+      setUnlockedLoomPicks({});
       const skipNote = skippedBeforeStart > 0 ? ` (${skippedBeforeStart} looms skipped: entry date is prior to their start date)` : '';
       const warnNote = validationErrors.length > 0 ? ` (Note: ${validationErrors.length} beam design mismatch warning${validationErrors.length > 1 ? 's' : ''} logged)` : '';
       setSuccessMsg(`Successfully saved daily production entries for ${format(new Date(selectedProductionDate), 'dd-MMM-yyyy')} across ${savedCount} looms!${skipNote}${warnNote}`);
@@ -2357,12 +2392,12 @@ export default function MainEntry() {
                         </span>
                       </td>
 
-                      {/* 6. Reed Count (Locked by Admin - Unlockable by Admin only) */}
+                      {/* 6. Reed Count (Locked by Admin - Unlockable with credentials) */}
                       <td className="p-3 text-xs font-bold text-slate-950 dark:text-slate-100">
                         {(() => {
                           const defaultReed = (activeRunObj as any)?.current_reed_no || (activeRunObj as any)?.reed || design?.reed_count || design?.reedCount || matchedOrder?.reed_count || matchedOrder?.reedCount || matchedOrder?.designMaster?.reed_count || '';
                           const currentReedVal = (entry.reed !== undefined && String(entry.reed).trim() !== '') ? entry.reed : defaultReed;
-                          const isUnlocked = !!unlockedLoomSpecs[loom.loomNo];
+                          const isUnlocked = !!unlockedLoomReeds[loom.loomNo];
 
                           if (isUnlocked) {
                             return (
@@ -2377,9 +2412,9 @@ export default function MainEntry() {
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => handleRequestUnlockSpecs(loom.loomNo)}
+                                  onClick={() => handleRequestUnlockField(loom.loomNo, 'reed')}
                                   className="p-1 rounded text-xs font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 transition-all cursor-pointer shadow-xs"
-                                  title="Unlocked: Click to re-lock Reed & Pick"
+                                  title="Unlocked: Click to re-lock Reed Count"
                                 >
                                   <Unlock className="w-3 h-3 text-emerald-700" />
                                 </button>
@@ -2394,9 +2429,9 @@ export default function MainEntry() {
                               </span>
                               <button
                                 type="button"
-                                onClick={() => handleRequestUnlockSpecs(loom.loomNo)}
+                                onClick={() => handleRequestUnlockField(loom.loomNo, 'reed')}
                                 className="p-1 rounded text-xs font-bold bg-slate-100 hover:bg-amber-100 text-slate-500 hover:text-amber-800 border border-slate-300 dark:border-slate-700 dark:bg-slate-800 transition-all cursor-pointer shadow-xs"
-                                title="Locked: Click to enter Admin Password & unlock Reed & Pick for this running loom"
+                                title="Locked: Click to enter Username & Password to unlock Reed Count"
                               >
                                 <Lock className="w-3 h-3 text-amber-600" />
                               </button>
@@ -2405,14 +2440,14 @@ export default function MainEntry() {
                         })()}
                       </td>
 
-                      {/* 7. Pick (Locked by Admin - Unlockable by Admin only) */}
+                      {/* 7. Pick (Locked by Admin - Unlockable with credentials) */}
                       <td className="p-3 text-xs font-bold text-slate-950 dark:text-slate-100">
                         {(() => {
                           const constStr = design?.construction || matchedOrder?.construction || matchedOrder?.designMaster?.construction || '';
                           const parsedPick = constStr.match(/\b\d+\s*x\s*(\d+)\b/i)?.[1] || constStr.match(/\bX\s*(\d+)\b/i)?.[1] || '';
                           const defaultPick = (activeRunObj as any)?.current_pick || (activeRunObj as any)?.pick || design?.pick || (matchedOrder?.ppi !== undefined && matchedOrder?.ppi !== null && matchedOrder?.ppi !== '' ? String(matchedOrder.ppi) : '') || matchedOrder?.pick || matchedOrder?.designMaster?.pick || parsedPick || '';
                           const currentPickVal = (entry.pick !== undefined && String(entry.pick).trim() !== '') ? entry.pick : defaultPick;
-                          const isUnlocked = !!unlockedLoomSpecs[loom.loomNo];
+                          const isUnlocked = !!unlockedLoomPicks[loom.loomNo];
 
                           if (isUnlocked) {
                             return (
@@ -2427,9 +2462,9 @@ export default function MainEntry() {
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => handleRequestUnlockSpecs(loom.loomNo)}
+                                  onClick={() => handleRequestUnlockField(loom.loomNo, 'pick')}
                                   className="p-1 rounded text-xs font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 transition-all cursor-pointer shadow-xs"
-                                  title="Unlocked: Click to re-lock Reed & Pick"
+                                  title="Unlocked: Click to re-lock Pick Count"
                                 >
                                   <Unlock className="w-3 h-3 text-emerald-700" />
                                 </button>
@@ -2444,9 +2479,9 @@ export default function MainEntry() {
                               </span>
                               <button
                                 type="button"
-                                onClick={() => handleRequestUnlockSpecs(loom.loomNo)}
+                                onClick={() => handleRequestUnlockField(loom.loomNo, 'pick')}
                                 className="p-1 rounded text-xs font-bold bg-slate-100 hover:bg-amber-100 text-slate-500 hover:text-amber-800 border border-slate-300 dark:border-slate-700 dark:bg-slate-800 transition-all cursor-pointer shadow-xs"
-                                title="Locked: Click to enter Admin Password & unlock Reed & Pick for this running loom"
+                                title="Locked: Click to enter Username & Password to unlock Pick Count"
                               >
                                 <Lock className="w-3 h-3 text-amber-600" />
                               </button>
@@ -2594,7 +2629,7 @@ export default function MainEntry() {
                           />
                           <button
                             type="button"
-                            onClick={() => handleRequestUnlockStartDate(loom.loomNo)}
+                            onClick={() => handleRequestUnlockField(loom.loomNo, 'startDate')}
                             className={`p-1.5 rounded-lg border text-xs font-bold transition-all flex items-center justify-center cursor-pointer shadow-xs active:scale-95 ${
                               unlockedLoomDates[loom.loomNo]
                                 ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border-emerald-300'
@@ -2603,7 +2638,7 @@ export default function MainEntry() {
                             title={
                               unlockedLoomDates[loom.loomNo]
                                 ? 'Unlocked: Click to re-lock immediately'
-                                : 'Locked: Click to enter Admin Password & unlock Start Date'
+                                : 'Locked: Click to enter Username & Password to unlock Start Date'
                             }
                           >
                             {unlockedLoomDates[loom.loomNo] ? (
@@ -3540,84 +3575,6 @@ export default function MainEntry() {
         </div>
       )}
 
-      {/* ADMIN PASSWORD VERIFICATION MODAL FOR LOOM START DATE */}
-      {adminUnlockModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2.5 text-amber-600">
-                <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center font-bold">
-                  <Lock className="w-4 h-4 text-amber-600" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-black tracking-tight text-slate-900 dark:text-white">Admin Authorization</h3>
-                  <p className="text-[11px] text-slate-500">
-                    {adminUnlockModal.targetField === 'specs' 
-                      ? `Unlock Reed & Pick Specs for Loom L-${adminUnlockModal.loomNo}` 
-                      : `Unlock Start Date for Loom L-${adminUnlockModal.loomNo}`}
-                  </p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setAdminUnlockModal({ isOpen: false, loomNo: null, password: '', error: null, isVerifying: false })}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleVerifyAdminPassword} className="space-y-3">
-              <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 rounded-xl border border-amber-200/60 text-xs text-amber-900 dark:text-amber-200">
-                <p className="font-semibold leading-relaxed">
-                  {adminUnlockModal.targetField === 'specs' ? (
-                    <>Editing <strong>Reed & Pick specifications</strong> updates the running loom parameters directly without altering the Master Order. Please enter the <strong>Administrator Password</strong> to authorize.</>
-                  ) : (
-                    <>Changing the <strong>Loom Start Date</strong> directly recalculates the active warp runout forecast. Please enter the <strong>Administrator Password</strong> to authorize.</>
-                  )}
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Administrator Password</label>
-                <input
-                  type="password"
-                  autoFocus
-                  value={adminUnlockModal.password}
-                  onChange={e => setAdminUnlockModal(prev => ({ ...prev, password: e.target.value, error: null }))}
-                  placeholder="Enter admin password..."
-                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                />
-              </div>
-
-              {adminUnlockModal.error && (
-                <div className="p-2.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-xs font-bold text-red-700 dark:text-red-300 flex items-center gap-1.5">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{adminUnlockModal.error}</span>
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setAdminUnlockModal({ isOpen: false, loomNo: null, password: '', error: null, isVerifying: false })}
-                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all"
-                >
-                  CANCEL
-                </button>
-                <button
-                  type="submit"
-                  disabled={adminUnlockModal.isVerifying || !adminUnlockModal.password}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                >
-                  <Unlock className="w-3.5 h-3.5" />
-                  <span>{adminUnlockModal.isVerifying ? 'Verifying...' : 'CONFIRM & UNLOCK'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* LOOM WISE LOG DETAILS EXCEL EXPORT MODAL */}
       {showLogExportModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -4325,6 +4282,110 @@ export default function MainEntry() {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Field Unlock Modal (Restricted Field Authorization) */}
+      {fieldUnlockModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-amber-600 to-amber-700 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-amber-500/30 rounded-xl border border-amber-300/30">
+                  <Lock className="w-5 h-5 text-amber-100" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold tracking-tight">Authorized Field Unlock</h3>
+                  <p className="text-xs text-amber-100/90 font-medium">
+                    Loom L-{fieldUnlockModal.loomNo} &bull; {fieldUnlockModal.fieldName}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFieldUnlockModal(prev => ({ ...prev, isOpen: false, password: '', error: null }))}
+                className="p-1 rounded-lg hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+                title="Cancel"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleVerifyFieldUnlock} className="p-6 space-y-4">
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-xl text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <span>
+                  This field is restricted. Enter an authorized user&apos;s credentials to unlock for <strong>5 minutes</strong>. This action is permanently logged to system audit.
+                </span>
+              </div>
+
+              {fieldUnlockModal.error && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                  <span className="font-semibold">{fieldUnlockModal.error}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  value={fieldUnlockModal.username}
+                  onChange={e => setFieldUnlockModal(prev => ({ ...prev, username: e.target.value, error: null }))}
+                  placeholder="Enter authorized username"
+                  required
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={fieldUnlockModal.password}
+                  onChange={e => setFieldUnlockModal(prev => ({ ...prev, password: e.target.value, error: null }))}
+                  placeholder="Enter password to verify"
+                  required
+                  autoFocus
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="pt-2 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFieldUnlockModal(prev => ({ ...prev, isOpen: false, password: '', error: null }))}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={fieldUnlockModal.isVerifying}
+                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold shadow-sm flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {fieldUnlockModal.isVerifying ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Verifying...
+                    </>
+                  ) : (
+                    <>
+                      <Unlock className="w-3.5 h-3.5" />
+                      Verify &amp; Unlock (5 min)
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

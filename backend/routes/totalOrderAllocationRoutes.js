@@ -39,6 +39,35 @@ function addDays(date, days) {
   return result;
 }
 
+// Exact KPX Product Group Factor Engine (KPX 2026 Engine)
+function getProductGroupFactor(group) {
+  if (!group) return 1.25;
+  const g = String(group).trim().toLowerCase();
+  if (g.includes('linen')) return 1.66; // Linen Blind or Linen Blend
+  if (g.includes('special')) return 1.65;
+  if (g.includes('grey') || g.includes('greige')) return 1.00;
+  return 1.25; // Normal YD default
+}
+
+function calculateKpxValues(greyReq, greyCompleted, ppi, factor, daysTaken) {
+  const req = Number(greyReq) || 0;
+  const comp = Number(greyCompleted) || 0;
+  const balanceToWeave = Math.max(0, req - comp);
+  const ppiVal = Number(ppi) || 0;
+  const kpx = ppiVal > 0 ? (balanceToWeave * ppiVal * 39.37) / 1000 : 0;
+  const kpxFactor = factor !== undefined && factor !== null && !isNaN(Number(factor)) ? Number(factor) : 1.25;
+  const correctedKpx = kpx * kpxFactor;
+  const days = Number(daysTaken) || 0;
+  const correctedKpxPerDay = days > 0 ? (correctedKpx / days) : null;
+  return {
+    balanceToWeave,
+    kpx,
+    kpxFactor,
+    correctedKpx,
+    correctedKpxPerDay
+  };
+}
+
 // ==========================================
 // 1. DASHBOARD & KPIS
 // ==========================================
@@ -345,6 +374,13 @@ router.post('/orders', async (req, res) => {
       if (!finalPpi && design.ppi) finalPpi = design.ppi;
     }
 
+    const finalProductGroup = product_group || (order_type === 'Grey' ? 'Normal Grey' : 'Normal YD');
+    const finalFactor = (kpx_factor !== undefined && kpx_factor !== null && !isNaN(Number(kpx_factor)))
+      ? Number(kpx_factor)
+      : getProductGroupFactor(finalProductGroup);
+    const finalGreyReq = grey_req ? Number(grey_req) : Number(order_qty);
+    const kpxVals = calculateKpxValues(finalGreyReq, 0, finalPpi, finalFactor, null);
+
     const created = await prisma.toaOrder.create({
       data: {
         ibpo: String(ibpo).trim(),
@@ -354,12 +390,15 @@ router.post('/orders', async (req, res) => {
         order_type: order_type ? String(order_type).trim() : 'YD',
         construction: finalConstruction || null,
         order_qty: Number(order_qty),
-        grey_req: grey_req ? Number(grey_req) : Number(order_qty),
-        product_group: product_group || (order_type === 'Grey' ? 'Normal Grey' : 'Normal YD'),
+        grey_req: finalGreyReq,
+        grey_completed: 0,
+        balance_to_weave: kpxVals.balanceToWeave,
+        product_group: finalProductGroup,
         ppi: finalPpi,
-        kpx: kpx ? Number(kpx) : null,
-        kpx_factor: kpx_factor ? Number(kpx_factor) : 1.0,
-        corrected_kpx: kpx && kpx_factor ? Number(kpx) * Number(kpx_factor) : (kpx ? Number(kpx) : null),
+        kpx: kpxVals.kpx,
+        kpx_factor: kpxVals.kpxFactor,
+        corrected_kpx: kpxVals.correctedKpx,
+        tolerance_status: 'ACTIVE',
         width: finalWidth ? String(finalWidth).trim() : null,
         reed_count: finalReed ? String(finalReed).trim() : null,
         pick: finalPick ? String(finalPick).trim() : null,
@@ -456,9 +495,13 @@ router.post('/orders/bulk', async (req, res) => {
       const pick = row.pick || row['Pick'] || (design ? design.pick : null);
       const ppi = row.ppi || row['PPI'] || (design ? design.ppi : null);
       const order_type = row.order_type || row['Order Type'] || (sp_no.toUpperCase().includes('GREY') ? 'Grey' : 'YD');
-      const product_group = row.product_group || row['Product Group'] || (order_type === 'Grey' ? 'Normal Grey' : 'Normal YD');
-      const kpx = parseFloat(row.kpx || row['KPX'] || 0) || null;
-      const kpx_factor = parseFloat(row.kpx_factor || row['KPX Factor'] || 1.0) || 1.0;
+      const finalProductGroup = row.product_group || row['Product Group'] || (order_type === 'Grey' ? 'Normal Grey' : 'Normal YD');
+      const finalFactor = (row.kpx_factor || row['KPX Factor'])
+        ? parseFloat(row.kpx_factor || row['KPX Factor'])
+        : getProductGroupFactor(finalProductGroup);
+      const finalGreyReq = row.grey_req ? Number(row.grey_req) : order_qty;
+      const finalPpi = ppi ? Number(ppi) : null;
+      const kpxVals = calculateKpxValues(finalGreyReq, 0, finalPpi, finalFactor, null);
       const received_date = safeDate(row.received_date || row['Order Received Date'] || row['Date']);
       const target_date = row.target_date ? safeDate(row.target_date) : null;
 
@@ -472,12 +515,15 @@ router.post('/orders/bulk', async (req, res) => {
             order_type,
             construction: construction ? String(construction).trim() : null,
             order_qty,
-            grey_req: row.grey_req ? Number(row.grey_req) : order_qty,
-            product_group,
-            ppi: ppi ? Number(ppi) : null,
-            kpx,
-            kpx_factor,
-            corrected_kpx: kpx ? kpx * kpx_factor : null,
+            grey_req: finalGreyReq,
+            grey_completed: 0,
+            balance_to_weave: kpxVals.balanceToWeave,
+            product_group: finalProductGroup,
+            ppi: finalPpi,
+            kpx: kpxVals.kpx,
+            kpx_factor: kpxVals.kpxFactor,
+            corrected_kpx: kpxVals.correctedKpx,
+            tolerance_status: 'ACTIVE',
             width: width ? String(width).trim() : null,
             reed_count: reed_count ? String(reed_count).trim() : null,
             pick: pick ? String(pick).trim() : null,
@@ -1332,6 +1378,455 @@ router.post('/production/bulk', async (req, res) => {
 });
 
 // ==========================================
+// 6B. EXACT 2-COLUMN BULK PRODUCTION PASTE GRID [IBPO | Total Mtrs]
+// Cumulative update with 2% tolerance completion (>=98%) and overproduction (>102%)
+// ==========================================
+router.post(['/production/bulk-paste', '/orders/bulk-paste-production'], async (req, res) => {
+  try {
+    let { rows, text, entered_by } = req.body;
+
+    // Support raw Excel clipboard text: "IBPO\tTotal Mtrs\n..."
+    if ((!rows || !Array.isArray(rows) || rows.length === 0) && typeof text === 'string' && text.trim()) {
+      const lines = text.trim().split(/\r?\n/);
+      rows = [];
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        if (line.toLowerCase().includes('ibpo') && (line.toLowerCase().includes('mtr') || line.toLowerCase().includes('total'))) {
+          continue; // skip header row
+        }
+        const parts = line.split(/[\t,;]+|\s{2,}/);
+        if (parts.length >= 2) {
+          rows.push({
+            ibpo: parts[0].trim(),
+            total_meters: parseFloat(parts[1].trim())
+          });
+        } else {
+          const spaceParts = line.split(/\s+/);
+          if (spaceParts.length >= 2) {
+            rows.push({
+              ibpo: spaceParts[0].trim(),
+              total_meters: parseFloat(spaceParts[1].trim())
+            });
+          }
+        }
+      }
+    }
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'No rows provided. Paste 2 columns: [IBPO | Total Mtrs]' });
+    }
+
+    const updated = [];
+    const unchanged = [];
+    const autoCompleted = [];
+    const overproduced = [];
+    const notFound = [];
+    const invalid = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowNum = i + 1;
+      const ibpo = String(row.ibpo || row['IBPO'] || '').trim();
+      const rawMeters = row.total_meters !== undefined ? row.total_meters : (row['Total Mtrs'] || row['Total Meters'] || row['Meters']);
+      const totalMeters = parseFloat(rawMeters);
+
+      if (!ibpo) {
+        invalid.push({ row: rowNum, error: 'Missing IBPO' });
+        continue;
+      }
+      if (isNaN(totalMeters) || totalMeters < 0) {
+        invalid.push({ row: rowNum, ibpo, error: 'Invalid or negative Total Mtrs' });
+        continue;
+      }
+
+      const order = await prisma.toaOrder.findUnique({
+        where: { ibpo }
+      });
+
+      if (!order) {
+        notFound.push({ row: rowNum, ibpo, error: `IBPO "${ibpo}" not found in Total Order Allocation system` });
+        continue;
+      }
+
+      const currentCompleted = Number(order.grey_completed || 0);
+
+      // Check if unchanged (within 0.001 MTR) -> Skip unnecessary DB writes
+      if (Math.abs(totalMeters - currentCompleted) < 0.001) {
+        unchanged.push({
+          row: rowNum,
+          ibpo,
+          meters: currentCompleted,
+          status: order.status,
+          tolerance_status: order.tolerance_status || 'UNCHANGED',
+          message: 'Cumulative meters identical to current record. Row skipped.'
+        });
+        continue;
+      }
+
+      // Changed row: Recalculate exact KPX engine values
+      const greyReq = Number(order.grey_req || order.order_qty || 1);
+      const factor = Number(order.kpx_factor || getProductGroupFactor(order.product_group));
+      const kpxVals = calculateKpxValues(greyReq, totalMeters, order.ppi, factor, order.days_taken);
+      const completionPct = (totalMeters / greyReq) * 100;
+      const deltaMeters = totalMeters - currentCompleted;
+
+      let newStatus = order.status;
+      let toleranceStatus = 'IN_PROGRESS';
+
+      if (completionPct >= 98.0 && completionPct <= 102.0) {
+        newStatus = 'COMPLETED';
+        toleranceStatus = '2% AUTO-COMPLETED (>=98%)';
+      } else if (completionPct > 102.0) {
+        newStatus = 'COMPLETED';
+        toleranceStatus = 'OVERPRODUCED (>102%)';
+      } else {
+        newStatus = totalMeters > 0 ? 'IN_PRODUCTION' : order.status;
+        toleranceStatus = 'IN_PROGRESS';
+      }
+
+      // Update ToaOrder
+      await prisma.toaOrder.update({
+        where: { id: order.id },
+        data: {
+          grey_completed: totalMeters,
+          balance_to_weave: kpxVals.balanceToWeave,
+          kpx: kpxVals.kpx,
+          corrected_kpx: kpxVals.correctedKpx,
+          corrected_kpx_per_day: kpxVals.correctedKpxPerDay,
+          status: newStatus,
+          tolerance_status: toleranceStatus,
+          current_updated_date: new Date()
+        }
+      });
+
+      // Log production entry
+      await prisma.toaProductionLog.create({
+        data: {
+          order_id: order.id,
+          ibpo: order.ibpo,
+          allocation_type: order.allocation_type || 'IN_HOUSE',
+          production_date: new Date(),
+          produced_meter: deltaMeters > 0 ? deltaMeters : totalMeters,
+          entered_by: entered_by || '2-Col Paste Grid',
+          remarks: `Cumulative total: ${totalMeters} MTR (${completionPct.toFixed(1)}%). Prev: ${currentCompleted} MTR (Delta: ${deltaMeters >= 0 ? '+' : ''}${deltaMeters.toFixed(1)} MTR).`
+        }
+      });
+
+      // If order reached completion tolerance, upsert Completion Review
+      if (completionPct >= 98.0) {
+        await prisma.toaCompletionReview.upsert({
+          where: { order_id: order.id },
+          create: {
+            order_id: order.id,
+            ibpo: order.ibpo,
+            total_ordered: greyReq,
+            total_produced: totalMeters,
+            difference_meters: greyReq - totalMeters,
+            variance_percent: Math.abs(100 - completionPct),
+            is_within_3_pct: completionPct >= 97 && completionPct <= 103,
+            status: 'CLOSED',
+            closed_by: entered_by || '2-Col Paste Grid (2% Auto-Complete)',
+            approval_reason: `Auto-completed via 2-column paste grid: ${totalMeters} / ${greyReq} MTR (${completionPct.toFixed(1)}%). Satisfies 2% tolerance threshold.`
+          },
+          update: {
+            total_produced: totalMeters,
+            difference_meters: greyReq - totalMeters,
+            variance_percent: Math.abs(100 - completionPct),
+            status: 'CLOSED',
+            closed_by: entered_by || '2-Col Paste Grid (2% Auto-Complete)',
+            approval_reason: `Auto-completed via 2-column paste grid: ${totalMeters} / ${greyReq} MTR (${completionPct.toFixed(1)}%). Satisfies 2% tolerance threshold.`,
+            closed_at: new Date()
+          }
+        });
+      }
+
+      const updateRecord = {
+        row: rowNum,
+        ibpo,
+        sp_no: order.sp_no,
+        previousMeters: currentCompleted,
+        updatedMeters: totalMeters,
+        deltaMeters: Math.round(deltaMeters * 10) / 10,
+        greyReq,
+        balanceToWeave: kpxVals.balanceToWeave,
+        completionPct: completionPct.toFixed(1),
+        status: newStatus,
+        tolerance_status: toleranceStatus
+      };
+
+      updated.push(updateRecord);
+
+      if (completionPct >= 98.0 && completionPct <= 102.0) {
+        autoCompleted.push(updateRecord);
+      } else if (completionPct > 102.0) {
+        overproduced.push(updateRecord);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        totalRows: rows.length,
+        updatedCount: updated.length,
+        unchangedCount: unchanged.length,
+        autoCompletedCount: autoCompleted.length,
+        overproducedCount: overproduced.length,
+        notFoundCount: notFound.length,
+        invalidCount: invalid.length,
+        updated,
+        unchanged,
+        autoCompleted,
+        overproduced,
+        notFound,
+        invalid
+      }
+    });
+  } catch (err) {
+    console.error('TOA Bulk Paste Production error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// 7B. EXACT 1-COLUMN BULK COMPLETION REVIEW GRID [IBPO]
+// Bulk completes orders satisfying >=98% tolerance, otherwise explains balance
+// ==========================================
+router.post('/completion/bulk-complete', async (req, res) => {
+  try {
+    let { ibpos, text, user } = req.body;
+
+    // Parse single-column clipboard text: "IBPO\n..."
+    if ((!ibpos || !Array.isArray(ibpos) || ibpos.length === 0) && typeof text === 'string' && text.trim()) {
+      const lines = text.trim().split(/\r?\n/);
+      ibpos = [];
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (trimmed.toLowerCase() === 'ibpo' || trimmed.toLowerCase() === 'ibpo no') continue;
+        const firstCol = trimmed.split(/[\t,;\s]+/)[0];
+        if (firstCol) ibpos.push(firstCol);
+      }
+    }
+
+    if (!Array.isArray(ibpos) || ibpos.length === 0) {
+      return res.status(400).json({ success: false, error: 'No IBPO list provided. Paste 1 column: [IBPO]' });
+    }
+
+    const completed = [];
+    const alreadyCompleted = [];
+    const rejected = [];
+    const notFound = [];
+
+    for (let i = 0; i < ibpos.length; i++) {
+      const rawIbpo = ibpos[i];
+      const ibpo = String(rawIbpo).trim();
+      if (!ibpo) continue;
+
+      const order = await prisma.toaOrder.findUnique({
+        where: { ibpo }
+      });
+
+      if (!order) {
+        notFound.push({ ibpo, reason: `IBPO "${ibpo}" not found in system` });
+        continue;
+      }
+
+      if (order.status === 'COMPLETED') {
+        alreadyCompleted.push({
+          ibpo,
+          sp_no: order.sp_no,
+          grey_completed: order.grey_completed,
+          order_qty: order.order_qty,
+          message: 'Order is already marked as COMPLETED'
+        });
+        continue;
+      }
+
+      const greyReq = Number(order.grey_req || order.order_qty || 1);
+      const greyCompleted = Number(order.grey_completed || 0);
+      const completionPct = (greyCompleted / greyReq) * 100;
+      const remainingMtr = Math.max(0, greyReq - greyCompleted);
+
+      // 2% completion tolerance threshold (>= 98%)
+      if (completionPct >= 98.0) {
+        const isOver = completionPct > 102.0;
+        const toleranceStatus = isOver ? 'OVERPRODUCED (>102%)' : 'TOLERANCE_APPROVED (>=98%)';
+
+        await prisma.toaOrder.update({
+          where: { id: order.id },
+          data: {
+            status: 'COMPLETED',
+            tolerance_status: toleranceStatus,
+            current_updated_date: new Date()
+          }
+        });
+
+        await prisma.toaCompletionReview.upsert({
+          where: { order_id: order.id },
+          create: {
+            order_id: order.id,
+            ibpo: order.ibpo,
+            total_ordered: greyReq,
+            total_produced: greyCompleted,
+            difference_meters: greyReq - greyCompleted,
+            variance_percent: Math.abs(100 - completionPct),
+            is_within_3_pct: completionPct >= 97 && completionPct <= 103,
+            status: 'CLOSED',
+            closed_by: user || '1-Col Bulk Complete Grid',
+            approval_reason: `Bulk completed via 1-column grid. Completed: ${greyCompleted} / ${greyReq} MTR (${completionPct.toFixed(1)}%). 2% tolerance threshold satisfied.`
+          },
+          update: {
+            total_produced: greyCompleted,
+            difference_meters: greyReq - greyCompleted,
+            variance_percent: Math.abs(100 - completionPct),
+            status: 'CLOSED',
+            closed_by: user || '1-Col Bulk Complete Grid',
+            approval_reason: `Bulk completed via 1-column grid. Completed: ${greyCompleted} / ${greyReq} MTR (${completionPct.toFixed(1)}%). 2% tolerance threshold satisfied.`,
+            closed_at: new Date()
+          }
+        });
+
+        completed.push({
+          ibpo,
+          sp_no: order.sp_no,
+          greyReq,
+          greyCompleted,
+          completionPct: completionPct.toFixed(1),
+          tolerance_status: toleranceStatus,
+          message: `Closed successfully (${completionPct.toFixed(1)}% complete satisfies >=98% tolerance)`
+        });
+      } else {
+        const remainingPct = (100 - completionPct).toFixed(1);
+        rejected.push({
+          ibpo,
+          sp_no: order.sp_no,
+          greyReq,
+          greyCompleted,
+          remainingMtr: Math.round(remainingMtr * 10) / 10,
+          completionPct: completionPct.toFixed(1),
+          remainingPct,
+          reason: `Cannot close: produced only ${completionPct.toFixed(1)}%. Balance remaining is ${Math.round(remainingMtr * 10) / 10} MTR (${remainingPct}% remaining). Required >=98%.`
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        totalRequested: ibpos.length,
+        completedCount: completed.length,
+        alreadyCompletedCount: alreadyCompleted.length,
+        rejectedCount: rejected.length,
+        notFoundCount: notFound.length,
+        completed,
+        alreadyCompleted,
+        rejected,
+        notFound
+      }
+    });
+  } catch (err) {
+    console.error('TOA Bulk Completion error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// 9. IDEMPOTENT BASELINE SEED FROM ORDER MASTER
+// Seeds initial orders into ToaOrder if empty or force=true
+// ==========================================
+router.post('/seed-baseline', async (req, res) => {
+  try {
+    const force = req.query.force === 'true' || req.body?.force === true;
+    const currentCount = await prisma.toaOrder.count();
+
+    if (currentCount > 0 && !force) {
+      return res.json({
+        success: true,
+        message: `Total Order Allocation already contains ${currentCount} orders. Skipping seed (use ?force=true to append missing).`,
+        count: currentCount
+      });
+    }
+
+    // Fetch existing OrderMaster orders and DesignMaster
+    const masterOrders = await prisma.orderMaster.findMany({
+      orderBy: { id: 'asc' }
+    });
+
+    const designs = await prisma.designMaster.findMany();
+    const designMap = new Map();
+    designs.forEach(d => designMap.set((d.design_no_sp_no || '').trim().toLowerCase(), d));
+
+    const existingIbpos = new Set(
+      (await prisma.toaOrder.findMany({ select: { ibpo: true } })).map(o => o.ibpo.toLowerCase())
+    );
+
+    let seededCount = 0;
+
+    for (const mo of masterOrders) {
+      const ibpo = String(mo.ibpo_no || mo.order_no || `IBPO-${mo.id}`).trim();
+      if (!ibpo || existingIbpos.has(ibpo.toLowerCase())) continue;
+
+      const sp_no = String(mo.design_no_sp_no || mo.design_no || 'UNKNOWN').trim();
+      const design = designMap.get(sp_no.toLowerCase());
+
+      const order_qty = Number(mo.order_meters || mo.planned_meters || 1000);
+      const order_type = mo.order_type || (sp_no.toUpperCase().includes('GREY') ? 'Grey' : 'YD');
+      const product_group = order_type === 'Grey' ? 'Normal Grey' : 'Normal YD';
+      const factor = getProductGroupFactor(product_group);
+      const ppi = Number(mo.ppi || (design ? design.ppi : 90)) || 90;
+
+      const kpxVals = calculateKpxValues(order_qty, 0, ppi, factor, null);
+
+      await prisma.toaOrder.create({
+        data: {
+          ibpo,
+          customer: mo.buyer_name || mo.customer || null,
+          order_no: mo.order_no || null,
+          sp_no,
+          order_type,
+          construction: mo.construction || (design ? design.construction : null),
+          order_qty,
+          grey_req: order_qty,
+          grey_completed: 0,
+          balance_to_weave: kpxVals.balanceToWeave,
+          product_group,
+          ppi,
+          kpx: kpxVals.kpx,
+          kpx_factor: kpxVals.kpxFactor,
+          corrected_kpx: kpxVals.correctedKpx,
+          tolerance_status: 'ACTIVE',
+          width: mo.width || (design ? design.greige_width : null),
+          reed_count: mo.reed_count || (design ? design.reed_count : null),
+          pick: mo.pick || (design ? design.pick : null),
+          frames: mo.frames ? Number(mo.frames) : (design ? design.frames : null),
+          weft_colours: mo.weft_colours ? Number(mo.weft_colours) : (design ? design.weft_colours : null),
+          received_date: mo.createdAt || new Date(),
+          target_date: mo.delivery_date ? new Date(mo.delivery_date) : null,
+          priority: 'Medium',
+          status: 'PENDING',
+          allocation_type: 'UNALLOCATED'
+        }
+      });
+
+      existingIbpos.add(ibpo.toLowerCase());
+      seededCount++;
+    }
+
+    const totalCount = await prisma.toaOrder.count();
+    res.json({
+      success: true,
+      message: `Seeded ${seededCount} orders from OrderMaster into Total Order Allocation. Total active orders: ${totalCount}.`,
+      seededCount,
+      totalCount
+    });
+  } catch (err) {
+    console.error('TOA Seed Baseline error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
 // 7. COMPLETION REVIEW & CLOSE WORKFLOW
 // ==========================================
 router.get('/completion-review/:ibpo', async (req, res) => {
@@ -1591,78 +2086,256 @@ router.get('/reports/export-excel', async (req, res) => {
         productionLogs: true,
         completionReview: true
       },
-      orderBy: { received_date: 'desc' }
+      orderBy: { id: 'asc' }
     });
 
-    // Sheet 1: Orders
-    const ordersData = orders.map(o => {
-      const produced = o.productionLogs.reduce((acc, p) => acc + (Number(p.produced_meter) || 0), 0);
-      const allocated = o.allocations.reduce((acc, a) => acc + (Number(a.allocated_meters) || 0), 0);
-      return {
-        'IBPO': o.ibpo,
-        'SP NO': o.sp_no,
-        'Order Type': o.order_type,
-        'Customer': o.customer || '',
-        'GREY REQ (MTR)': o.order_qty,
-        'Allocated MTR': allocated,
-        'Produced MTR': produced,
-        'Balance To Weave': o.order_qty - produced,
-        'Received Date': formatDate(o.received_date),
-        'Target Date': formatDate(o.target_date),
-        'PPI': o.ppi || '',
-        'Width': o.width || '',
-        'Status': o.status,
-        'Allocation Type': o.allocation_type
-      };
-    });
-
-    // Sheet 2: Allocations
     const allAllocations = await prisma.toaAllocation.findMany({
       include: { vendor: true, vendorLoom: true, order: true },
       orderBy: { estimated_start_date: 'asc' }
     });
 
-    const allocData = allAllocations.map(a => ({
-      'IBPO': a.ibpo,
-      'SP NO': a.order ? a.order.sp_no : '',
-      'Allocation Type': a.allocation_type,
-      'Loom No': a.allocation_type === 'IN_HOUSE' ? a.loom_no : (a.vendorLoom ? a.vendorLoom.loom_no : ''),
-      'Vendor Name': a.vendor ? a.vendor.vendor_name : 'SPUPL In-House',
-      'Allocated MTR': a.allocated_meters,
-      'Start Date': formatDate(a.estimated_start_date),
-      'Runout Date': formatDate(a.estimated_runout_date),
-      'Days Taken': a.days_taken,
-      'Daily Prod Rate': a.avg_daily_prod,
-      'Status': a.status
-    }));
-
-    // Sheet 3: Production Logs
     const allLogs = await prisma.toaProductionLog.findMany({
-      orderBy: { production_date: 'desc' }
+      orderBy: { production_date: 'asc' }
     });
 
-    const prodData = allLogs.map(l => ({
-      'IBPO': l.ibpo,
-      'Date': formatDate(l.production_date),
-      'Allocation Type': l.allocation_type,
-      'Loom No': l.loom_no || '',
-      'Produced MTR': l.produced_meter,
-      'Entered By': l.entered_by,
-      'Remarks': l.remarks || ''
+    // ----------------------------------------------------
+    // Sheet 1: Dashboard (KPX 2026 Engine Executive Overview)
+    // ----------------------------------------------------
+    let totalGreyReq = 0;
+    let totalGreyCompleted = 0;
+    let totalBalanceToWeave = 0;
+    let totalKpx = 0;
+    let totalCorrectedKpx = 0;
+
+    const statusCounts = {};
+    const groupCounts = {};
+
+    orders.forEach(o => {
+      const req = Number(o.grey_req || o.order_qty) || 0;
+      const comp = Number(o.grey_completed) || 0;
+      const bal = o.balance_to_weave !== null && o.balance_to_weave !== undefined ? Number(o.balance_to_weave) : Math.max(0, req - comp);
+      const kpxVal = Number(o.kpx) || 0;
+      const corrKpxVal = Number(o.corrected_kpx) || 0;
+
+      totalGreyReq += req;
+      totalGreyCompleted += comp;
+      totalBalanceToWeave += bal;
+      totalKpx += kpxVal;
+      totalCorrectedKpx += corrKpxVal;
+
+      statusCounts[o.status] = (statusCounts[o.status] || 0) + 1;
+      const grp = o.product_group || 'Normal YD';
+      groupCounts[grp] = (groupCounts[grp] || 0) + 1;
+    });
+
+    const overallPct = totalGreyReq > 0 ? ((totalGreyCompleted / totalGreyReq) * 100).toFixed(2) + '%' : '0.00%';
+
+    const dashboardSummary = [
+      { 'METRIC / KPI': 'SPUPL Total Order Allocation System', 'VALUE / STATISTIC': 'Ref: KPX 2026 Engine' },
+      { 'METRIC / KPI': 'Report Generated On', 'VALUE / STATISTIC': new Date().toLocaleString() },
+      { 'METRIC / KPI': 'Total Orders Registered', 'VALUE / STATISTIC': orders.length },
+      { 'METRIC / KPI': 'Total Grey Required (MTR)', 'VALUE / STATISTIC': Math.round(totalGreyReq).toLocaleString() },
+      { 'METRIC / KPI': 'Total Grey Completed (MTR)', 'VALUE / STATISTIC': Math.round(totalGreyCompleted).toLocaleString() },
+      { 'METRIC / KPI': 'Total Balance To Weave (MTR)', 'VALUE / STATISTIC': Math.round(totalBalanceToWeave).toLocaleString() },
+      { 'METRIC / KPI': 'Overall Completion Percentage', 'VALUE / STATISTIC': overallPct },
+      { 'METRIC / KPI': 'Total Cumulative KPX', 'VALUE / STATISTIC': Math.round(totalKpx).toLocaleString() },
+      { 'METRIC / KPI': 'Total Corrected KPX', 'VALUE / STATISTIC': Math.round(totalCorrectedKpx).toLocaleString() },
+      { 'METRIC / KPI': 'Pending Orders', 'VALUE / STATISTIC': statusCounts['PENDING'] || 0 },
+      { 'METRIC / KPI': 'Allocated Orders', 'VALUE / STATISTIC': statusCounts['ALLOCATED'] || 0 },
+      { 'METRIC / KPI': 'In-Production Orders', 'VALUE / STATISTIC': statusCounts['IN_PRODUCTION'] || 0 },
+      { 'METRIC / KPI': 'Completed Orders (2% Tolerance / Closed)', 'VALUE / STATISTIC': statusCounts['COMPLETED'] || 0 },
+      { 'METRIC / KPI': 'Active In-House Loom Allocations', 'VALUE / STATISTIC': allAllocations.filter(a => a.allocation_type === 'IN_HOUSE' && a.status !== 'CANCELLED').length },
+      { 'METRIC / KPI': 'Active Vendor Loom Allocations', 'VALUE / STATISTIC': allAllocations.filter(a => a.allocation_type === 'VENDOR' && a.status !== 'CANCELLED').length }
+    ];
+
+    // ----------------------------------------------------
+    // Sheet 2: YD LM Alloction (Exact KPX Engine Formula Sheet)
+    // ----------------------------------------------------
+    const ydAllocationData = orders.map(o => {
+      const activeAlloc = o.allocations && o.allocations.length > 0 ? o.allocations[0] : null;
+      const req = Number(o.grey_req || o.order_qty) || 0;
+      const comp = Number(o.grey_completed) || 0;
+      const bal = o.balance_to_weave !== null && o.balance_to_weave !== undefined ? Number(o.balance_to_weave) : Math.max(0, req - comp);
+      const factor = Number(o.kpx_factor || getProductGroupFactor(o.product_group));
+      const ppi = o.ppi || 90;
+      const kpxVals = calculateKpxValues(req, comp, ppi, factor, o.days_taken);
+
+      const loomNoStr = activeAlloc
+        ? (activeAlloc.allocation_type === 'IN_HOUSE' ? `L-${activeAlloc.loom_no}` : (activeAlloc.vendor ? `${activeAlloc.vendor.vendor_name} (${activeAlloc.vendorLoom?.loom_no || 'V'})` : 'Vendor'))
+        : (o.allocation_type === 'IN_HOUSE' ? 'In-House Queue' : 'Unallocated');
+
+      const startDateStr = formatDate(o.loom_start_date || (activeAlloc ? activeAlloc.estimated_start_date : null));
+      const runoutDateStr = formatDate(o.loom_runout_date || (activeAlloc ? activeAlloc.estimated_runout_date : null));
+      const daysTaken = o.days_taken || (activeAlloc ? activeAlloc.days_taken : null) || '';
+      const corrKpxPerDay = (daysTaken && Number(daysTaken) > 0 && kpxVals.correctedKpx)
+        ? (kpxVals.correctedKpx / Number(daysTaken)).toFixed(2)
+        : '';
+
+      return {
+        'IBPO': o.ibpo,
+        'SP NO': o.sp_no,
+        'Product Group': o.product_group || 'Normal YD',
+        'Reed': o.reed_count || '',
+        'PPI': ppi,
+        'Width': o.width || '',
+        'Grey Qty Req': req,
+        'Grey Completed': comp,
+        'Balance To Weave': bal,
+        'KPX': kpxVals.kpx ? Math.round(kpxVals.kpx * 100) / 100 : 0,
+        'KPX Factor': factor,
+        'Corrected KPX': kpxVals.correctedKpx ? Math.round(kpxVals.correctedKpx * 100) / 100 : 0,
+        'Loom No': loomNoStr,
+        'Start Date': startDateStr,
+        'Runout Date': runoutDateStr,
+        'Days Taken': daysTaken,
+        'Corrected KPX/Day': corrKpxPerDay,
+        'Status': o.status,
+        'Tolerance Status': o.tolerance_status || 'ACTIVE'
+      };
+    });
+
+    // ----------------------------------------------------
+    // Sheet 3: Weekly MTR Report
+    // ----------------------------------------------------
+    const weeklyMap = new Map();
+    allLogs.forEach(l => {
+      const d = new Date(l.production_date);
+      if (isNaN(d.getTime())) return;
+      // Get ISO Week string
+      const tempDate = new Date(d.getTime());
+      tempDate.setHours(0, 0, 0, 0);
+      tempDate.setDate(tempDate.getDate() + 3 - (tempDate.getDay() + 6) % 7);
+      const week1 = new Date(tempDate.getFullYear(), 0, 4);
+      const weekNo = 1 + Math.round(((tempDate.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+      const key = `${tempDate.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+
+      let stat = weeklyMap.get(key);
+      if (!stat) {
+        stat = { week: key, totalMtrs: 0, inHouseMtrs: 0, vendorMtrs: 0, looms: new Set(), logCount: 0 };
+        weeklyMap.set(key, stat);
+      }
+      const m = Number(l.produced_meter) || 0;
+      stat.totalMtrs += m;
+      if (l.allocation_type === 'IN_HOUSE') stat.inHouseMtrs += m;
+      else stat.vendorMtrs += m;
+      if (l.loom_no) stat.looms.add(l.loom_no);
+      stat.logCount++;
+    });
+
+    const weeklyMtrData = Array.from(weeklyMap.values()).map(w => ({
+      'Week Period': w.week,
+      'Total Mtrs Produced': Math.round(w.totalMtrs),
+      'In-House Mtrs': Math.round(w.inHouseMtrs),
+      'Vendor Mtrs': Math.round(w.vendorMtrs),
+      'Active Looms': w.looms.size,
+      'Production Entries': w.logCount
     }));
 
-    // Create workbook
-    const wb = xlsx.utils.book_new();
-    const wsOrders = xlsx.utils.json_to_sheet(ordersData);
-    const wsAlloc = xlsx.utils.json_to_sheet(allocData);
-    const wsProd = xlsx.utils.json_to_sheet(prodData);
+    if (weeklyMtrData.length === 0) {
+      weeklyMtrData.push({
+        'Week Period': 'No production logs yet',
+        'Total Mtrs Produced': 0,
+        'In-House Mtrs': 0,
+        'Vendor Mtrs': 0,
+        'Active Looms': 0,
+        'Production Entries': 0
+      });
+    }
 
-    xlsx.utils.book_append_sheet(wb, wsOrders, 'Orders');
-    xlsx.utils.book_append_sheet(wb, wsAlloc, 'Allocations');
-    xlsx.utils.book_append_sheet(wb, wsProd, 'Production_History');
+    // ----------------------------------------------------
+    // Sheet 4: Monthly MTR Report
+    // ----------------------------------------------------
+    const monthlyMap = new Map();
+    allLogs.forEach(l => {
+      const d = new Date(l.production_date);
+      if (isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      let stat = monthlyMap.get(key);
+      if (!stat) {
+        stat = { month: key, totalMtrs: 0, inHouseMtrs: 0, vendorMtrs: 0, ibpos: new Set(), daysSet: new Set() };
+        monthlyMap.set(key, stat);
+      }
+      const m = Number(l.produced_meter) || 0;
+      stat.totalMtrs += m;
+      if (l.allocation_type === 'IN_HOUSE') stat.inHouseMtrs += m;
+      else stat.vendorMtrs += m;
+      if (l.ibpo) stat.ibpos.add(l.ibpo);
+      stat.daysSet.add(d.toISOString().split('T')[0]);
+    });
+
+    const monthlyMtrData = Array.from(monthlyMap.values()).map(m => {
+      const activeDays = m.daysSet.size || 1;
+      return {
+        'Month / Year': m.month,
+        'Total Mtrs Produced': Math.round(m.totalMtrs),
+        'In-House Mtrs': Math.round(m.inHouseMtrs),
+        'Vendor Mtrs': Math.round(m.vendorMtrs),
+        'Unique IBPOs Produced': m.ibpos.size,
+        'Daily Average MTR': Math.round(m.totalMtrs / activeDays)
+      };
+    });
+
+    if (monthlyMtrData.length === 0) {
+      monthlyMtrData.push({
+        'Month / Year': 'No production logs yet',
+        'Total Mtrs Produced': 0,
+        'In-House Mtrs': 0,
+        'Vendor Mtrs': 0,
+        'Unique IBPOs Produced': 0,
+        'Daily Average MTR': 0
+      });
+    }
+
+    // ----------------------------------------------------
+    // Sheet 5: Operational IBPO Lifecycle (Complete Audit Record)
+    // ----------------------------------------------------
+    const lifecycleData = orders.map(o => {
+      const req = Number(o.grey_req || o.order_qty) || 0;
+      const comp = Number(o.grey_completed) || 0;
+      const bal = o.balance_to_weave !== null && o.balance_to_weave !== undefined ? Number(o.balance_to_weave) : Math.max(0, req - comp);
+      const pct = req > 0 ? ((comp / req) * 100).toFixed(1) + '%' : '0.0%';
+      const review = o.completionReview;
+
+      return {
+        'IBPO': o.ibpo,
+        'SP NO': o.sp_no,
+        'Customer': o.customer || '—',
+        'Order Received Date': formatDate(o.received_date),
+        'Target Delivery Date': formatDate(o.target_date),
+        'Order Qty (MTR)': o.order_qty,
+        'Grey Required (MTR)': req,
+        'Grey Completed (MTR)': comp,
+        'Balance To Weave (MTR)': bal,
+        'Completion Rate': pct,
+        'Allocation Stream': o.allocation_type || 'UNALLOCATED',
+        'Order Status': o.status,
+        'Tolerance Status': o.tolerance_status || 'ACTIVE',
+        'Review Status': review ? review.status : 'PENDING',
+        'Closed By': review ? (review.closed_by || '—') : '—',
+        'Approval Reason / Notes': review ? (review.approval_reason || '—') : '—',
+        'Last Updated': formatDate(o.current_updated_date || o.updatedAt)
+      };
+    });
+
+    // ----------------------------------------------------
+    // Build Excel Workbook
+    // ----------------------------------------------------
+    const wb = xlsx.utils.book_new();
+
+    const wsDashboard = xlsx.utils.json_to_sheet(dashboardSummary);
+    const wsYdAlloc = xlsx.utils.json_to_sheet(ydAllocationData);
+    const wsWeekly = xlsx.utils.json_to_sheet(weeklyMtrData);
+    const wsMonthly = xlsx.utils.json_to_sheet(monthlyMtrData);
+    const wsLifecycle = xlsx.utils.json_to_sheet(lifecycleData);
+
+    xlsx.utils.book_append_sheet(wb, wsDashboard, 'Dashboard');
+    xlsx.utils.book_append_sheet(wb, wsYdAlloc, 'YD LM Alloction');
+    xlsx.utils.book_append_sheet(wb, wsWeekly, 'Weekly MTR Report');
+    xlsx.utils.book_append_sheet(wb, wsMonthly, 'Monthly MTR Report');
+    xlsx.utils.book_append_sheet(wb, wsLifecycle, 'Operational Lifecycle');
 
     const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    res.setHeader('Content-Disposition', 'attachment; filename="SPUPL_Total_Order_Allocation_Report.xlsx"');
+    res.setHeader('Content-Disposition', 'attachment; filename="SPUPL_Total_Order_Allocation_KPX_Report_2026.xlsx"');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(buffer);
   } catch (err) {

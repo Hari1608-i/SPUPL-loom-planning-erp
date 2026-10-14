@@ -1,3 +1,8 @@
+const path = require('path');
+try {
+  require('dotenv').config({ path: path.join(__dirname, '../backend/.env') });
+} catch (e) {}
+
 const app = require('../backend/upload_server.js');
 
 module.exports = async (req, res) => {
@@ -13,7 +18,7 @@ module.exports = async (req, res) => {
     if (rewrittenPath !== undefined && rewrittenPath !== null) {
       let pathValue = String(rewrittenPath).trim();
 
-      if (!pathValue) {
+      if (!pathValue || pathValue === 'index' || pathValue === 'index.js') {
         pathValue = '/api';
       } else {
         if (!pathValue.startsWith('/')) {
@@ -22,6 +27,10 @@ module.exports = async (req, res) => {
 
         if (!pathValue.startsWith('/api/')) {
           pathValue = '/api' + pathValue;
+        }
+
+        if (pathValue === '/api/index' || pathValue === '/api/index.js' || pathValue === '/api/index/') {
+          pathValue = '/api';
         }
       }
 
@@ -46,7 +55,8 @@ module.exports = async (req, res) => {
         : pathValue;
     } else if (
       req.url === '/api/index' ||
-      req.url === '/api/index/'
+      req.url === '/api/index/' ||
+      req.url === '/api/index.js'
     ) {
       req.url = '/api';
     }

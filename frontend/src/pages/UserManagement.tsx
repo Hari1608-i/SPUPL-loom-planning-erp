@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, User } from '../context/AuthContext';
-import { Search, Edit, Trash2, CheckCircle, XCircle, Shield, Key, Users as UsersIcon, UserCheck, Lock, Upload, Plus, CheckSquare, Square, Activity, Clock, Monitor, Globe, FileText, RefreshCw, X, Laptop, Smartphone, Eye } from 'lucide-react';
+import { Search, Edit, Trash2, CheckCircle, XCircle, Shield, Key, Users as UsersIcon, UserCheck, Lock, Upload, Plus, CheckSquare, Square, Activity, Clock, Monitor, Globe, FileText, RefreshCw, X, Laptop, Smartphone, Eye, Layers } from 'lucide-react';
 import { format } from 'date-fns';
 import KPICard from '../components/ui/KPICard';
 import GradientButton from '../components/ui/GradientButton';
@@ -150,6 +150,46 @@ const normalizeUserPermissions = (permsInput: any, role: string) => {
       }
     });
   }
+
+  // Ensure Main Entry Field Unlock permissions exist
+  const roleUpper = role?.toUpperCase() || '';
+  const isAdminRole = ['ADMINISTRATOR', 'ADMIN', 'SYSTEM ADMINISTRATOR'].includes(roleUpper);
+
+  if (!parsed.fieldPermissions || typeof parsed.fieldPermissions !== 'object') {
+    parsed.fieldPermissions = {
+      startDate: parsed.can_unlock_start_date ?? isAdminRole,
+      reed: parsed.can_unlock_reed ?? isAdminRole,
+      pick: parsed.can_unlock_pick ?? isAdminRole
+    };
+  }
+
+  // Ensure TOA granular permissions exist
+  if (!parsed.toaPermissions || typeof parsed.toaPermissions !== 'object') {
+    parsed.toaPermissions = {
+      dashboard: parsed.toa_dashboard ?? (isAdminRole || roleUpper === 'PLANNING'),
+      orderEntry: parsed.toa_order_entry ?? (isAdminRole || roleUpper === 'PLANNING'),
+      inhouseAlloc: parsed.toa_inhouse_alloc ?? (isAdminRole || roleUpper === 'PLANNING'),
+      vendorAlloc: parsed.toa_vendor_alloc ?? (isAdminRole || roleUpper === 'PLANNING'),
+      vendorMaster: parsed.toa_vendor_master ?? (isAdminRole || roleUpper === 'PLANNING'),
+      productionEntry: parsed.toa_production_entry ?? (isAdminRole || roleUpper === 'PLANNING' || roleUpper === 'WEAVING'),
+      bulkCompletion: parsed.toa_bulk_completion ?? (isAdminRole || roleUpper === 'PLANNING'),
+      reports: parsed.toa_reports ?? (isAdminRole || roleUpper === 'PLANNING' || roleUpper === 'MANAGEMENT')
+    };
+  }
+
+  // Keep top-level keys synchronized
+  parsed.can_unlock_start_date = !!parsed.fieldPermissions.startDate;
+  parsed.can_unlock_reed = !!parsed.fieldPermissions.reed;
+  parsed.can_unlock_pick = !!parsed.fieldPermissions.pick;
+
+  parsed.toa_dashboard = !!parsed.toaPermissions.dashboard;
+  parsed.toa_order_entry = !!parsed.toaPermissions.orderEntry;
+  parsed.toa_inhouse_alloc = !!parsed.toaPermissions.inhouseAlloc;
+  parsed.toa_vendor_alloc = !!parsed.toaPermissions.vendorAlloc;
+  parsed.toa_vendor_master = !!parsed.toaPermissions.vendorMaster;
+  parsed.toa_production_entry = !!parsed.toaPermissions.productionEntry;
+  parsed.toa_bulk_completion = !!parsed.toaPermissions.bulkCompletion;
+  parsed.toa_reports = !!parsed.toaPermissions.reports;
 
   return parsed;
 };
@@ -805,6 +845,151 @@ export default function UserManagement() {
                         })}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* Granular Field Locks & TOA Module Permissions */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                    
+                    {/* Main Entry Field Locks Access */}
+                    <div className="p-4 bg-amber-50/70 border-2 border-amber-200 rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between border-b border-amber-200 pb-2">
+                        <div className="flex items-center gap-2">
+                          <Lock className="w-4 h-4 text-amber-600" />
+                          <h4 className="text-xs font-black text-amber-950 uppercase tracking-wide">
+                            Main Entry — Restricted Field Unlock Rights
+                          </h4>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200 text-amber-900 rounded">
+                          Requires Password On Screen
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-800 leading-relaxed font-medium">
+                        Authorize this specific user ID to unlock and edit sensitive locked columns in Main Entry.
+                        Every unlock prompts for their username and password verification.
+                      </p>
+
+                      <div className="space-y-2 pt-1">
+                        <label className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-amber-200 cursor-pointer hover:bg-amber-100/50 transition-colors">
+                          <input 
+                            type="checkbox"
+                            checked={!!(formData.permissions?.fieldPermissions?.startDate ?? formData.permissions?.can_unlock_start_date)}
+                            onChange={(e) => {
+                              const val = e.target.checked;
+                              setFormData((prev: any) => ({
+                                ...prev,
+                                permissions: {
+                                  ...prev.permissions,
+                                  can_unlock_start_date: val,
+                                  fieldPermissions: { ...prev.permissions?.fieldPermissions, startDate: val }
+                                }
+                              }));
+                            }}
+                            className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-800">
+                            11. Start Date (Can unlock &amp; edit loom_start_date)
+                          </span>
+                        </label>
+
+                        <label className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-amber-200 cursor-pointer hover:bg-amber-100/50 transition-colors">
+                          <input 
+                            type="checkbox"
+                            checked={!!(formData.permissions?.fieldPermissions?.reed ?? formData.permissions?.can_unlock_reed)}
+                            onChange={(e) => {
+                              const val = e.target.checked;
+                              setFormData((prev: any) => ({
+                                ...prev,
+                                permissions: {
+                                  ...prev.permissions,
+                                  can_unlock_reed: val,
+                                  fieldPermissions: { ...prev.permissions?.fieldPermissions, reed: val }
+                                }
+                              }));
+                            }}
+                            className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-800">
+                            6. Reed Count (Can unlock &amp; edit current_reed_no)
+                          </span>
+                        </label>
+
+                        <label className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-amber-200 cursor-pointer hover:bg-amber-100/50 transition-colors">
+                          <input 
+                            type="checkbox"
+                            checked={!!(formData.permissions?.fieldPermissions?.pick ?? formData.permissions?.can_unlock_pick)}
+                            onChange={(e) => {
+                              const val = e.target.checked;
+                              setFormData((prev: any) => ({
+                                ...prev,
+                                permissions: {
+                                  ...prev.permissions,
+                                  can_unlock_pick: val,
+                                  fieldPermissions: { ...prev.permissions?.fieldPermissions, pick: val }
+                                }
+                              }));
+                            }}
+                            className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-800">
+                            7. Pick Count (Can unlock &amp; edit current_pick)
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Total Order Allocation Operational Permissions */}
+                    <div className="p-4 bg-teal-50/70 border-2 border-teal-200 rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between border-b border-teal-200 pb-2">
+                        <div className="flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-teal-700" />
+                          <h4 className="text-xs font-black text-teal-950 uppercase tracking-wide">
+                            Total Order Allocation (TOA) Permissions
+                          </h4>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 bg-teal-200 text-teal-900 rounded">
+                          Autonomous KPX Module
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-teal-800 leading-relaxed font-medium">
+                        Configure access to order allocation, capability scheduling, 2-column production entry, and 1-column bulk completion.
+                      </p>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        {[
+                          { key: 'dashboard', label: 'Access TOA Dashboard' },
+                          { key: 'orderEntry', label: 'Create & Edit Orders' },
+                          { key: 'inhouseAlloc', label: 'In-House Loom Allocation' },
+                          { key: 'vendorAlloc', label: 'Vendor Loom Allocation' },
+                          { key: 'vendorMaster', label: 'Manage Vendor Looms' },
+                          { key: 'productionEntry', label: '2-Col Production Entry' },
+                          { key: 'bulkCompletion', label: '1-Col Bulk Completion' },
+                          { key: 'reports', label: 'Export System Reports' }
+                        ].map(item => (
+                          <label key={item.key} className="flex items-center gap-2 p-1.5 bg-white rounded-lg border border-teal-200 cursor-pointer hover:bg-teal-100/40 transition-colors">
+                            <input 
+                              type="checkbox"
+                              checked={!!(formData.permissions?.toaPermissions?.[item.key] ?? formData.permissions?.[`toa_${item.key}`])}
+                              onChange={(e) => {
+                                const val = e.target.checked;
+                                setFormData((prev: any) => ({
+                                  ...prev,
+                                  permissions: {
+                                    ...prev.permissions,
+                                    [`toa_${item.key}`]: val,
+                                    toaPermissions: { ...prev.permissions?.toaPermissions, [item.key]: val }
+                                  }
+                                }));
+                              }}
+                              className="w-3.5 h-3.5 rounded text-teal-600 focus:ring-teal-500 accent-teal-600 cursor-pointer"
+                            />
+                            <span className="text-[11px] font-bold text-slate-800 truncate">
+                              {item.label}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
                   </div>
                 </div>
               )}

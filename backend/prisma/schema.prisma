@@ -886,26 +886,34 @@ model ToaOrder {
   sp_no            String
   order_type       String    @default("YD")
   construction     String?
-  order_qty        Float
-  grey_req         Float?
-  product_group    String?
-  ppi              Int?
-  kpx              Float?
-  kpx_factor       Float?    @default(1.0)
-  corrected_kpx    Float?
-  width            String?
-  reed_count       String?
-  pick             String?
-  frames           Int?
-  weft_colours     Int?
-  received_date    DateTime  @default(now())
-  target_date      DateTime?
-  priority         String    @default("Medium")
-  status           String    @default("PENDING")
-  allocation_type  String    @default("UNALLOCATED")
-  remarks          String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  order_qty             Float
+  grey_req              Float?
+  grey_completed        Float?    @default(0)
+  balance_to_weave      Float?
+  current_updated_date  DateTime? @default(now())
+  loom_start_date       DateTime?
+  loom_runout_date      DateTime?
+  days_taken            Int?
+  product_group         String?
+  ppi                   Int?
+  kpx                   Float?
+  kpx_factor            Float?    @default(1.0)
+  corrected_kpx         Float?
+  corrected_kpx_per_day Float?
+  tolerance_status      String?   @default("ACTIVE")
+  width                 String?
+  reed_count            String?
+  pick                  String?
+  frames                Int?
+  weft_colours          Int?
+  received_date         DateTime  @default(now())
+  target_date           DateTime?
+  priority              String    @default("Medium")
+  status                String    @default("PENDING")
+  allocation_type       String    @default("UNALLOCATED")
+  remarks               String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   allocations      ToaAllocation[]
   productionLogs   ToaProductionLog[]
