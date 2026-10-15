@@ -2,13 +2,28 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   ListTodo, Search, AlertCircle, CheckCircle2, Play, Lock, Eye, X, 
-  AlertTriangle, ArrowRight, ShieldCheck, Sparkles, RefreshCw, MessageSquare, ExternalLink, Filter, Check, Layers, Trash2, Scissors
+  AlertTriangle, ArrowRight, ShieldCheck, Sparkles, RefreshCw, MessageSquare, ExternalLink, Filter, Check, Layers, Trash2, Scissors, Calendar
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAppContext } from '../context/AppProvider';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
 import { WarpPrepConfirmationModal, WarpPrepDetails } from '../components/warpPreparation/WarpPrepConfirmationModal';
+
+export const formatDisplayDate = (d: any): string => {
+  if (!d) return '—';
+  if (typeof d === 'string') {
+    const match = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      return `${match[3]}-${match[2]}-${match[1]}`;
+    }
+  }
+  try {
+    return format(new Date(d), 'dd-MM-yyyy');
+  } catch {
+    return '—';
+  }
+};
 
 interface PlannedAssignment {
   id: number;
@@ -69,6 +84,43 @@ export default function PlannedLooms() {
   const [sortChangeEvaluations, setSortChangeEvaluations] = useState<Record<number, WarpPrepDetails>>({});
   const [auditModalDetails, setAuditModalDetails] = useState<WarpPrepDetails | null>(null);
   const [sortChangeSaving, setSortChangeSaving] = useState<Record<number, boolean>>({});
+
+  // Planned Start Date inline editing state
+  const [editingDatePlanId, setEditingDatePlanId] = useState<number | null>(null);
+  const [tempStartDate, setTempStartDate] = useState<string>('');
+  const [isSavingDate, setIsSavingDate] = useState<boolean>(false);
+
+  const handleStartEditDate = (plan: PlannedAssignment) => {
+    setEditingDatePlanId(plan.id);
+    const cur = plan.planned_start_date ? plan.planned_start_date.split('T')[0] : format(new Date(), 'yyyy-MM-dd');
+    setTempStartDate(cur);
+  };
+
+  const handleSaveDate = async (plan: PlannedAssignment) => {
+    if (!tempStartDate) return;
+    setIsSavingDate(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/planning/next-plan/update-date`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: plan.id, loomNo: plan.loom_no, startDate: tempStartDate })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAssignments(prev => prev.map(p => p.id === plan.id ? { ...p, planned_start_date: tempStartDate } : p));
+        setSuccessMsg(`Start date for Loom ${plan.loom_no} updated to ${formatDisplayDate(tempStartDate)}.`);
+        setEditingDatePlanId(null);
+        await refreshData();
+        setTimeout(() => setSuccessMsg(null), 4000);
+      } else {
+        setErrorMsg(data.error || 'Failed to update start date');
+      }
+    } catch (err: any) {
+      setErrorMsg('Error updating start date: ' + err.message);
+    } finally {
+      setIsSavingDate(false);
+    }
+  };
 
   const fetchEvaluationForPlan = async (planId: number) => {
     try {
@@ -544,32 +596,11 @@ export default function PlannedLooms() {
   };
 
   const filteredData = assignments.filter(d => {
-    // Hide cancelled or completed plans
+    // Only hide explicitly cancelled plans; all stored, planned, and confirmed plans remain visible until explicitly removed by the user
     if (
       d.status === 'CANCELLED' || 
-      d.status === 'COMPLETED' || 
-      d.confirmation_status === 'CANCELLED' || 
-      d.confirmation_status === 'COMPLETED'
+      d.confirmation_status === 'CANCELLED'
     ) {
-      return false;
-    }
-    // Hide plans that are already confirmed and running in Main Entry (page is dedicated to beam allocation and pending plans)
-    if (
-      d.readiness_status === 'RUNNING IN MAIN ENTRY' ||
-      d.status === 'CONFIRMED' ||
-      d.status === 'COMPLETED' ||
-      d.confirmation_status === 'CONFIRMED' ||
-      d.confirmation_status === 'COMPLETED' ||
-      d.confirmation_status === 'LOOM CONFIRMED'
-    ) {
-      return false;
-    }
-
-    // If this loom is already actively running this exact design in Main Entry, hide it (it was already confirmed and running)
-    const runningRun = (activeRuns as any)[d.loom_no];
-    const runningDesign = runningRun ? (runningRun.designNo || runningRun.design_no_sp_no || '').trim().toLowerCase() : '';
-    const planDesign = (d.next_design || '').trim().toLowerCase();
-    if (runningDesign && planDesign && runningDesign === planDesign) {
       return false;
     }
     const q = (searchTerm || '').trim().toLowerCase();
@@ -812,7 +843,46 @@ export default function PlannedLooms() {
                       <td className="p-3 text-slate-600 font-medium">{resolvedWidth || '—'}</td>
 
                       <td className="p-3 font-bold text-slate-800">
-                        {row.planned_start_date ? format(new Date(row.planned_start_date), 'dd-MM-yyyy') : '—'}
+                        {editingDatePlanId === row.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="date"
+                              value={tempStartDate}
+                              onChange={e => setTempStartDate(e.target.value)}
+                              className="p-1 text-xs border border-blue-400 rounded outline-none font-bold bg-white"
+                            />
+                            <button
+                              type="button"
+                              disabled={isSavingDate}
+                              onClick={() => handleSaveDate(row)}
+                              className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold"
+                              title="Save date"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSavingDate}
+                              onClick={() => setEditingDatePlanId(null)}
+                              className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-bold"
+                              title="Cancel"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-1 group">
+                            <span>{formatDisplayDate(row.planned_start_date)}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditDate(row)}
+                              className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-all"
+                              title="Edit Start Date"
+                            >
+                              <Calendar className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                       </td>
 
                       {/* Allocated Reed */}
@@ -1407,7 +1477,7 @@ export default function PlannedLooms() {
                     <div><span className="text-[10px] text-slate-400 font-bold block uppercase">IBPO / ORDER</span><strong className="text-blue-900 text-xs block">{confirmBeamModalPlan.order_no || '—'}</strong></div>
                     <div><span className="text-[10px] text-slate-400 font-bold block uppercase">DESIGN NO</span><strong className="text-slate-900 text-xs block">{confirmBeamModalPlan.next_design}</strong></div>
                     <div><span className="text-[10px] text-slate-400 font-bold block uppercase">TARGET LOOM</span><strong className="text-slate-900 text-xs block">Loom {confirmBeamModalPlan.loom_no}</strong></div>
-                    <div><span className="text-[10px] text-slate-400 font-bold block uppercase">EXPECTED START</span><strong className="text-slate-900 text-xs block">{confirmBeamModalPlan.planned_start_date ? format(new Date(confirmBeamModalPlan.planned_start_date), 'dd-MM-yyyy') : '—'}</strong></div>
+                    <div><span className="text-[10px] text-slate-400 font-bold block uppercase">EXPECTED START</span><strong className="text-slate-900 text-xs block">{confirmBeamModalPlan.planned_start_date ? formatDisplayDate(confirmBeamModalPlan.planned_start_date) : '—'}</strong></div>
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center pt-1 text-[11px] text-slate-600 font-semibold">

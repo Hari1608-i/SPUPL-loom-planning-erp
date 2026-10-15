@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAppContext } from '../context/AppProvider';
-import { calculateOrderLoomPlanningSummary, checkLoomCompatibility, calculateLoomRun } from '../utils/calculations';
+import { calculateOrderLoomPlanningSummary, checkLoomCompatibility, calculateLoomRun, formatDisplayDate } from '../utils/calculations';
 import { format } from 'date-fns';
 import {
   History, Search, CheckCircle2, AlertTriangle, ShieldCheck,
@@ -409,8 +409,9 @@ export default function NextPlan() {
           try {
             const rCalc = calculateLoomRun(matched.run as any);
             if (rCalc && rCalc.expectedRunoutDate && rCalc.balanceDays !== 999999) {
-              setAssignStartDate(format(rCalc.expectedRunoutDate, 'yyyy-MM-dd'));
-              setAssignRemarks(`Planned after runout of current beam (${format(rCalc.expectedRunoutDate, 'dd-MM-yyyy')})`);
+              if (!assignRemarks) {
+                setAssignRemarks(`Planned after runout of current beam (${format(rCalc.expectedRunoutDate, 'dd-MM-yyyy')})`);
+              }
             }
           } catch (e) {}
         }
@@ -966,7 +967,7 @@ export default function NextPlan() {
                       <div>Current Running: <strong className="text-purple-800 block">{currentRunDesign}</strong></div>
                       <div>Expected Runout: <strong className="text-indigo-700 block">{currentRunoutText}</strong></div>
                       <div>Next Design: <strong className="text-teal-700 block">{plan.next_design}</strong></div>
-                      <div>Next Start: <strong className="text-slate-900 block">{format(new Date(plan.planned_start_date || new Date()), 'dd-MM-yyyy')}</strong></div>
+                      <div>Next Start: <strong className="text-slate-900 block">{formatDisplayDate(plan.planned_start_date)}</strong></div>
                       <div className="col-span-2">
                         Allocated Beam: <strong className={isBeamAllocated ? 'text-emerald-700 font-mono' : 'text-amber-700'}>
                           {isBeamAllocated ? `BM-${plan.reserved_beam_no || 'Allocated'}` : 'BEAM PENDING'}
@@ -1295,8 +1296,9 @@ export default function NextPlan() {
                                   onChange={() => {
                                     setAssignLoomNo(item.loom.loomNo);
                                     if (runoutCalc && runoutCalc.expectedRunoutDate && runoutCalc.balanceDays !== 999999) {
-                                      setAssignStartDate(format(runoutCalc.expectedRunoutDate, 'yyyy-MM-dd'));
-                                      setAssignRemarks(`Planned after runout of current beam (${format(runoutCalc.expectedRunoutDate, 'dd-MM-yyyy')})`);
+                                      if (!assignRemarks) {
+                                        setAssignRemarks(`Planned after runout of current beam (${format(runoutCalc.expectedRunoutDate, 'dd-MM-yyyy')})`);
+                                      }
                                     }
                                   }}
                                   className="w-4 h-4 text-blue-600"
@@ -1427,7 +1429,7 @@ export default function NextPlan() {
                 <div>Order / IBPO: <strong className="text-blue-900 block font-bold">{showBeamModal.order_no}</strong></div>
                 <div>Design No: <strong className="text-slate-900 block font-bold">{showBeamModal.next_design}</strong></div>
                 <div>Planned Loom: <strong className="text-slate-900 block font-bold">Loom {showBeamModal.loom_no}</strong></div>
-                <div>Planned Start: <strong className="text-slate-900 block font-bold">{format(new Date(showBeamModal.planned_start_date || new Date()), 'dd-MM-yyyy')}</strong></div>
+                <div>Planned Start: <strong className="text-slate-900 block font-bold">{formatDisplayDate(showBeamModal.planned_start_date)}</strong></div>
               </div>
 
               {/* Search Filter for Beams */}

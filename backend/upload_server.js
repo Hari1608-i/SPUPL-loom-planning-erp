@@ -6835,28 +6835,8 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
         (p.order_no || '').trim().toLowerCase() === cleanIbpo.toLowerCase()
     );
 
-    // If this design/order was planned on another loom, clean it up from that loom and transfer beam
-    const previousOtherPlan = await prisma.plannedAssignment.findFirst({
-      where: {
-        loom_no: { not: loomNum },
-        status: { in: ['PLANNED', 'NOT PLANNED', 'PENDING', 'BEAM ALLOCATED', 'CONFIRMED'] },
-        OR: [
-          { order_no: cleanIbpo },
-          { next_design: cleanDesign }
-        ]
-      }
-    });
-
-    let transferredBeamId = null;
-    if (previousOtherPlan) {
-      if (previousOtherPlan.reserved_beam_id) {
-        transferredBeamId = previousOtherPlan.reserved_beam_id;
-      }
-      await prisma.plannedAssignment.delete({ where: { id: previousOtherPlan.id } }).catch(() => {});
-    }
-
     // Check beam stock availability (for informative status or explicit selection)
-    const beamIdInput = req.body.beamId || req.body.beam_id || transferredBeamId;
+    const beamIdInput = req.body.beamId || req.body.beam_id;
     let allocatedBeam = null;
     if (beamIdInput) {
       allocatedBeam = await prisma.beamStockMaster.findUnique({
@@ -7681,9 +7661,9 @@ app.post('/api/planning/next-plan/confirm', async (req, res) => {
       await prisma.plannedAssignment.updateMany({
         where: { loom_no: loomNum },
         data: {
-          status: 'COMPLETED',
-          confirmation_status: 'COMPLETED',
-          readiness_status: 'RUNNING IN MAIN ENTRY'
+          status: 'CONFIRMED',
+          confirmation_status: 'CONFIRMED',
+          readiness_status: 'CONFIRMED - READY IN MAIN ENTRY'
         }
       });
 
@@ -8111,9 +8091,8 @@ app.get('/api/planning/next-plans', async (req, res) => {
   try {
     const assignments = await prisma.plannedAssignment.findMany({
       where: {
-        status: { notIn: ['CANCELLED', 'COMPLETED'] },
-        confirmation_status: { notIn: ['CANCELLED', 'COMPLETED'] },
-        readiness_status: { not: 'RUNNING IN MAIN ENTRY' }
+        status: { notIn: ['CANCELLED'] },
+        confirmation_status: { notIn: ['CANCELLED'] }
       },
       include: {
         WarpPreparationProcess: {
@@ -8135,9 +8114,8 @@ app.get('/api/next-plans', async (req, res) => {
   try {
     const assignments = await prisma.plannedAssignment.findMany({
       where: {
-        status: { notIn: ['CANCELLED', 'COMPLETED'] },
-        confirmation_status: { notIn: ['CANCELLED', 'COMPLETED'] },
-        readiness_status: { not: 'RUNNING IN MAIN ENTRY' }
+        status: { notIn: ['CANCELLED'] },
+        confirmation_status: { notIn: ['CANCELLED'] }
       },
       include: {
         WarpPreparationProcess: {
@@ -8149,6 +8127,32 @@ app.get('/api/next-plans', async (req, res) => {
     });
     res.json(assignments);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update planned start date directly from Next Planned Looms
+app.post('/api/planning/next-plan/update-date', async (req, res) => {
+  try {
+    const { id, loomNo, startDate } = req.body;
+    if (!startDate || (!id && !loomNo)) {
+      return res.status(400).json({ error: 'Plan ID or Loom Number and new Start Date are required.' });
+    }
+
+    const dateVal = new Date(startDate);
+    const whereClause = id ? { id: Number(id) } : { loom_no: Number(loomNo) };
+
+    const updated = await prisma.plannedAssignment.updateMany({
+      where: whereClause,
+      data: {
+        planned_start_date: dateVal,
+        expected_start_date: dateVal
+      }
+    });
+
+    res.json({ success: true, count: updated.count });
+  } catch (error) {
+    console.error('Error updating plan date:', error);
     res.status(500).json({ error: error.message });
   }
 });

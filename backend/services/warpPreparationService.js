@@ -369,9 +369,6 @@ async function confirmPreparationProcess({
       sort_change_type: confirmedProcess,
       prep_status: 'PENDING'
     };
-    if (chosenStartDate) {
-      runData.loom_start_date = new Date(chosenStartDate);
-    }
     await prisma.loomRunEntry.updateMany({
       where: { loom_no: plan.loom_no },
       data: runData
