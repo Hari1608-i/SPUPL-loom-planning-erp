@@ -53,12 +53,18 @@ module.exports = async (req, res) => {
       req.url = queryString
         ? `${pathValue}?${queryString}`
         : pathValue;
-    } else if (
-      req.url === '/api/index' ||
-      req.url === '/api/index/' ||
-      req.url === '/api/index.js'
-    ) {
-      req.url = '/api';
+    } else {
+      const rawUrl = req.originalUrl || req.url || '/api';
+      if (rawUrl.startsWith('/api/index.js') || rawUrl.startsWith('/api/index')) {
+        const cleaned = rawUrl.replace(/^\/api\/index(\.js)?/, '/api');
+        req.url = cleaned || '/api';
+      } else if (!req.url || req.url === '/' || req.url === '/api/index.js') {
+        if (req.originalUrl && req.originalUrl.startsWith('/api')) {
+          req.url = req.originalUrl;
+        } else {
+          req.url = '/api';
+        }
+      }
     }
 
     return app(req, res);

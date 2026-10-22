@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { formatBalanceDays, formatRunoutDate } from '../utils/calculations';
 
-import { Activity, AlertTriangle, ArrowRight, CheckCircle2, ShieldCheck, Clock, RefreshCw, Search, X, Scissors, Trash2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { Activity, AlertTriangle, ArrowRight, CheckCircle2, ShieldCheck, Clock, RefreshCw, Search, X, Scissors, Trash2, Calendar } from 'lucide-react';
+import { format, addDays } from 'date-fns';
 import { useAppContext } from '../context/AppProvider';
 import { API_BASE_URL } from '../config';
 import GlobalSearchFilter, { SearchResultItem } from '../components/common/GlobalSearchFilter';
@@ -14,6 +14,7 @@ export default function RunoutMonitor() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [filterDelay, setFilterDelay] = useState('ALL');
   const [confirmModalData, setConfirmModalData] = useState<any>(null);
+  const [nextPlanStartDate, setNextPlanStartDate] = useState<string>('');
   const [cutBeamModalData, setCutBeamModalData] = useState<any>(null);
   const [cutReasonText, setCutReasonText] = useState<string>('Mid-run warp cut / Beam change');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -230,8 +231,38 @@ export default function RunoutMonitor() {
   const alertCount = monitorData.filter(d => d.balanceDays > 2 && d.balanceDays <= 6).length;
   const readyCount = monitorData.filter(d => d.plan && d.plan.status === 'CONFIRMED').length;
 
+  const openConfirmRunoutModal = (r: any) => {
+    setConfirmModalData(r);
+    let initDate = '';
+    if (r.plan?.planned_start_date) {
+      try {
+        const pd = new Date(r.plan.planned_start_date);
+        if (!isNaN(pd.getTime())) {
+          initDate = format(pd, 'yyyy-MM-dd');
+        }
+      } catch (e) {}
+    }
+    if (!initDate) {
+      try {
+        const baseD = r.expectedRunoutDate instanceof Date ? r.expectedRunoutDate : new Date(r.expectedRunoutDate || new Date());
+        if (!isNaN(baseD.getTime())) {
+          initDate = format(addDays(baseD, 1), 'yyyy-MM-dd');
+        } else {
+          initDate = format(new Date(), 'yyyy-MM-dd');
+        }
+      } catch (e) {
+        initDate = format(new Date(), 'yyyy-MM-dd');
+      }
+    }
+    setNextPlanStartDate(initDate);
+  };
+
   const handleConfirmRunout = async (promoteNext: boolean = false) => {
     if (!confirmModalData) return;
+    if (!nextPlanStartDate || !nextPlanStartDate.trim()) {
+      alert('Please select a valid Next Planned Loom Start Date before confirming runout.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const shouldPromote = promoteNext && confirmModalData.nextDesign && confirmModalData.nextDesign !== '—';
@@ -247,7 +278,7 @@ export default function RunoutMonitor() {
           clearOnly: !shouldPromote,
           promoteNext: shouldPromote,
           planId: confirmModalData.plan?.id,
-          startDate: format(new Date(), 'yyyy-MM-dd'),
+          startDate: nextPlanStartDate.trim(),
           warpMeter: confirmModalData.plan?.planned_warp_meter || 1800,
           dailyProduction: 0,
           beamNo: confirmModalData.plan?.reserved_beam_no,
@@ -263,9 +294,9 @@ export default function RunoutMonitor() {
         const errData = await response.json().catch(() => ({}));
         alert(errData?.error || 'Failed to confirm runout. Please try again.');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to confirm runout:', e);
-      alert('Error connecting to backend server.');
+      alert('Error connecting to backend server: ' + (e?.message || ''));
     } finally {
       setIsSubmitting(false);
     }
@@ -456,7 +487,7 @@ export default function RunoutMonitor() {
 
                         {/* CONFIRM RUNOUT BUTTON */}
                         <button
-                          onClick={() => setConfirmModalData(r)}
+                          onClick={() => openConfirmRunoutModal(r)}
                           title="Confirm runout and complete current design session"
                           className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg font-black text-[11px] inline-flex items-center gap-1 shadow-md transition-all cursor-pointer whitespace-nowrap active:scale-95"
                         >
@@ -681,6 +712,26 @@ export default function RunoutMonitor() {
                 <span className="font-bold text-slate-500">Promoted Next Design:</span>
                 <span className="font-black text-emerald-700">{confirmModalData.nextDesign !== '—' ? confirmModalData.nextDesign : 'None (Awaiting Next Plan)'}</span>
               </div>
+            </div>
+
+            {/* Next Planned Loom Start Date field */}
+            <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-200 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-black text-indigo-950 uppercase tracking-tight flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-indigo-600" /> Next Planned Loom Start Date
+                </label>
+                <span className="text-[10px] font-bold text-indigo-600 uppercase">Transfer to Main Entry</span>
+              </div>
+              <input
+                type="date"
+                value={nextPlanStartDate}
+                onChange={e => setNextPlanStartDate(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                required
+              />
+              <p className="text-[10px] text-slate-500">
+                This exact date will be persisted in database for this loom/plan and displayed in the Main Entry page.
+              </p>
             </div>
 
             <div className="text-[11px] text-slate-600 leading-relaxed bg-amber-50/70 p-3 rounded-xl border border-amber-200/80 space-y-1">

@@ -79,7 +79,7 @@ export default function DesignWiseRunningReport() {
   const [loading, setLoading] = useState<boolean>(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [autoRefresh, setAutoRefresh] = useState<boolean>(false);
-  const [viewMode, setViewMode] = useState<'TABLE' | 'MATRIX'>('TABLE');
+  const [viewMode, setViewMode] = useState<'DESIGN_UNITS' | 'TABLE' | 'MATRIX'>('DESIGN_UNITS');
   const [orderTypeFilter, setOrderTypeFilter] = useState<'ALL' | 'GREY' | 'YD'>('ALL');
 
   // Search & Filter state
@@ -281,6 +281,76 @@ export default function DesignWiseRunningReport() {
     });
 
     return { unitsMap, designOverallMap };
+  }, [filteredLooms]);
+
+  // Unit normalizer matching authoritative LoomMaster units to standard UNIT 1 - UNIT 5
+  const normalizeUnitName = (raw: string | undefined): 'UNIT 1' | 'UNIT 2' | 'UNIT 3' | 'UNIT 4' | 'UNIT 5' => {
+    const str = String(raw || '').trim().toUpperCase();
+    if (str.includes('V') && !str.includes('IV')) return 'UNIT 5';
+    if (str.includes('IV') || str.includes('4')) return 'UNIT 4';
+    if (str.includes('III') || str.includes('3')) return 'UNIT 3';
+    if (str.includes('II') || str.includes('2')) return 'UNIT 2';
+    if (str.includes('I') || str.includes('1')) return 'UNIT 1';
+    return 'UNIT 1';
+  };
+
+  // Grouped Summary across Units 1 to 5: Base Design -> Unit 1 to Unit 5 with Loom counts, loom numbers and full identifiers
+  const designWiseFiveUnitsSummary = useMemo(() => {
+    const getBaseDesign = (fullDesign: string) => {
+      const trimmed = (fullDesign || '').trim();
+      if (!trimmed) return 'UNKNOWN';
+      if (trimmed.includes('-')) {
+        return trimmed.split('-')[0].trim();
+      }
+      return trimmed;
+    };
+
+    const groups: Record<string, {
+      baseDesign: string;
+      totalLoomsAcrossAllUnits: number;
+      units: Record<'UNIT 1' | 'UNIT 2' | 'UNIT 3' | 'UNIT 4' | 'UNIT 5', {
+        totalRunningLooms: number;
+        loomNumbers: number[];
+        fullIdentifiers: string[];
+      }>;
+    }> = {};
+
+    filteredLooms.forEach(item => {
+      const fullDesign = item.designNo || 'UNKNOWN';
+      const base = getBaseDesign(fullDesign);
+      const unit = normalizeUnitName(item.unit);
+
+      if (!groups[base]) {
+        groups[base] = {
+          baseDesign: base,
+          totalLoomsAcrossAllUnits: 0,
+          units: {
+            'UNIT 1': { totalRunningLooms: 0, loomNumbers: [], fullIdentifiers: [] },
+            'UNIT 2': { totalRunningLooms: 0, loomNumbers: [], fullIdentifiers: [] },
+            'UNIT 3': { totalRunningLooms: 0, loomNumbers: [], fullIdentifiers: [] },
+            'UNIT 4': { totalRunningLooms: 0, loomNumbers: [], fullIdentifiers: [] },
+            'UNIT 5': { totalRunningLooms: 0, loomNumbers: [], fullIdentifiers: [] }
+          }
+        };
+      }
+
+      if (!groups[base].units[unit].loomNumbers.includes(item.loomNo)) {
+        groups[base].units[unit].loomNumbers.push(item.loomNo);
+        groups[base].units[unit].totalRunningLooms += 1;
+        groups[base].totalLoomsAcrossAllUnits += 1;
+      }
+      if (!groups[base].units[unit].fullIdentifiers.includes(fullDesign)) {
+        groups[base].units[unit].fullIdentifiers.push(fullDesign);
+      }
+    });
+
+    Object.values(groups).forEach(g => {
+      (['UNIT 1', 'UNIT 2', 'UNIT 3', 'UNIT 4', 'UNIT 5'] as const).forEach(u => {
+        g.units[u].loomNumbers.sort((a, b) => a - b);
+      });
+    });
+
+    return Object.values(groups).sort((a, b) => b.totalLoomsAcrossAllUnits - a.totalLoomsAcrossAllUnits || a.baseDesign.localeCompare(b.baseDesign));
   }, [filteredLooms]);
 
   // Visual Matrix structure: Rows = Designs, Columns = Units
@@ -653,6 +723,17 @@ export default function DesignWiseRunningReport() {
           {/* View Mode Switcher */}
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
             <button
+              onClick={() => setViewMode('DESIGN_UNITS')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                viewMode === 'DESIGN_UNITS'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
+              }`}
+            >
+              <Building2 className="w-4 h-4" />
+              <span>Units 1–5 Grouped Summary</span>
+            </button>
+            <button
               onClick={() => setViewMode('TABLE')}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
                 viewMode === 'TABLE'
@@ -772,6 +853,129 @@ export default function DesignWiseRunningReport() {
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-12 text-center">
           <RefreshCw className="w-8 h-8 text-spu-primary animate-spin mx-auto mb-3" />
           <p className="text-sm font-semibold text-slate-500">Loading live Design-Wise Loom Running report...</p>
+        </div>
+      ) : viewMode === 'DESIGN_UNITS' ? (
+        /* ── VIEW MODE 0: 5-UNITS DESIGN-WISE RUNNING SUMMARY (SP26/619 -> UNIT 1, UNIT 2, UNIT 3, UNIT 4, UNIT 5) ── */
+        <div className="space-y-6">
+          {designWiseFiveUnitsSummary.length === 0 ? (
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-12 text-center">
+              <Layers className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <p className="text-base font-bold text-slate-700 dark:text-slate-200">No Running Designs Found</p>
+              <p className="text-xs text-slate-400 mt-1">Try adjusting your filters or search query.</p>
+            </div>
+          ) : (
+            designWiseFiveUnitsSummary.map((group) => (
+              <div
+                key={group.baseDesign}
+                className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden"
+              >
+                {/* Header: Base Design Name and Total Looms */}
+                <div className="bg-slate-900 text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="px-3.5 py-1.5 bg-spu-primary text-white rounded-lg font-black text-sm tracking-wide shadow-sm">
+                      {group.baseDesign}
+                    </span>
+                    <div>
+                      <h2 className="text-sm font-black text-white uppercase tracking-wider">
+                        Design-Wise Running Summary
+                      </h2>
+                      <span className="text-[11px] text-slate-400 font-semibold">
+                        Breakdown across All 5 Production Units
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-bold uppercase">Total Running Looms:</span>
+                    <span className="px-3.5 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full font-black text-xs shadow-sm">
+                      {group.totalLoomsAcrossAllUnits} Looms
+                    </span>
+                  </div>
+                </div>
+
+                {/* 5 Units Grid: UNIT 1 to UNIT 5 */}
+                <div className="grid grid-cols-1 md:grid-cols-5 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-700 p-4 gap-4 md:gap-0 bg-slate-50/50 dark:bg-slate-900/30">
+                  {(['UNIT 1', 'UNIT 2', 'UNIT 3', 'UNIT 4', 'UNIT 5'] as const).map((unitKey) => {
+                    const uData = group.units[unitKey];
+                    const count = uData?.totalRunningLooms || 0;
+                    const hasLooms = count > 0;
+
+                    return (
+                      <div key={unitKey} className="px-4 py-2 space-y-3">
+                        {/* Unit Title & Count Badge */}
+                        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                          <span className="font-black text-xs text-slate-900 dark:text-white uppercase tracking-wider">
+                            {unitKey}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                              hasLooms
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                            }`}
+                          >
+                            {count} {count === 1 ? 'Loom' : 'Looms'}
+                          </span>
+                        </div>
+
+                        {/* Total Running Looms */}
+                        <div>
+                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">
+                            Total Running Looms:
+                          </div>
+                          <div className={`text-base font-black ${hasLooms ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'}`}>
+                            {count}
+                          </div>
+                        </div>
+
+                        {/* Loom Numbers Currently Running */}
+                        <div>
+                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">
+                            Loom Numbers Currently Running:
+                          </div>
+                          {hasLooms ? (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {uData.loomNumbers.map((lNum) => (
+                                <span
+                                  key={lNum}
+                                  className="px-2 py-0.5 bg-indigo-50 text-indigo-900 dark:bg-indigo-950 dark:text-indigo-200 rounded-md font-black text-xs border border-indigo-200 dark:border-indigo-800"
+                                >
+                                  L-{lNum}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400 font-semibold">—</span>
+                          )}
+                        </div>
+
+                        {/* Corresponding Full Design/Order Identifiers */}
+                        <div>
+                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">
+                            Full Design / Order Identifiers:
+                          </div>
+                          {hasLooms ? (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {uData.fullIdentifiers.map((ident) => (
+                                <span
+                                  key={ident}
+                                  className="px-2 py-0.5 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200 rounded-md font-bold text-[11px] border border-amber-200 dark:border-amber-800"
+                                  title={ident}
+                                >
+                                  {ident}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400 font-semibold">—</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       ) : viewMode === 'TABLE' ? (
         

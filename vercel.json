@@ -16,11 +16,11 @@
       "destination": "/api/index.js?path="
     },
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.js?path=$1"
+      "source": "/api/:path*",
+      "destination": "/api/index.js?path=:path*"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]

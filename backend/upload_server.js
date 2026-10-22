@@ -3156,6 +3156,173 @@ app.post('/api/beam-stock/allocate', async (req, res) => {
   }
 });
 
+// PUT /api/beam-stock/:id - Edit allocated beam details and synchronize linked records
+app.put('/api/beam-stock/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid Beam ID' });
+
+    const beam = await prisma.beamStockMaster.findUnique({ where: { id } });
+    if (!beam) return res.status(404).json({ error: 'Beam record not found' });
+
+    const {
+      beam_no,
+      party_beam_no,
+      order_no,
+      ibpo,
+      design_no,
+      vendor_name,
+      loom_no_assigned,
+      warp_meter,
+      available_meter,
+      total_warped_meter,
+      status,
+      remarks,
+      user
+    } = req.body;
+
+    const parsedMeter = available_meter !== undefined ? Number(available_meter) : (warp_meter !== undefined ? Number(warp_meter) : undefined);
+    const parsedLoom = loom_no_assigned !== undefined ? (Number(loom_no_assigned) || null) : undefined;
+
+    const updatedBeam = await prisma.beamStockMaster.update({
+      where: { id },
+      data: {
+        beam_no: beam_no !== undefined ? String(beam_no).trim() : undefined,
+        party_beam_no: party_beam_no !== undefined ? String(party_beam_no).trim() : undefined,
+        order_no: order_no !== undefined ? String(order_no).trim() : (ibpo !== undefined ? String(ibpo).trim() : undefined),
+        ibpo: ibpo !== undefined ? String(ibpo).trim() : (order_no !== undefined ? String(order_no).trim() : undefined),
+        design_no: design_no !== undefined ? String(design_no).trim() : undefined,
+        vendor_name: vendor_name !== undefined ? String(vendor_name).trim() : undefined,
+        loom_no_assigned: parsedLoom,
+        available_meter: parsedMeter !== undefined && !isNaN(parsedMeter) ? parsedMeter : undefined,
+        total_warped_meter: total_warped_meter !== undefined && !isNaN(Number(total_warped_meter)) ? Number(total_warped_meter) : (parsedMeter !== undefined && !isNaN(parsedMeter) ? parsedMeter : undefined),
+        status: status !== undefined ? String(status).trim() : undefined,
+        remarks: remarks !== undefined ? String(remarks).trim() : undefined
+      }
+    });
+
+    // Synchronize any active plannedAssignment if beam was assigned to a plan
+    if (updatedBeam.loom_no_assigned || updatedBeam.beam_no) {
+      await prisma.plannedAssignment.updateMany({
+        where: {
+          OR: [
+            { reserved_beam_id: id },
+            { reserved_beam_no: beam.beam_no }
+          ],
+          status: { notIn: ['COMPLETED', 'CANCELLED'] }
+        },
+        data: {
+          reserved_beam_no: updatedBeam.beam_no,
+          next_design: updatedBeam.design_no || undefined,
+          order_no: updatedBeam.order_no || undefined,
+          planned_warp_meter: updatedBeam.available_meter || undefined
+        }
+      }).catch(err => console.warn('Could not sync plannedAssignment on beam edit:', err));
+    }
+
+    try {
+      await prisma.systemAuditLog.create({
+        data: {
+          username: user || 'Planner',
+          screen: 'Beam Stock',
+          action: 'EDIT_ALLOCATED_BEAM',
+          oldValue: JSON.stringify({ id, beam_no: beam.beam_no, design: beam.design_no, loom: beam.loom_no_assigned }),
+          newValue: JSON.stringify({ id, beam_no: updatedBeam.beam_no, design: updatedBeam.design_no, loom: updatedBeam.loom_no_assigned })
+        }
+      });
+    } catch (e) {}
+
+    res.json({ success: true, message: `Beam #${updatedBeam.beam_no} updated successfully!`, beam: updatedBeam });
+  } catch (error) {
+    console.error('Error in PUT /api/beam-stock/:id:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/beam-stock/allocated/:id - Safely delete or release allocated beam
+app.delete('/api/beam-stock/allocated/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid Beam ID' });
+
+    const beam = await prisma.beamStockMaster.findUnique({ where: { id } });
+    if (!beam) return res.status(404).json({ error: 'Beam record not found' });
+
+    // 1. Safety Check: Is this beam actively running on a loom in Main Entry?
+    const runningRun = await prisma.loomRunEntry.findFirst({
+      where: {
+        OR: [
+          { beam_id: id },
+          { current_beam_no: beam.beam_no }
+        ],
+        NOT: {
+          design_no_sp_no: { contains: 'AVAILABLE' }
+        }
+      }
+    });
+
+    if (runningRun) {
+      return res.status(400).json({
+        error: `Cannot delete or unallocate: Beam #${beam.beam_no} is currently actively running on Loom ${runningRun.loom_no} in Main Entry. Runout or unload the loom first.`
+      });
+    }
+
+    // 2. Check if allocated to plannedAssignment: Safely release reservation
+    await prisma.plannedAssignment.updateMany({
+      where: {
+        OR: [
+          { reserved_beam_id: id },
+          { reserved_beam_no: beam.beam_no }
+        ],
+        status: { notIn: ['COMPLETED', 'CANCELLED'] }
+      },
+      data: {
+        reserved_beam_id: null,
+        reserved_beam_no: null,
+        beam_status: 'NOT ALLOCATED'
+      }
+    }).catch(err => console.warn('Could not release plannedAssignment beam:', err));
+
+    // 3. If permanent delete requested, remove from DB; otherwise soft-release to Available
+    const isPermanent = req.query.permanent === 'true';
+    if (isPermanent) {
+      await prisma.beamStockMaster.delete({ where: { id } });
+    } else {
+      await prisma.beamStockMaster.update({
+        where: { id },
+        data: {
+          status: 'Available',
+          loom_no_assigned: null,
+          reserved_for: null,
+          remarks: `Allocation released back to Available stock by ${req.query.user || 'Planner'}`
+        }
+      });
+    }
+
+    try {
+      await prisma.systemAuditLog.create({
+        data: {
+          username: req.query.user || 'Planner',
+          screen: 'Beam Stock',
+          action: isPermanent ? 'DELETE_ALLOCATED_BEAM' : 'RELEASE_ALLOCATED_BEAM',
+          oldValue: JSON.stringify({ id, beam_no: beam.beam_no, loom: beam.loom_no_assigned }),
+          newValue: JSON.stringify({ status: isPermanent ? 'DELETED' : 'AVAILABLE' })
+        }
+      });
+    } catch (e) {}
+
+    res.json({
+      success: true,
+      message: isPermanent
+        ? `Beam #${beam.beam_no} deleted from database.`
+        : `Beam #${beam.beam_no} unallocated and released back to Available physical stock.`
+    });
+  } catch (error) {
+    console.error('Error in DELETE /api/beam-stock/allocated/:id:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/beam-stock/confirm-beam', async (req, res) => {
   try {
     const { beam_id, beam_no, confirmed_by, remarks } = req.body;
@@ -3617,7 +3784,7 @@ app.get('/api/daily-report', async (req, res) => {
     });
 
     // Check for exact-date daily target for WEAVING
-    const weavingDailyMaster = masters.find(m => 
+    const weavingDailyMaster = masters.find(m =>
       m.department_code === `DAILY_TARGET__WEAVING__${dateArg}` ||
       m.department_code === `DAILY_TARGET__WEAVING__ALL__${dateArg}` ||
       (m.department_code.startsWith(`DAILY_TARGET__WEAVING__`) && m.department_code.endsWith(`__${dateArg}`))
@@ -3648,10 +3815,10 @@ app.get('/api/daily-report', async (req, res) => {
       }
     });
 
-    res.json({ 
-      entries: finalEntries, 
-      count: finalEntries.length, 
-      departmentMasters: masters, 
+    res.json({
+      entries: finalEntries,
+      count: finalEntries.length,
+      departmentMasters: masters,
       monthlyTargets: monthlyTargetsMap,
       weavingDailyTargets: weavingDailyTargets || null
     });
@@ -5790,7 +5957,7 @@ app.post('/api/confirm-plan', async (req, res) => {
     let finalBeamNo = finalNextDesign ? (beamNo || planEntry?.reserved_beam_no || null) : null;
     let finalSetNo = finalNextDesign ? (setNo || planEntry?.reserved_set_no || null) : null;
     const finalBeamId = finalNextDesign ? (beamId ? parseInt(beamId, 10) : (planEntry?.reserved_beam_id || null)) : null;
-    
+
     let finalWarpMeter = 0;
     if (finalNextDesign) {
       if (Number(warpMeter) > 0) {
@@ -5922,6 +6089,31 @@ app.post('/api/confirm-plan', async (req, res) => {
           where: { beam_no: currentRun.current_beam_no, loom_no_assigned: loomNum, status: 'Running' },
           data: { status: 'Completed', loom_no_assigned: null, reserved_for: null }
         }).catch(() => { });
+      }
+
+      // Persist the confirmed Next Planned Loom Start Date to the queued plan in database
+      if (startDate) {
+        const parsedStartDate = new Date(startDate);
+        if (!isNaN(parsedStartDate.getTime())) {
+          const planTargetId = req.body.planId ? Number(req.body.planId) : (planEntry ? planEntry.id : null);
+          if (planTargetId) {
+            await prisma.plannedAssignment.update({
+              where: { id: planTargetId },
+              data: {
+                planned_start_date: parsedStartDate,
+                expected_start_date: parsedStartDate
+              }
+            }).catch((err) => console.warn('Could not update plannedAssignment start date:', err.message));
+          } else {
+            await prisma.plannedAssignment.updateMany({
+              where: { loom_no: loomNum, status: { not: 'CANCELLED' } },
+              data: {
+                planned_start_date: parsedStartDate,
+                expected_start_date: parsedStartDate
+              }
+            }).catch((err) => console.warn('Could not update plannedAssignment start date:', err.message));
+          }
+        }
       }
     }
 
@@ -6946,7 +7138,7 @@ app.post('/api/planning/next-plan/save', async (req, res) => {
       beamAvailable: !!beam,
       reedAvailable: !!reed,
       warpPreparation,
-      message: allocatedBeam 
+      message: allocatedBeam
         ? `Loom ${loomNum} plan saved and Beam #${allocatedBeam.beam_no} allocated successfully!`
         : `Loom ${loomNum} plan saved successfully! Status: PLANNED (Beam Allocation Pending).`
     });
@@ -9026,6 +9218,275 @@ app.post('/api/erp-alerts/:id/dismiss', async (req, res) => {
 });
 
 // ----------------------------------------------------
+// CENTRALIZED OPERATIONAL NOTIFICATIONS API (6 CATEGORIES)
+// ----------------------------------------------------
+app.get('/api/operational-alerts', async (req, res) => {
+  try {
+    const [looms, activeRuns, designs, orders, plans, beams, logs] = await Promise.all([
+      prisma.loomMaster.findMany(),
+      prisma.loomRunEntry.findMany({ orderBy: { loom_no: 'asc' } }),
+      prisma.designMaster.findMany(),
+      prisma.orderMaster.findMany(),
+      prisma.plannedAssignment.findMany({ where: { status: { not: 'CANCELLED' } } }),
+      prisma.beamStockMaster.findMany(),
+      prisma.dailyProductionLog.findMany({ orderBy: { date: 'desc' } })
+    ]);
+
+    const loomMap = new Map();
+    looms.forEach(l => loomMap.set(l.loom_no, l));
+
+    const getLoomUnit = (lNum) => {
+      const l = loomMap.get(Number(lNum));
+      let raw = l?.unit || (lNum <= 56 ? 'Unit I' : lNum <= 112 ? 'Unit II' : lNum <= 168 ? 'Unit III' : 'Unit IV');
+      raw = String(raw).trim().toUpperCase();
+      if (raw.includes('V') && !raw.includes('IV')) return 'UNIT 5';
+      if (raw.includes('IV') || raw.includes('4')) return 'UNIT 4';
+      if (raw.includes('III') || raw.includes('3')) return 'UNIT 3';
+      if (raw.includes('II') || raw.includes('2')) return 'UNIT 2';
+      if (raw.includes('I') || raw.includes('1')) return 'UNIT 1';
+      return 'UNIT 1';
+    };
+
+    const designMap = new Map();
+    designs.forEach(d => {
+      const k = (d.design_no_sp_no || d.design_no || '').trim().toLowerCase();
+      if (k) designMap.set(k, d);
+    });
+
+    const activeOrderNos = new Set();
+    const activeOrders = orders.filter(o => {
+      const st = (o.status || '').toUpperCase();
+      const cst = (o.order_completion_status || '').toUpperCase();
+      const isActive = st !== 'ORDER COMPLETED' && st !== 'COMPLETED' && cst !== 'COMPLETED';
+      if (isActive) {
+        if (o.order_no) activeOrderNos.add(o.order_no.trim().toLowerCase());
+        if (o.ibpo_no) activeOrderNos.add(o.ibpo_no.trim().toLowerCase());
+      }
+      return isActive;
+    });
+
+    const alerts = [];
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    // Category A: RUNOUT ALERTS
+    for (const run of activeRuns) {
+      if (!run.design_no_sp_no || !run.design_no_sp_no.trim()) continue;
+      const lNum = run.loom_no;
+      const unit = getLoomUnit(lNum);
+      const cleanD = (run.design_no_sp_no || '').trim().toLowerCase();
+      const dRec = designMap.get(cleanD) || (cleanD.includes('-') ? designMap.get(cleanD.split('-')[0].trim()) : null);
+      const crimpPct = (dRec?.crimp_percent ?? dRec?.crimp_percentage ?? 5) / 100;
+
+      const loomLogs = logs.filter(l => Number(l.loom_no) === Number(lNum));
+      const produced = loomLogs.reduce((acc, l) => acc + (Number(l.produced_meter) || 0), 0);
+      const warped = Number(run.warped_meter) || 1800;
+      const grossBal = Math.max(0, warped - produced);
+      const netBal = Math.round(grossBal * (1 - crimpPct));
+      const dailyRate = Number(run.daily_production) > 0 ? Number(run.daily_production) : 200;
+      const balanceDays = Math.max(0, Math.ceil(netBal / dailyRate));
+      const runoutDate = new Date(today.getTime() + balanceDays * 86400000);
+
+      const hasNextPlan = plans.some(p => p.loom_no === lNum && p.status !== 'CANCELLED' && p.status !== 'COMPLETED');
+
+      if (balanceDays <= 15) {
+        alerts.push({
+          id: `RUNOUT_${lNum}`,
+          category: 'RUNOUT_ALERTS',
+          categoryLabel: 'Runout Alert',
+          priority: balanceDays <= 2 ? 'CRITICAL' : balanceDays <= 6 ? 'HIGH' : 'MEDIUM',
+          unit,
+          loomNo: lNum,
+          designNo: run.design_no_sp_no,
+          orderNo: run.order_no || '—',
+          reference: `Loom ${lNum}`,
+          date: runoutDate.toISOString().split('T')[0],
+          balanceDays,
+          status: balanceDays <= 2 ? '<= 2 DAYS (URGENT)' : balanceDays <= 6 ? '<= 6 DAYS' : '<= 15 DAYS',
+          description: `Loom ${lNum} (${unit}) running ${run.design_no_sp_no} estimated to runout in ${balanceDays} day(s) (${runoutDate.toLocaleDateString()}). ${hasNextPlan ? 'Next plan is queued.' : 'NO NEXT PLAN ASSIGNED.'}`,
+          action: hasNextPlan ? 'Confirm Next Plan Beam & Loom' : 'Assign Next Plan in Setup'
+        });
+      }
+    }
+
+    // Category B: WEAVING / PRODUCTION UPDATE REQUIRED
+    for (const run of activeRuns) {
+      if (!run.design_no_sp_no || !run.design_no_sp_no.trim()) continue;
+      const lNum = run.loom_no;
+      const unit = getLoomUnit(lNum);
+
+      const loomLogs = logs.filter(l => Number(l.loom_no) === Number(lNum));
+      const lastLog = loomLogs[0];
+      const lastEntryDate = lastLog ? new Date(lastLog.date) : new Date(run.loom_start_date || today);
+      const lastEntryStr = lastEntryDate.toISOString().split('T')[0];
+      const diffDays = Math.floor((today.getTime() - lastEntryDate.getTime()) / 86400000);
+
+      if (diffDays >= 1) {
+        alerts.push({
+          id: `WEAVING_LOG_${lNum}`,
+          category: 'WEAVING_UPDATE_REQUIRED',
+          categoryLabel: 'Weaving / Production Update Required',
+          priority: diffDays >= 3 ? 'CRITICAL' : diffDays >= 2 ? 'HIGH' : 'MEDIUM',
+          unit,
+          loomNo: lNum,
+          designNo: run.design_no_sp_no,
+          orderNo: run.order_no || '—',
+          reference: `Loom ${lNum}`,
+          date: lastEntryStr,
+          status: diffDays === 1 ? 'Daily Entry Due' : `${diffDays} Days Overdue`,
+          description: `Loom ${lNum} (${unit}) running ${run.design_no_sp_no} is missing daily production entry. Last recorded production: ${lastEntryStr} (${diffDays} days ago).`,
+          action: 'Enter Daily Production in Daily Report'
+        });
+      }
+    }
+
+    // Category C: SIZING UPDATE WAITING
+    const waitingBeams = beams.filter(b => {
+      const st = (b.status || '').trim().toUpperCase();
+      const sst = (b.sizing_status || '').trim().toUpperCase();
+      return (
+        sst === 'WAITING' ||
+        sst === 'PENDING' ||
+        sst === 'RUNNING' ||
+        sst === 'IN PROGRESS' ||
+        st === 'UNDER PREPARATION' ||
+        st === 'WAITING FOR SIZING' ||
+        st === 'WAITING FOR WARPING'
+      );
+    });
+
+    for (const b of waitingBeams) {
+      alerts.push({
+        id: `SIZING_${b.id}`,
+        category: 'SIZING_UPDATE_WAITING',
+        categoryLabel: 'Sizing Update Waiting',
+        priority: 'HIGH',
+        unit: b.unit || 'CENTRAL',
+        loomNo: b.loom_no_assigned || null,
+        designNo: b.design_no || '—',
+        orderNo: b.party_beam_no || b.ibpo || b.order_no || '—',
+        reference: `Beam #${b.beam_no}`,
+        date: b.date ? new Date(b.date).toISOString().split('T')[0] : todayStr,
+        status: b.sizing_status || b.status || 'Waiting Sizing Update',
+        description: `Beam #${b.beam_no} for Design ${b.design_no || '—'} (Vendor: ${b.vendor_name || 'In-House'}) is currently at stage: ${b.sizing_status || b.status}. Awaiting sizing progress update.`,
+        action: 'Update Sizing Status in Beam Stock'
+      });
+    }
+
+    // Category D: ORDER AGAINST BEAM WAITING
+    for (const ord of activeOrders) {
+      const bStatus = (ord.beam_status || '').trim().toUpperCase();
+      const oDesign = (ord.design_no_sp_no || '').trim().toLowerCase();
+      const oNo = ord.ibpo_no || ord.order_no || '—';
+
+      const hasAllocatedBeam = beams.some(b => {
+        const bParty = (b.party_beam_no || b.ibpo || b.order_no || '').trim().toLowerCase();
+        const bDesign = (b.design_no || '').trim().toLowerCase();
+        return (bParty === oNo.toLowerCase() || (bDesign && bDesign === oDesign)) && (b.status === 'Allocated' || b.status === 'Running');
+      });
+
+      if (!hasAllocatedBeam && (bStatus.includes('NOT AVAILABLE') || bStatus.includes('REQUIRED') || bStatus.includes('PENDING') || bStatus === '')) {
+        alerts.push({
+          id: `ORDER_BEAM_${ord.id}`,
+          category: 'ORDER_BEAM_WAITING',
+          categoryLabel: 'Order Against Beam Waiting',
+          priority: 'HIGH',
+          unit: 'CENTRAL',
+          loomNo: null,
+          designNo: ord.design_no_sp_no,
+          orderNo: oNo,
+          reference: `Order ${oNo}`,
+          date: ord.order_received_date ? new Date(ord.order_received_date).toISOString().split('T')[0] : todayStr,
+          status: ord.beam_status || 'Beam Allocation Pending',
+          description: `Order ${oNo} (${ord.customer_name}) for ${ord.design_no_sp_no} (Order Qty: ${(ord.order_qty || 0).toLocaleString()} M, Beams Req: ${ord.required_beams || 1}) is waiting for physical beam allocation.`,
+          action: 'Allocate Beam in Beam Stock (Tab 2)'
+        });
+      }
+    }
+
+    // Category E: LOOM PLAN / DESIGN NOT PLANNED
+    for (const ord of activeOrders) {
+      const oNo = (ord.ibpo_no || ord.order_no || '').trim().toLowerCase();
+      const oDesign = (ord.design_no_sp_no || '').trim().toLowerCase();
+
+      const hasActivePlan = plans.some(p => {
+        const pOrder = (p.order_no || '').trim().toLowerCase();
+        const pDesign = (p.next_design || '').trim().toLowerCase();
+        return (pOrder && pOrder === oNo) || (pDesign && pDesign === oDesign);
+      });
+
+      const isRunning = activeRuns.some(r => {
+        const rOrder = (r.order_no || '').trim().toLowerCase();
+        const rDesign = (r.design_no_sp_no || '').trim().toLowerCase();
+        return (rOrder && rOrder === oNo) || (rDesign && (rDesign === oDesign || rDesign.startsWith(oDesign)));
+      });
+
+      if (!hasActivePlan && !isRunning) {
+        alerts.push({
+          id: `UNPLANNED_ORDER_${ord.id}`,
+          category: 'LOOM_PLAN_NOT_PLANNED',
+          categoryLabel: 'Loom Plan / Design Not Planned',
+          priority: 'HIGH',
+          unit: 'ALL UNITS',
+          loomNo: null,
+          designNo: ord.design_no_sp_no,
+          orderNo: ord.ibpo_no || ord.order_no || '—',
+          reference: `Order ${ord.ibpo_no || ord.order_no || '—'}`,
+          date: ord.order_received_date ? new Date(ord.order_received_date).toISOString().split('T')[0] : todayStr,
+          status: 'Loom Plan Required',
+          description: `Order ${ord.ibpo_no || ord.order_no || '—'} (${ord.customer_name}) for ${ord.design_no_sp_no} is approved but does not have any active running loom or planned assignment.`,
+          action: 'Create Loom Plan in Loom Planning Setup'
+        });
+      }
+    }
+
+    // Category F: BEAM AGAINST PLAN NOT PLANNED
+    for (const p of plans) {
+      const hasBeam = Boolean(p.reserved_beam_id || p.reserved_beam_no);
+      const beamSt = (p.beam_status || '').trim().toUpperCase();
+
+      if (!hasBeam || beamSt === 'BEAM REQUIRED' || beamSt === 'PENDING' || beamSt === 'BEAM NOT ALLOCATED') {
+        const unit = getLoomUnit(p.loom_no);
+        alerts.push({
+          id: `PLAN_NO_BEAM_${p.id}`,
+          category: 'BEAM_PLAN_NOT_PLANNED',
+          categoryLabel: 'Beam Against Plan Not Planned',
+          priority: 'CRITICAL',
+          unit,
+          loomNo: p.loom_no,
+          designNo: p.next_design,
+          orderNo: p.order_no || '—',
+          reference: `Loom ${p.loom_no} Plan #${p.id}`,
+          date: p.planned_start_date ? new Date(p.planned_start_date).toISOString().split('T')[0] : todayStr,
+          status: 'Beam Allocation Missing',
+          description: `Next Planned Loom ${p.loom_no} (${unit}) for Design ${p.next_design} (Start: ${p.planned_start_date ? new Date(p.planned_start_date).toLocaleDateString() : 'Pending'}) has no beam allocated.`,
+          action: 'Allocate Beam in Next Planned Looms'
+        });
+      }
+    }
+
+    const summary = {
+      total: alerts.length,
+      runoutCount: alerts.filter(a => a.category === 'RUNOUT_ALERTS').length,
+      weavingCount: alerts.filter(a => a.category === 'WEAVING_UPDATE_REQUIRED').length,
+      sizingCount: alerts.filter(a => a.category === 'SIZING_UPDATE_WAITING').length,
+      orderBeamCount: alerts.filter(a => a.category === 'ORDER_BEAM_WAITING').length,
+      loomPlanCount: alerts.filter(a => a.category === 'LOOM_PLAN_NOT_PLANNED').length,
+      beamPlanCount: alerts.filter(a => a.category === 'BEAM_PLAN_NOT_PLANNED').length
+    };
+
+    res.json({
+      success: true,
+      summary,
+      alerts
+    });
+  } catch (error) {
+    console.error('Error fetching operational alerts:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ----------------------------------------------------
 // SYSTEM HEALTH & VALIDATION API
 // ----------------------------------------------------
 
@@ -9409,7 +9870,7 @@ app.get('/api/orders', async (req, res) => {
       const targetDate = order.weaving_completion_date ? new Date(order.weaving_completion_date) : (order.target_delivery_date ? new Date(order.target_delivery_date) : null);
       const isOverdue = targetDate && targetDate < today;
 
-      const isExplicitlyCompleted = order.order_completion_status === 'COMPLETED' || 
+      const isExplicitlyCompleted = order.order_completion_status === 'COMPLETED' ||
         order.order_completion_status === 'SHORT CLOSED' ||
         (orderCompletionRecord && (order.order_completion_status === 'COMPLETED' || order.status === 'ORDER COMPLETED'));
 

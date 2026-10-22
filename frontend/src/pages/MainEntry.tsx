@@ -2270,9 +2270,16 @@ export default function MainEntry() {
                 const cascadedPlans: any[] = [];
                 for (let idx = 0; idx < nextPlansList.length; idx++) {
                   const plan = nextPlansList[idx];
-                  // Expected start of this plan = runout of the previous step + 1 day
+                  // Expected start of this plan = planned_start_date if explicitly set, else runout of previous step + 1 day
                   let expectedStart: Date;
-                  if (idx === 0) {
+                  if (plan.planned_start_date) {
+                    const parsedStart = new Date(plan.planned_start_date);
+                    expectedStart = !isNaN(parsedStart.getTime())
+                      ? parsedStart
+                      : (idx === 0
+                          ? (calc.balanceDays === 999999 ? addDays(new Date(), 1) : addDays(calc.expectedRunoutDate, 1))
+                          : addDays(cascadedPlans[idx - 1].expectedRunout, 1));
+                  } else if (idx === 0) {
                     // Plan 1 starts after current loom's runout
                     expectedStart =
                       calc.balanceDays === 999999
@@ -2856,8 +2863,8 @@ export default function MainEntry() {
                                 </span>
 
                                 {/* Expected Start */}
-                                <span className="text-slate-500 dark:text-slate-400 shrink-0">
-                                  {format(cp.expectedStart, 'dd-MMM')}
+                                <span className="text-slate-600 dark:text-slate-300 font-bold shrink-0 text-[10px]" title={`Planned Start Date: ${format(cp.expectedStart, 'dd-MMM-yyyy')}`}>
+                                  {format(cp.expectedStart, 'dd-MMM-yy')}
                                 </span>
 
                                 {/* Beam badge */}

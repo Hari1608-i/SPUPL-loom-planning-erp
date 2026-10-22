@@ -68,6 +68,7 @@ export default function PlannedLooms() {
     return '';
   });
   const [assignments, setAssignments] = useState<PlannedAssignment[]>([]);
+  const [planStatusFilter, setPlanStatusFilter] = useState<'PENDING' | 'CONFIRMED' | 'ALL'>('PENDING');
   const [isLoading, setIsLoading] = useState(true);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -518,6 +519,8 @@ export default function PlannedLooms() {
       const data = await res.json();
       if (res.ok && data.success) {
         setSuccessMsg(`🚀 LOOM CONFIRMED for Loom ${plan.loom_no} (${selectedProcessType})! Transferring to Main Entry...`);
+        // Immediately update plan status in local state so it leaves PENDING view
+        setAssignments(prev => prev.map(p => p.id === plan.id ? { ...p, status: 'CONFIRMED', confirmation_status: 'LOOM CONFIRMED' } : p));
         await refreshData();
         await fetchAssignments();
         setTimeout(() => setSuccessMsg(null), 3000);
@@ -595,6 +598,10 @@ export default function PlannedLooms() {
     return Boolean(activeObj && ((activeObj as any).designNo || (activeObj as any).design_no_sp_no));
   };
 
+  const pendingCount = useMemo(() => assignments.filter(d => d.status !== 'CANCELLED' && d.confirmation_status !== 'CANCELLED' && d.confirmation_status !== 'LOOM CONFIRMED' && d.status !== 'CONFIRMED').length, [assignments]);
+  const confirmedCount = useMemo(() => assignments.filter(d => d.status !== 'CANCELLED' && d.confirmation_status !== 'CANCELLED' && (d.confirmation_status === 'LOOM CONFIRMED' || d.status === 'CONFIRMED')).length, [assignments]);
+  const allCount = useMemo(() => assignments.filter(d => d.status !== 'CANCELLED' && d.confirmation_status !== 'CANCELLED').length, [assignments]);
+
   const filteredData = assignments.filter(d => {
     // Only hide explicitly cancelled plans; all stored, planned, and confirmed plans remain visible until explicitly removed by the user
     if (
@@ -603,6 +610,11 @@ export default function PlannedLooms() {
     ) {
       return false;
     }
+
+    const isConfirmed = d.confirmation_status === 'LOOM CONFIRMED' || d.status === 'CONFIRMED';
+    if (planStatusFilter === 'PENDING' && isConfirmed) return false;
+    if (planStatusFilter === 'CONFIRMED' && !isConfirmed) return false;
+
     const q = (searchTerm || '').trim().toLowerCase();
     if (!q) return true;
     const cleanLoomQ = q.replace(/^loom\s*|^l-?\s*/i, '');
@@ -682,21 +694,79 @@ export default function PlannedLooms() {
       {/* Main Table Container */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col flex-1">
         
-        {/* Table Top Controls */}
+        {/* Table Top Controls & Tabs */}
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap justify-between items-center gap-4">
-          <div className="relative w-80">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search by Loom, IBPO, Design, Reed or Beam..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-            />
+          <div className="flex flex-wrap items-center gap-3 flex-1">
+            <div className="relative w-72">
+              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search by Loom, IBPO, Design, Reed or Beam..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+
+            {/* Plan Confirmation Status Tabs */}
+            <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-xs">
+              <button
+                type="button"
+                onClick={() => setPlanStatusFilter('PENDING')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  planStatusFilter === 'PENDING'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-amber-700 hover:bg-amber-50'
+                }`}
+              >
+                <span>Pending Confirmation</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  planStatusFilter === 'PENDING' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {pendingCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPlanStatusFilter('CONFIRMED')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  planStatusFilter === 'CONFIRMED'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50'
+                }`}
+              >
+                <span>Confirmed Plans</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  planStatusFilter === 'CONFIRMED' ? 'bg-emerald-700 text-white' : 'bg-emerald-100 text-emerald-800'
+                }`}>
+                  {confirmedCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPlanStatusFilter('ALL')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  planStatusFilter === 'ALL'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <span>All Plans</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  planStatusFilter === 'ALL' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {allCount}
+                </span>
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center space-x-4 text-xs">
-            <span className="font-bold text-slate-600">Total Next Plans: <strong className="text-blue-600 font-black">{filteredData.length}</strong></span>
+            <span className="font-bold text-slate-600">
+              Showing: <strong className="text-blue-600 font-black">{filteredData.length}</strong> of {assignments.length}
+            </span>
           </div>
         </div>
 
@@ -748,7 +818,20 @@ export default function PlannedLooms() {
               ) : filteredData.length === 0 ? (
                 <tr>
                   <td colSpan={16} className="p-12 text-center text-slate-400 font-medium">
-                    No active proposed next plans found. Assign a loom in <strong>Loom Planning Setup</strong>.
+                    {planStatusFilter === 'PENDING' ? (
+                      <div className="py-6">
+                        <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
+                        <p className="text-sm font-bold text-slate-700">No Pending Plans Awaiting Confirmation</p>
+                        <p className="text-xs text-slate-500 mt-1">All proposed plans have either been confirmed or you can review them in the "Confirmed Plans" tab.</p>
+                      </div>
+                    ) : planStatusFilter === 'CONFIRMED' ? (
+                      <div className="py-6">
+                        <p className="text-sm font-bold text-slate-700">No Confirmed Plans Found</p>
+                        <p className="text-xs text-slate-500 mt-1">Confirmed plans will appear here once confirmed in the Pending Confirmation view.</p>
+                      </div>
+                    ) : (
+                      'No active proposed next plans found. Assign a loom in Loom Planning Setup.'
+                    )}
                   </td>
                 </tr>
               ) : (

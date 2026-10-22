@@ -153,6 +153,20 @@ export default function BeamStock() {
   const [isAllocating, setIsAllocating] = useState(false);
   const [confirmingBeamId, setConfirmingBeamId] = useState<string | number | null>(null);
 
+  // Edit Allocated Beam Modal State
+  const [editingAllocatedBeam, setEditingAllocatedBeam] = useState<any | null>(null);
+  const [editAllocForm, setEditAllocForm] = useState({
+    beam_no: '',
+    order_no: '',
+    design_no: '',
+    vendor_name: '',
+    loom_no_assigned: '',
+    warp_meter: '',
+    remarks: ''
+  });
+  const [isUpdatingAllocBeam, setIsUpdatingAllocBeam] = useState(false);
+  const [deletingAllocBeamId, setDeletingAllocBeamId] = useState<string | number | null>(null);
+
   // Active running loom numbers
   const activeLoomNos = useMemo(() => {
     const set = new Set<number>();
@@ -370,14 +384,14 @@ export default function BeamStock() {
 
       // Required beams: check explicit required_beams, planned_warp_beams, planned_loom_count, or derive from order quantity
       const orderMtr = Number(ord.order_qty) || Number(ord.warp_qty) || 0;
-      const explicitReq = Math.max(0, ...orderGroup.map(o => 
-        Number(o.required_beams) || 
-        Number(o.planned_warp_beams) || 
-        Number(o.planned_loom_count) || 
+      const explicitReq = Math.max(0, ...orderGroup.map(o =>
+        Number(o.required_beams) ||
+        Number(o.planned_warp_beams) ||
+        Number(o.planned_loom_count) ||
         0
       ));
-      const requiredBeams = explicitReq > 0 
-        ? explicitReq 
+      const requiredBeams = explicitReq > 0
+        ? explicitReq
         : (orderMtr > 0 ? Math.max(1, Math.ceil(orderMtr / (Number(ord.beam_capacity) || 2000))) : 0);
 
       // Warp Meter from order field
@@ -497,10 +511,10 @@ export default function BeamStock() {
   // Filtered Order Requirements for Display
   const displayedOrderRequirements = useMemo(() => {
     const q = (orderReqSearchTerm || '').trim().toLowerCase();
-    
+
     // When searching, always search across ALL active orders so that matching orders are never hidden behind the pending filter!
-    const baseList = q 
-      ? activeOrderRequirements 
+    const baseList = q
+      ? activeOrderRequirements
       : (showAllOrders ? activeOrderRequirements : activeOrderRequirements.filter(r => r.balanceBeams > 0 || r.allocatedBeams > 0 || r.requiredBeams > 0));
 
     if (!q) return baseList;
@@ -515,13 +529,13 @@ export default function BeamStock() {
       const sizingDate = (r.plannedSizingDate || '').toLowerCase();
       const loomDate = (r.loomStartDate || '').toLowerCase();
 
-      return ibpo.includes(q) || 
-             design.includes(q) || 
-             orderNo.includes(q) || 
-             customer.includes(q) || 
-             buyer.includes(q) || 
+      return ibpo.includes(q) ||
+             design.includes(q) ||
+             orderNo.includes(q) ||
+             customer.includes(q) ||
+             buyer.includes(q) ||
              construction.includes(q) ||
-             sizingDate.includes(q) || 
+             sizingDate.includes(q) ||
              loomDate.includes(q);
     });
   }, [activeOrderRequirements, showAllOrders, orderReqSearchTerm]);
@@ -1050,6 +1064,80 @@ export default function BeamStock() {
     }
   };
 
+  const handleOpenEditAllocatedBeam = (b: any) => {
+    setEditingAllocatedBeam(b);
+    setEditAllocForm({
+      beam_no: b.beam_no || '',
+      order_no: b.ibpo || b.order_no || b.party_beam_no || '',
+      design_no: b.design_no || '',
+      vendor_name: b.vendor_name || b.party || '',
+      loom_no_assigned: b.loom_no_assigned ? String(b.loom_no_assigned) : '',
+      warp_meter: String(b.available_meter || b.total_warped_meter || ''),
+      remarks: b.remarks || ''
+    });
+  };
+
+  const handleSaveAllocatedBeamEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAllocatedBeam) return;
+    setIsUpdatingAllocBeam(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/beam-stock/${editingAllocatedBeam.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...editAllocForm,
+          available_meter: Number(editAllocForm.warp_meter) || 0,
+          total_warped_meter: Number(editAllocForm.warp_meter) || 0,
+          loom_no_assigned: editAllocForm.loom_no_assigned ? Number(editAllocForm.loom_no_assigned) : null
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSuccessMsg(`Beam #${editAllocForm.beam_no} details updated successfully!`);
+        setEditingAllocatedBeam(null);
+        await fetchData();
+        await refreshData();
+        setTimeout(() => setSuccessMsg(null), 4000);
+      } else {
+        setErrorMsg(data.error || 'Failed to update beam details.');
+      }
+    } catch (err: any) {
+      setErrorMsg('Error updating beam: ' + err.message);
+    } finally {
+      setIsUpdatingAllocBeam(false);
+    }
+  };
+
+  const handleDeleteAllocatedBeam = async (b: any) => {
+    if (!window.confirm(`Are you sure you want to remove allocation for Beam #${b.beam_no}? The beam will be released back to Available physical stock.`)) {
+      return;
+    }
+    setDeletingAllocBeamId(b.id || b.beam_no);
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/beam-stock/allocated/${b.id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSuccessMsg(`Beam #${b.beam_no} unallocated and released back to Available stock!`);
+        // Immediately remove from allocated list
+        setAllocatedStockRows(prev => prev.filter(r => r.id !== b.id && r.beam_no !== b.beam_no));
+        await fetchData();
+        await refreshData();
+        setTimeout(() => setSuccessMsg(null), 4000);
+      } else {
+        setErrorMsg(data.error || 'Failed to unallocate beam.');
+      }
+    } catch (err: any) {
+      setErrorMsg('Error unallocating beam: ' + err.message);
+    } finally {
+      setDeletingAllocBeamId(null);
+    }
+  };
+
   const handleRowChange = (rowId: string | number, field: keyof BeamRowState, value: any) => {
     setRows(prev => prev.map(row => {
       if (row.id !== rowId) return row;
@@ -1068,7 +1156,7 @@ export default function BeamStock() {
       if (field === 'party_beam_no' || field === 'ibpo') {
         const cleanIbpo = String(value || '').trim().toUpperCase();
         if (cleanIbpo) {
-          const matchedOrd = orders.find((o: any) => 
+          const matchedOrd = orders.find((o: any) =>
             (o.ibpo_no && o.ibpo_no.trim().toUpperCase() === cleanIbpo) ||
             (o.order_no && o.order_no.trim().toUpperCase() === cleanIbpo)
           );
@@ -1092,7 +1180,7 @@ export default function BeamStock() {
       if (field === 'design_no') {
         const cleanDesign = String(value || '').trim().toLowerCase();
         if (cleanDesign && !updatedRow.party_beam_no) {
-          const matchedOrd = orders.find((o: any) => 
+          const matchedOrd = orders.find((o: any) =>
             (o.design_no_sp_no && o.design_no_sp_no.trim().toLowerCase() === cleanDesign)
           );
           if (matchedOrd) {
@@ -1210,7 +1298,7 @@ export default function BeamStock() {
         // Run auto-lookup on pasted IBPO
         if (updatedRow.party_beam_no) {
           const cleanP = updatedRow.party_beam_no.trim().toUpperCase();
-          const matchedOrd = orders.find((o: any) => 
+          const matchedOrd = orders.find((o: any) =>
             (o.ibpo_no && o.ibpo_no.trim().toUpperCase() === cleanP) ||
             (o.order_no && o.order_no.trim().toUpperCase() === cleanP)
           );
@@ -1248,7 +1336,7 @@ export default function BeamStock() {
       const isSample = (r.design_no || '').trim().toUpperCase() === 'SP26/000' || (r.beam_type || '').toLowerCase().includes('sample');
 
       if (ibpoKey && !isSample) {
-        const existsInMaster = orders.some((o: any) => 
+        const existsInMaster = orders.some((o: any) =>
           (o.ibpo_no && o.ibpo_no.trim().toUpperCase() === ibpoKey) ||
           (o.order_no && o.order_no.trim().toUpperCase() === ibpoKey)
         );
@@ -1448,12 +1536,12 @@ export default function BeamStock() {
       .map(r => {
         const pClean = (r.party_beam_no || r.ibpo || r.order_no || '').trim().toUpperCase();
         const dClean = (r.design_no || '').trim().toLowerCase();
-        const matchedOrd = orders.find((o: any) => 
+        const matchedOrd = orders.find((o: any) =>
           (o.ibpo_no && o.ibpo_no.trim().toUpperCase() === pClean) ||
           (o.order_no && o.order_no.trim().toUpperCase() === pClean) ||
           (o.design_no_sp_no && o.design_no_sp_no.trim().toLowerCase() === dClean)
         );
-        const orderType = matchedOrd 
+        const orderType = matchedOrd
           ? ((matchedOrd.order_type || '').toUpperCase().includes('YD') ? 'YD' : 'GREY')
           : ((r.beam_type || '').toUpperCase().includes('YD') ? 'YD' : 'GREY');
 
@@ -2085,7 +2173,7 @@ export default function BeamStock() {
               {filteredRows.map((row, index) => {
                 const pClean = String(row.party_beam_no || row.ibpo || row.order_no || '').trim().toUpperCase();
                 const dClean = String(row.design_no || '').trim().toLowerCase();
-                const matchedOrd = orders.find((o: any) => 
+                const matchedOrd = orders.find((o: any) =>
                   (o.ibpo_no && o.ibpo_no.trim().toUpperCase() === pClean) ||
                   (o.order_no && o.order_no.trim().toUpperCase() === pClean) ||
                   (o.design_no_sp_no && o.design_no_sp_no.trim().toLowerCase() === dClean)
@@ -2451,6 +2539,23 @@ export default function BeamStock() {
                       <td className="p-2 text-center print:hidden">
                         <div className="flex items-center justify-center gap-1.5">
                           <button
+                            type="button"
+                            onClick={() => handleOpenEditAllocatedBeam(b)}
+                            className="px-2 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-[11px] rounded-lg shadow-xs transition-all flex items-center gap-1"
+                            title={`Edit details for Beam #${b.beam_no}`}
+                          >
+                            <Edit2 className="w-3.5 h-3.5" /> EDIT
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAllocatedBeam(b)}
+                            disabled={deletingAllocBeamId === (b.id || b.beam_no)}
+                            className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] rounded-lg shadow-xs transition-all flex items-center gap-1 disabled:opacity-50"
+                            title={`Unallocate and release Beam #${b.beam_no} back to physical stock`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> DELETE
+                          </button>
+                          <button
                             onClick={() => handleConfirmBeam(b)}
                             disabled={confirmingBeamId === (b.id || b.beam_no)}
                             className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] rounded-lg shadow-sm transition-all flex items-center gap-1 disabled:opacity-50"
@@ -2480,6 +2585,118 @@ export default function BeamStock() {
           </table>
         </div>
       </div>
+
+      {/* EDIT ALLOCATED BEAM MODAL */}
+      {editingAllocatedBeam && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-5 space-y-4 border border-slate-200 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+              <h3 className="font-bold text-sm text-slate-900 flex items-center">
+                <Edit2 className="w-4 h-4 mr-2 text-blue-600" /> Edit Allocated Beam #{editingAllocatedBeam.beam_no}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingAllocatedBeam(null)}
+                className="text-slate-400 hover:text-slate-600 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAllocatedBeamEdit} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Beam No *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editAllocForm.beam_no}
+                    onChange={e => setEditAllocForm(prev => ({ ...prev, beam_no: e.target.value }))}
+                    className="w-full p-2 border border-slate-200 rounded-lg font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">IBPO / Order No</label>
+                  <input
+                    type="text"
+                    value={editAllocForm.order_no}
+                    onChange={e => setEditAllocForm(prev => ({ ...prev, order_no: e.target.value }))}
+                    className="w-full p-2 border border-slate-200 rounded-lg font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Design No</label>
+                  <input
+                    type="text"
+                    value={editAllocForm.design_no}
+                    onChange={e => setEditAllocForm(prev => ({ ...prev, design_no: e.target.value }))}
+                    className="w-full p-2 border border-slate-200 rounded-lg font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Vendor / Warper</label>
+                  <input
+                    type="text"
+                    value={editAllocForm.vendor_name}
+                    onChange={e => setEditAllocForm(prev => ({ ...prev, vendor_name: e.target.value }))}
+                    className="w-full p-2 border border-slate-200 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Loom No Assigned</label>
+                  <input
+                    type="number"
+                    value={editAllocForm.loom_no_assigned}
+                    onChange={e => setEditAllocForm(prev => ({ ...prev, loom_no_assigned: e.target.value }))}
+                    className="w-full p-2 border border-slate-200 rounded-lg font-bold"
+                    placeholder="e.g. 102"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Warp Meter (M) *</label>
+                  <input
+                    type="number"
+                    required
+                    value={editAllocForm.warp_meter}
+                    onChange={e => setEditAllocForm(prev => ({ ...prev, warp_meter: e.target.value }))}
+                    className="w-full p-2 border border-slate-200 rounded-lg font-bold text-emerald-700"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Remarks</label>
+                <input
+                  type="text"
+                  value={editAllocForm.remarks}
+                  onChange={e => setEditAllocForm(prev => ({ ...prev, remarks: e.target.value }))}
+                  className="w-full p-2 border border-slate-200 rounded-lg"
+                  placeholder="Optional notes or allocation details"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingAllocatedBeam(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingAllocBeam}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  {isUpdatingAllocBeam ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {editingWarpModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-4 border border-slate-200 animate-in fade-in zoom-in duration-150">
@@ -2758,9 +2975,9 @@ export default function BeamStock() {
                   <p className="text-[11px] text-slate-400">Two Set Nos, Two Beam Nos, Two Ends & One Common Warp Meter</p>
                 </div>
               </div>
-              <button 
-                type="button" 
-                onClick={() => setShowTopBeamModal(false)} 
+              <button
+                type="button"
+                onClick={() => setShowTopBeamModal(false)}
                 className="text-slate-400 hover:text-white font-bold p-1 rounded-lg"
               >
                 ✕
